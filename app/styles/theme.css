@@ -1,0 +1,119 @@
+/*
+ * AI Player 设计令牌 —— 来源：DESIGN.md（Headspace 风格，"暖纸上的阳光疗愈感"）
+ *
+ * 这是 Tailwind v4 的 @theme 块，每个变量都会生成对应的工具类：
+ *   --color-page-cream   -> bg-page-cream / text-page-cream / border-page-cream
+ *   --text-heading       -> text-heading（同时带上行高与字距）
+ *   --radius-pill        -> rounded-pill
+ *   --shadow-subtle      -> shadow-subtle
+ *
+ * 与 DESIGN.md 的差异说明：
+ *   1. 间距：DESIGN.md 的基准单位是 4px，这正是 Tailwind 默认的 --spacing(0.25rem)，
+ *      所以 p-4 = 16px、gap-6 = 24px、p-12 = 48px、gap-16 = 64px，不再单独定义
+ *      --spacing-4: 4px 之类的令牌（那会把 p-4 改成 4px，与 Tailwind 的数字含义冲突）。
+ *   2. 字号：行高和字距改用 Tailwind 的 --text-x--line-height / --text-x--letter-spacing
+ *      约定，这样一个 text-heading 就同时设置字号、行高、字距。
+ *   3. 圆角：不再把 --radius-full 改成 112px（那会让 rounded-full 在大元素上失效），
+ *      药丸形状直接用 rounded-full，或按 DESIGN.md 字面值用 rounded-pill(800px)。
+ */
+@theme {
+  /* ---- 颜色：只保留品牌色板，禁用 Tailwind 默认的 red/blue/gray 等 ---- */
+  --color-*: initial;
+
+  --color-page-cream: #f9f4f2;      /* 页面画布，暖纸 */
+  --color-pure-white: #ffffff;      /* 卡片、面板、输入框 */
+  --color-charcoal-ink: #2d2c2b;    /* 正文、深色按钮 */
+  --color-graphite: #44423f;        /* 次级文字、图标 */
+  --color-slate: #4b4c4d;           /* 三级文字、辅助说明 */
+  --color-stone: #63605d;           /* 禁用态、最低强调文字 */
+  --color-driftwood: #c6c1b9;       /* 列表细分割线 */
+  --color-linen: #e2ded9;           /* 卡片/输入框边框，奶油底上的分隔 */
+  --color-ash: #d0d0d0;             /* 输入框边框、复选框边框 */
+  --color-soft-black: #000000;      /* 最高对比的深色按钮、展示级大标题 */
+  --color-brand-orange: #f47d31;    /* 品牌 logo 圆点，仅此一处使用 */
+  --color-mindful-blue: #0061ef;    /* 每个视图仅一个的最高优先级操作 */
+  --color-sunbeam-yellow: #ffce00;  /* 情绪标点：本应用里表示"当前/此刻" */
+  --color-deep-indigo: #3b197f;     /* 沉思感插画填充 */
+  --color-twilight-violet: #281466;
+  --color-plum: #5f2b89;
+  --color-mauve: #8144a8;
+  --color-celeste: #00a4ff;
+  --color-blush: #ffa1cc;           /* 备用强调面 */
+
+  /* 功能色：DESIGN.md 未定义错误色，这里补一个低饱和的暖红，仅用于错误提示 */
+  --color-error: #b3261e;
+
+  /* 常用的衍生色：奶油纸上的悬停/按压，以及蓝色按钮的按压态 */
+  --color-cream-deep: #f1ebe6;
+  --color-mindful-blue-deep: #0052cc;
+
+  /* ---- 字体 ---- */
+  /* Headspace Apercu 为商用字体，按 DESIGN.md 建议用 Plus Jakarta Sans 替代；中文回退到系统苹方 */
+  --font-sans:
+    'Plus Jakarta Sans Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans SC', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+
+  /* ---- 字号刻度（字号 / 行高 / 字距）---- */
+  --text-caption: 12px;
+  --text-caption--line-height: 1.5;
+  --text-caption--letter-spacing: -0.12px;
+
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 1.5;
+  --text-body-sm--letter-spacing: -0.14px;
+
+  --text-body: 16px;
+  --text-body--line-height: 1.5;
+  --text-body--letter-spacing: -0.16px;
+
+  --text-subheading: 20px;
+  --text-subheading--line-height: 1.33;
+  --text-subheading--letter-spacing: -0.5px;
+
+  --text-heading-sm: 24px;
+  --text-heading-sm--line-height: 1.33;
+  --text-heading-sm--letter-spacing: -0.6px;
+
+  --text-heading: 32px;
+  --text-heading--line-height: 1.3;
+  --text-heading--letter-spacing: -0.8px;
+
+  --text-heading-lg: 40px;
+  --text-heading-lg--line-height: 1.29;
+  --text-heading-lg--letter-spacing: -1px;
+
+  --text-display: 52px;
+  --text-display--line-height: 1.13;
+  --text-display--letter-spacing: -1.56px;
+
+  --text-display-lg: 72px;
+  --text-display-lg--line-height: 1.1;
+  --text-display-lg--letter-spacing: -2.16px;
+
+  /* ---- 圆角 ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;      /* 输入框、小元素 */
+  --radius-lg: 8px;
+  --radius-xl: 12px;     /* 提示气泡 */
+  --radius-2xl: 16px;    /* 卡片 */
+  --radius-3xl: 24px;    /* 特色区块 */
+  --radius-4xl: 32px;    /* 大型特色区块 */
+  --radius-pill: 800px;  /* DESIGN.md 的药丸字面值，等价于 rounded-full */
+
+  /* ---- 阴影 ---- */
+  /* 深色药丸按钮的"印刷贴纸"偏移阴影 */
+  --shadow-subtle: rgba(65, 61, 69, 0.2) 0px 2px 0px 0px;
+  /* 奶油底上的卡片：优先用 1px linen 边框，阴影极轻 */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* 浮层（倍速菜单、快捷键面板） */
+  --shadow-float: 0 8px 24px rgba(45, 44, 43, 0.12), 0 0 0 1px #e2ded9;
+
+  /* ---- 布局 ---- */
+  --container-page: 1200px;
+
+  /* ---- 动效 ---- */
+  --ease-soft: cubic-bezier(0.2, 0, 0, 1);
+}

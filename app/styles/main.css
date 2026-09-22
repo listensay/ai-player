@@ -1,0 +1,161 @@
+/* 样式入口：Tailwind v4 + 设计令牌 + 全局基础样式 */
+@import 'tailwindcss';
+@import './theme.css';
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-page-cream);
+    color: var(--color-charcoal-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    letter-spacing: var(--text-body--letter-spacing);
+    /* DESIGN.md：'ss01' on, 'cv11' on（Plus Jakarta Sans 会忽略不存在的特性） */
+    font-feature-settings: 'ss01', 'cv11';
+    overflow-x: hidden;
+  }
+
+  /* 标题的负字距是品牌识别的关键 */
+  h1,
+  h2,
+  h3 {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  /* 文本选区用阳光黄，呼应"黄色 = 此刻"的用法 */
+  ::selection {
+    background: color-mix(in srgb, var(--color-sunbeam-yellow) 55%, transparent);
+    color: var(--color-charcoal-ink);
+  }
+
+  /* 键盘焦点始终可见 */
+  :focus-visible {
+    outline: 2px solid var(--color-mindful-blue);
+    outline-offset: 2px;
+  }
+
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  /* 时间数字用等宽数字，播放进度跳动时不会抖 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* 奶油纸上的白色"纸面"面板：1px linen 边框，不用投影 */
+  .pane {
+    background-color: var(--color-pure-white);
+    border: 1px solid var(--color-linen);
+    border-radius: var(--radius-2xl);
+  }
+
+  /* 细滚动条，融入奶油/白色纸面 */
+  .scroll-soft {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-driftwood) transparent;
+  }
+  .scroll-soft::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-soft::-webkit-scrollbar-thumb {
+    background: var(--color-driftwood);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .scroll-soft::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* 原生 range 输入的自定义外观（进度条 / 音量条） */
+  .range-soft {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+    --range-fill: 0%;
+    --range-track: var(--color-linen);
+    --range-progress: var(--color-charcoal-ink);
+    --range-thumb: var(--color-sunbeam-yellow);
+  }
+  .range-soft::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--range-progress) 0%,
+      var(--range-progress) var(--range-fill),
+      var(--range-track) var(--range-fill),
+      var(--range-track) 100%
+    );
+  }
+  .range-soft::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--range-track);
+  }
+  .range-soft::-moz-range-progress {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--range-progress);
+  }
+  .range-soft::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 999px;
+    background: var(--range-thumb);
+    border: 2px solid var(--color-charcoal-ink);
+    transition: transform 120ms var(--ease-soft);
+  }
+  .range-soft::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--range-thumb);
+    border: 2px solid var(--color-charcoal-ink);
+  }
+  .range-soft:hover::-webkit-slider-thumb,
+  .range-soft:focus-visible::-webkit-slider-thumb {
+    transform: scale(1.2);
+  }
+  .range-soft:focus-visible {
+    outline: none;
+  }
+  .range-soft:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-mindful-blue) 35%, transparent);
+  }
+}
