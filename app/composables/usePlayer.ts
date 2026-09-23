@@ -1,8 +1,5 @@
-/**
- * 播放器状态与控制。组件把 <video> 元素 attach 进来，
- * 其他地方（快捷键、笔记时间戳）通过这个 composable 驱动播放。
- */
-const SETTINGS_KEY = 'ai-player.player.v1'
+import { dbFetchSetting, dbSaveSetting } from '~/utils/dbClient'
+
 export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 export const MIN_RATE = 0.5
 export const MAX_RATE = 3
@@ -36,30 +33,36 @@ const state = reactive<PlayerState>({
 let el: HTMLVideoElement | null = null
 let settingsLoaded = false
 
-function loadSettings() {
+async function loadSettings() {
   if (settingsLoaded) return
   settingsLoaded = true
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return
-    const s = JSON.parse(raw) as Partial<Pick<PlayerState, 'rate' | 'volume' | 'muted'>>
-    if (typeof s.rate === 'number') state.rate = clampRate(s.rate)
-    if (typeof s.volume === 'number') state.volume = Math.min(1, Math.max(0, s.volume))
-    if (typeof s.muted === 'boolean') state.muted = s.muted
+    const s = await dbFetchSetting<Partial<Pick<PlayerState, 'rate' | 'volume' | 'muted'>>>('player_settings')
+    if (s) {
+      if (typeof s.rate === 'number') state.rate = clampRate(s.rate)
+      if (typeof s.volume === 'number') state.volume = Math.min(1, Math.max(0, s.volume))
+      if (typeof s.muted === 'boolean') state.muted = s.muted
+    } else if (import.meta.client) {
+      // 迁移旧 localStorage
+      try {
+        const raw = localStorage.getItem('ai-player.player.v1')
+        if (raw) {
+          const old = JSON.parse(raw) as Partial<Pick<PlayerState, 'rate' | 'volume' | 'muted'>>
+          if (typeof old.rate === 'number') state.rate = clampRate(old.rate)
+          if (typeof old.volume === 'number') state.volume = Math.min(1, Math.max(0, old.volume))
+          if (typeof old.muted === 'boolean') state.muted = old.muted
+          void saveSettings()
+          localStorage.removeItem('ai-player.player.v1')
+        }
+      } catch { /* 忽略 */ }
+    }
   } catch {
-    /* 忽略损坏的设置 */
+    /* 忽略读取异常 */
   }
 }
 
 function saveSettings() {
-  try {
-    localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({ rate: state.rate, volume: state.volume, muted: state.muted }),
-    )
-  } catch {
-    /* 忽略 */
-  }
+  void dbSaveSetting('player_settings', { rate: state.rate, volume: state.volume, muted: state.muted })
 }
 
 function clampRate(r: number) {

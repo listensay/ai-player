@@ -58,6 +58,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export function useShortcuts(handlers: ShortcutHandlers) {
   function onKeydown(e: KeyboardEvent) {
     if (e.isComposing) return
+    // 原生弹窗负责自己的键盘交互，避免切换导学标签或输入时操作背后的播放器。
+    if (document.querySelector('dialog[open]')) return
     const mod = e.metaKey || e.ctrlKey
 
     // —— 处处生效的组合键（用 code 而不是 key：macOS 上 ⌥T 会输出 †）——

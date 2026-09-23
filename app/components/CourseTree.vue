@@ -8,10 +8,22 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [video: VideoEntry]
+  guide: []
+  start: [path: string]
 }>()
 
 const store = useCourseStore()
 const progress = useProgress()
+const guide = useGuide()
+const routeView = computed(() => guide.state.view === 'route' && !!guide.state.plan)
+const visibleRoute = computed(() => guide.route.value.map(l => props.course.videos.find(v => v.path === l.path)).filter((v): v is VideoEntry => !!v && matchesVideo(v)))
+
+function startRoute() {
+  const lesson = guide.firstLesson.value
+  if (!lesson) return
+  guide.state.view = 'route'
+  emit('start', lesson.path)
+}
 
 const listEl = ref<HTMLElement>()
 const expanded = reactive(new Set<string>())
@@ -115,9 +127,9 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
 <template>
   <section class="pane flex min-h-0 flex-col" aria-label="课程目录">
     <header class="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
-      <h2 class="text-subheading font-bold">目录</h2>
+      <h2 class="text-subheading font-bold">{{ routeView ? '我的路线' : '目录' }}</h2>
       <button
-        v-if="hasFolders"
+        v-if="hasFolders && !routeView"
         type="button"
         class="rounded-full px-2.5 py-1 text-caption font-medium text-stone transition-colors hover:bg-cream-deep hover:text-charcoal-ink"
         @click="allExpanded ? collapseAll() : expandAll()"
@@ -127,6 +139,16 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
     </header>
 
     <div class="px-4 pb-3">
+      <div class="mb-3 flex rounded-full bg-page-cream p-1" aria-label="目录视图">
+        <button type="button" :aria-pressed="!routeView" class="flex-1 rounded-full py-1.5 text-caption font-bold" :class="!routeView ? 'bg-pure-white' : 'text-stone'" @click="guide.state.view = 'all'">完整目录</button>
+        <button type="button" :aria-pressed="routeView" class="flex-1 rounded-full py-1.5 text-caption font-bold" :class="routeView ? 'bg-charcoal-ink text-pure-white' : 'text-stone'" @click="guide.state.plan ? guide.state.view = 'route' : emit('guide')">AI 定制路线</button>
+      </div>
+      <div v-if="routeView" class="mb-3 rounded-xl border border-linen p-3">
+        <div class="flex items-center justify-between gap-2"><p class="text-caption text-stone">{{ guide.route.value.length }} 节精选 · 预计剩余 {{ guide.schedule.value.days }} 天</p><button type="button" class="text-caption font-bold underline" @click="emit('guide')">调整</button></div>
+        <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><input v-model="guide.state.includeOptional" type="checkbox" :disabled="!!guide.state.busy" class="accent-charcoal-ink" />包含选修 / 查漏</label>
+        <button type="button" :disabled="!guide.firstLesson.value" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ !guide.firstLesson.value ? '当前没有待学课节' : guide.schedule.value.completed ? '继续这条路线' : '一键开始首课' }}</button>
+        <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error underline" @click="emit('guide')">{{ guide.risks.value.length }} 节前置知识缺失，查看建议</button>
+      </div>
       <label class="relative block">
         <span class="sr-only">搜索课时</span>
         <AppIcon
@@ -168,7 +190,11 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
     </div>
 
     <div ref="listEl" class="scroll-soft min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-      <ul v-if="visibleRoot" role="tree">
+      <ul v-if="routeView && visibleRoute.length" aria-label="AI 精选课节">
+        <CourseTreeNode v-for="entry in visibleRoute" :key="entry.path" :node="entry" :depth="0" :course-id="course.id" :current-path="currentPath" :expanded="expanded" @select="emit('select', $event)" />
+      </ul>
+      <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">没有符合条件的路线课节</p>
+      <ul v-else-if="visibleRoot" role="tree">
         <CourseTreeNode
           v-for="child in visibleRoot.children"
           :key="child.path"
@@ -185,5 +211,6 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         {{ isFiltering ? '没有符合条件的课时' : '这个文件夹里没有视频' }}
       </p>
     </div>
+    <button v-if="!guide.state.plan" type="button" class="m-3 mt-0 flex items-center gap-3 rounded-xl bg-page-cream p-3 text-left" @click="emit('guide')"><AppIcon name="sparkles" :size="22" class="text-deep-indigo" /><span><span class="block text-body-sm font-bold">为这门课，定制一条路线</span><span class="mt-1 block text-caption text-stone">告诉 AI 你的基础与目标 →</span></span></button>
   </section>
 </template>

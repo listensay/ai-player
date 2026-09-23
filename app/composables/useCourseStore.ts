@@ -1,9 +1,8 @@
 import { markRaw } from 'vue'
-import { get as idbGet, set as idbSet } from 'idb-keyval'
 import type { Course, RecentCourse, TreeFilter, VideoEntry } from '~/types/course'
+import { dbDeleteRecentCourse, dbFetchRecentCourses, dbSaveRecentCourse } from '~/utils/dbClient'
 
-const RECENTS_KEY = 'ai-player.recent-courses.v1'
-const MAX_RECENTS = 8
+const MAX_RECENTS = 20
 
 interface CourseState {
   course: Course | null
@@ -28,26 +27,36 @@ const state = reactive<CourseState>({
 })
 
 let recentsLoaded = false
+const sessionHandles = new Map<string, FileSystemDirectoryHandle>()
 
 async function loadRecents() {
   if (recentsLoaded) return
   recentsLoaded = true
   try {
-    const list = (await idbGet<RecentCourse[]>(RECENTS_KEY)) ?? []
+    const list = await dbFetchRecentCourses()
     state.recents = list
-      .map((r) => ({ ...r, handle: markRaw(r.handle) }))
+      .map((r) => ({
+        ...r,
+        handle: sessionHandles.get(r.id) as FileSystemDirectoryHandle,
+      }))
       .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
   } catch (err) {
-    console.warn('读取最近课程失败', err)
+    console.warn('读取 SQLite 最近课程失败', err)
     state.recents = []
   }
 }
 
-async function saveRecents() {
+async function saveRecent(recent: RecentCourse) {
   try {
-    await idbSet(RECENTS_KEY, toRaw(state.recents).map((r) => ({ ...r })))
+    await dbSaveRecentCourse({
+      id: recent.id,
+      name: recent.name,
+      videoCount: recent.videoCount,
+      lastOpenedAt: recent.lastOpenedAt,
+      lastVideoPath: recent.lastVideoPath,
+    })
   } catch (err) {
-    console.warn('保存最近课程失败', err)
+    console.warn('保存 SQLite 最近课程失败', err)
   }
 }
 
@@ -55,7 +64,8 @@ async function saveRecents() {
 async function findRecentByHandle(handle: FileSystemDirectoryHandle): Promise<RecentCourse | undefined> {
   for (const r of state.recents) {
     try {
-      if (await r.handle.isSameEntry(handle)) return r
+      const activeHandle = r.handle || sessionHandles.get(r.id)
+      if (activeHandle && (await activeHandle.isSameEntry(handle))) return r
     } catch {
       /* 句柄失效则跳过 */
     }
@@ -77,7 +87,7 @@ export function useCourseStore() {
     try {
       const granted = await ensurePermission(handle, 'readwrite')
       if (!granted) {
-        state.error = '没有拿到这个文件夹的读写权限，笔记将无法保存。请重新打开并允许访问。'
+        state.error = '没有拿到这个文件夹的读写权限。请重新打开并允许访问。'
         return false
       }
 
@@ -90,10 +100,12 @@ export function useCourseStore() {
       const existing = await findRecentByHandle(handle)
       const id = existing?.id ?? crypto.randomUUID()
       const rawHandle = markRaw(handle)
+      sessionHandles.set(id, rawHandle)
+
       const course: Course = { id, name: handle.name, handle: rawHandle, root: tree, videos }
       state.course = course
 
-      // 更新最近记录
+      // 更新最近记录到 SQLite
       const recent: RecentCourse = {
         id,
         name: handle.name,
@@ -103,7 +115,7 @@ export function useCourseStore() {
         lastVideoPath: existing?.lastVideoPath,
       }
       state.recents = [recent, ...state.recents.filter((r) => r.id !== id)].slice(0, MAX_RECENTS)
-      await saveRecents()
+      await saveRecent(recent)
 
       // 一键回到上次看的那一集；没有就从第一集开始
       const target =
@@ -138,21 +150,26 @@ export function useCourseStore() {
   }
 
   async function reopenRecent(recent: RecentCourse) {
-    return loadCourse(recent.handle, recent.lastVideoPath)
+    if (recent.handle) {
+      return loadCourse(recent.handle, recent.lastVideoPath)
+    }
+    // 若当前会话无句柄，唤起文件夹选择器重新授权
+    return openFolder()
   }
 
   async function removeRecent(recent: RecentCourse) {
     state.recents = state.recents.filter((r) => r.id !== recent.id)
-    await saveRecents()
+    sessionHandles.delete(recent.id)
+    await dbDeleteRecentCourse(recent.id)
   }
 
   function selectVideo(video: VideoEntry) {
-    if (state.currentVideo?.path === video.path) return
+    if (state.currentVideo?.path === video.path && state.currentVideo.handle === video.handle) return
     state.currentVideo = video
     const recent = state.recents.find((r) => r.id === state.course?.id)
     if (recent) {
       recent.lastVideoPath = video.path
-      void saveRecents()
+      void saveRecent(recent)
     }
   }
 

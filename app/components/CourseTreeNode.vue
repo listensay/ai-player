@@ -15,6 +15,8 @@ const emit = defineEmits<{
 }>()
 
 const progress = useProgress()
+const guide = useGuide()
+const lesson = computed(() => guide.lessonMap.value.get(props.node.path))
 
 const isFolder = computed(() => props.node.kind === 'folder')
 const isOpen = computed(() => props.node.kind === 'folder' && props.expanded.has(props.node.path))
@@ -121,6 +123,7 @@ function onClick() {
         <span class="sr-only">
           {{ isCurrent ? '正在播放' : videoProgress?.done ? '已看完' : '' }}
         </span>
+        <LessonBadge v-if="lesson" :status="lesson.status" compact />
       </template>
     </button>
 

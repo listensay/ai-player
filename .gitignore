@@ -5,6 +5,8 @@
 .nitro
 .cache
 dist
+test-results
+playwright-report
 
 # Node dependencies
 node_modules
@@ -22,3 +24,10 @@ logs
 .env
 .env.*
 !.env.example
+
+# SQLite Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
+

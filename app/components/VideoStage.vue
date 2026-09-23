@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { VideoEntry } from '~/types/course'
+import type { PlaybackSample } from '~/types/practice'
 
 const props = defineProps<{
   video: VideoEntry
@@ -11,6 +12,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   prev: []
   next: []
+  sample: [sample: PlaybackSample]
+  practice: []
 }>()
 
 const player = usePlayer()
@@ -88,7 +91,6 @@ function onLoadedMetadata(e: Event) {
   // 回到上次看到的位置；已看完的从头开始
   const p = savedProgress.value
   if (p && !p.done && p.time > 1 && p.time < v.duration - 3) v.currentTime = p.time
-  void player.play()
 }
 
 function onTimeUpdate(e: Event) {
@@ -96,19 +98,29 @@ function onTimeUpdate(e: Event) {
   if (!v || unmounting) return
   player.sync.timeUpdate(v)
   persistProgress()
+  onSample(e)
 }
 
-function onEnded() {
+function onSample(e: Event) {
+  const v = videoFrom(e)
+  if (!v || unmounting) return
+  emit('sample', { seconds: v.currentTime, duration: v.duration, seeking: v.seeking || e.type === 'seeking',
+    playing: !v.paused, ended: v.ended, rate: v.playbackRate, at: performance.now() })
+}
+
+function onEnded(e: Event) {
   if (unmounting) return
   ended.value = true
   state.playing = false
   persistProgress(true, { ended: true })
+  onSample(e)
 }
 
-function onPause() {
+function onPause(e: Event) {
   if (unmounting) return
   player.sync.pause()
   persistProgress(true)
+  onSample(e)
 }
 
 function onVideoEvent(e: Event, handler: (v: HTMLVideoElement) => void) {
@@ -207,7 +219,9 @@ defineExpose({ toggleFullscreen })
         @durationchange="onVideoEvent($event, player.sync.durationChange)"
         @timeupdate="onTimeUpdate"
         @play="player.sync.play()"
-        @playing="player.sync.playing()"
+        @playing="player.sync.playing(); onSample($event)"
+        @seeking="onSample"
+        @seeked="onSample"
         @pause="onPause"
         @waiting="player.sync.waiting()"
         @ended="onEnded"
@@ -243,7 +257,8 @@ defineExpose({ toggleFullscreen })
         @click.stop
       >
         <p class="text-subheading font-bold text-pure-white">这一集看完了</p>
-        <div class="flex gap-3">
+        <div class="flex flex-wrap justify-center gap-3">
+          <UiButton @click="emit('practice')">学完一小练</UiButton>
           <UiButton variant="ghost" @click="onStageClick">再看一遍</UiButton>
           <UiButton v-if="hasNext" variant="dark" @click="emit('next')">
             播放下一集
@@ -271,6 +286,8 @@ defineExpose({ toggleFullscreen })
         缓冲中…
       </div>
     </div>
+
+    <slot name="reminder" />
 
     <!-- 控制条：白色纸面 -->
     <div class="pane shrink-0 px-4 py-3" :class="state.fullscreen ? 'border-transparent' : ''">
