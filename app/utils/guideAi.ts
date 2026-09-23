@@ -18,12 +18,15 @@ export function parseAiJson(content: string): unknown {
   try { return JSON.parse(text) } catch { throw new Error('AI 返回的内容不是完整 JSON，请重试或换用支持 JSON 的模型。') }
 }
 
-/** 个人本地工作台直接访问用户配置的兼容接口；密钥仅在内存中。 */
+/** 个人本地工作台直接访问用户配置的兼容接口；配置与密钥持久化在 SQLite 中。 */
 export async function requestGuideJson(settings: GuideSettings, messages: GuideMessage[], signal: AbortSignal): Promise<unknown> {
   const endpoint = completionUrl(settings.baseUrl)
   if (!settings.model.trim()) throw new Error('请先填写 AI 模型名称。')
+  // AI 响应超时时间：最高 30 分钟（范围 1 ~ 30 分钟，默认 15 分钟）
+  const timeoutMinutes = Math.min(Math.max(Number(settings.timeoutMinutes) || 15, 1), 30)
+  const timeoutMs = timeoutMinutes * 60_000
   const timeout = new AbortController()
-  const timer = setTimeout(() => timeout.abort(), 120_000)
+  const timer = setTimeout(() => timeout.abort(), timeoutMs)
   try {
     const response = await fetch(endpoint, {
       method: 'POST', signal: AbortSignal.any([signal, timeout.signal]),
@@ -54,7 +57,7 @@ export async function requestGuideJson(settings: GuideSettings, messages: GuideM
     return parseAiJson(choice.message.content)
   } catch (err) {
     if (signal.aborted) throw new DOMException('已取消', 'AbortError')
-    if (timeout.signal.aborted) throw new Error('AI 响应超过 2 分钟，请重试。')
+    if (timeout.signal.aborted) throw new Error(`AI 响应超过 ${timeoutMinutes} 分钟，请重试或在设置中调高超时时长。`)
     if (err instanceof TypeError) throw new Error('无法连接 AI 服务。请检查地址、网络，以及服务是否允许浏览器跨域访问（CORS）。')
     throw err
   } finally { clearTimeout(timer) }

@@ -59,7 +59,14 @@ export function decodeToPcm(inputPath, opts = {}) {
         else proc.once('exit', resolve)
       })
       if (code !== 0 && !opts.signal?.aborted) {
-        throw new Error(`ffmpeg 解码失败（exit ${code}）：${stderr.trim() || '未知错误'}`)
+        const detail = stderr.trim()
+        if (/does not contain any stream/i.test(detail)) {
+          throw new Error('这个文件里没有音轨，无法转写。')
+        }
+        if (/Invalid data found|moov atom not found|EBML header parsing failed/i.test(detail)) {
+          throw new Error('ffmpeg 无法识别这个文件，可能已损坏或不是音视频文件。')
+        }
+        throw new Error(`ffmpeg 解码失败（exit ${code}）：${detail.split('\n')[0] || '未知错误'}`)
       }
     } finally {
       kill()

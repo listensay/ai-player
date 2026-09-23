@@ -41,6 +41,7 @@ export interface GuideSettings {
   baseUrl: string
   model: string
   apiKey: string
+  timeoutMinutes?: number
 }
 
 export interface SubtitleCue {

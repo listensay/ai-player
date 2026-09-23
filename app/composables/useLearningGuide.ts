@@ -26,7 +26,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     questions: [] as LearningQuestion[],
     activeQuestionId: '',
     today: null as TodayPlan | null,
-    settings: { baseUrl: '', model: '', apiKey: '' } as GuideSettings,
+    settings: { baseUrl: '', model: '', apiKey: '', timeoutMinutes: 15 } as GuideSettings,
   })
   let activeId = ''
   let activePaths: string[] = []
@@ -82,12 +82,15 @@ export function useLearningGuide(course: Ref<Course | null>) {
   function saveSettings(settings: GuideSettings) {
     completionUrl(settings.baseUrl)
     if (!settings.model.trim()) throw new Error('请填写模型名称。')
+    const timeout = Math.min(Math.max(Number(settings.timeoutMinutes) || 15, 1), 30)
+    settings.timeoutMinutes = timeout
     Object.assign(state.settings, settings)
     // AI 设置与 API 密钥统一持久化到 SQLite 数据库中
     void dbSaveSetting('ai_settings', {
       baseUrl: settings.baseUrl.trim(),
       model: settings.model.trim(),
       apiKey: settings.apiKey.trim(),
+      timeoutMinutes: timeout,
     })
   }
 
@@ -360,6 +363,9 @@ export function useLearningGuide(course: Ref<Course | null>) {
           state.settings.baseUrl = typeof settings.baseUrl === 'string' ? settings.baseUrl : ''
           state.settings.model = typeof settings.model === 'string' ? settings.model : ''
           state.settings.apiKey = typeof settings.apiKey === 'string' ? settings.apiKey : ''
+          state.settings.timeoutMinutes = typeof settings.timeoutMinutes === 'number'
+            ? Math.min(Math.max(settings.timeoutMinutes, 1), 30)
+            : 15
         } else {
           // 迁移旧 localStorage
           try {

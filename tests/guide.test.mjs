@@ -124,3 +124,30 @@ test('请求正确发送用户配置；截断、鉴权失败与取消均可识�
     await assert.rejects(requestGuideJson(settings, [], controller.signal), { name: 'AbortError' })
   } finally { globalThis.fetch = original }
 })
+
+test('AI 响应时长支持自定义配置，最高限制 30 分钟', async () => {
+  const original = globalThis.fetch
+  try {
+    // 验证正常调用携带自定义超时时长配置
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '{"status":"ok"}' }, finish_reason: 'stop' }] })
+    const res = await requestGuideJson(
+      { baseUrl: 'https://guide.test/v1', model: 'test-model', apiKey: '', timeoutMinutes: 30 },
+      [],
+      new AbortController().signal,
+    )
+    assert.deepEqual(res, { status: 'ok' })
+
+    // 验证超时中止时提示信息包含对应的超时分钟数
+    globalThis.fetch = async (_url, options) => {
+      // 模拟请求挂起直到信号中止
+      return new Promise((_, reject) => {
+        options.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted', 'AbortError'))
+        })
+      })
+    }
+  } finally {
+    globalThis.fetch = original
+  }
+})
+

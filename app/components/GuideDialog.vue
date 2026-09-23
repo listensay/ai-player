@@ -16,7 +16,7 @@ const editingQuestionId = ref('')
 const questionSource = ref({ path: '', seconds: 0 })
 const player = usePlayer()
 const questionForm = ref<HTMLElement>()
-const settings = reactive<GuideSettings>({ baseUrl: '', model: '', apiKey: '' })
+const settings = reactive<GuideSettings>({ baseUrl: '', model: '', apiKey: '', timeoutMinutes: 15 })
 const settingsMessage = ref('')
 const settingsError = ref('')
 const pending = ref<{ path: string; status: LessonStatus; risks: DependencyRisk[] } | null>(null)
@@ -93,7 +93,12 @@ function confirmStatus() {
 }
 function saveSettings() {
   settingsError.value = ''; settingsMessage.value = ''
-  try { guide.saveSettings({ ...settings }); settingsMessage.value = '设置已保存，可以开始定制路线。' }
+  try {
+    const timeout = Math.min(Math.max(Number(settings.timeoutMinutes) || 15, 1), 30)
+    settings.timeoutMinutes = timeout
+    guide.saveSettings({ ...settings })
+    settingsMessage.value = '设置已保存，可以开始定制路线。'
+  }
   catch (err) { settingsError.value = (err as Error).message }
 }
 async function findFallback() {
@@ -303,7 +308,21 @@ function jumpBack(path: string, seconds?: number) {
             <p class="text-caption text-stone">包含 /v1 等接口前缀。例如本机服务：http://localhost:11434/v1</p>
             <label class="block text-body-sm font-bold">模型名称<input v-model="settings.model" required autocomplete="off" :disabled="!!state.busy" class="guide-input mt-2 font-normal" placeholder="填写服务提供商支持的模型 ID" /></label>
             <label class="block text-body-sm font-bold">API 密钥<input v-model="settings.apiKey" type="password" autocomplete="off" :disabled="!!state.busy" class="guide-input mt-2 font-normal" placeholder="本机无鉴权服务可留空" /></label>
-            <p class="text-caption leading-relaxed text-stone">密钥仅保留在当前页面内存中，刷新后需重新填写。服务需允许浏览器跨域访问；本机 Ollama 可配置 OLLAMA_ORIGINS 允许本应用地址。</p>
+            <label class="block text-body-sm font-bold">
+              响应超时时长（分钟）
+              <input
+                v-model.number="settings.timeoutMinutes"
+                type="number"
+                min="1"
+                max="30"
+                step="1"
+                autocomplete="off"
+                :disabled="!!state.busy"
+                class="guide-input mt-2 font-normal"
+                placeholder="最高 30 分钟（默认 15 分钟）"
+              />
+            </label>
+            <p class="text-caption leading-relaxed text-stone">AI 响应最高允许 30 分钟（范围 1 ~ 30 分钟，默认 15 分钟）。对于长视频课程、本地 Ollama 慢速模型或深度思考大模型，可调高超时时长避免生成中断。配置与 API 密钥已通过 SQLite 数据库持久化存储在本地，刷新页面或重启后不会丢失。</p>
             <div class="rounded-xl bg-page-cream p-4 text-caption leading-relaxed text-graphite">生成或调整路线会发送课程标题、相对路径、时长、观看完成状态、导学对话、掌握标记和已记录的疑问及解决状态；卡点回溯还会发送你提交的疑问和相关字幕片段。小练习仅在主动生成或提交作答时发送选取的字幕、本课笔记文字、补充材料与作答。视频与截图不会上传。单独记录反馈和调整今日安排不请求 AI。</div>
             <p v-if="settingsError" role="alert" class="text-body-sm text-error">{{ settingsError }}</p><p v-if="settingsMessage" role="status" class="text-body-sm text-graphite">{{ settingsMessage }}</p>
             <div class="flex gap-2"><UiButton type="submit" variant="primary" :disabled="!!state.busy">保存设置</UiButton><UiButton v-if="guide.configured.value" @click="tab = 'plan'">返回定制路线</UiButton></div>
