@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { onBeforeUnmount, computed, ref, watch } from 'vue'
+import { PLAYBACK_RATES } from '~/composables/usePlayer'
 /** 倍速选择：药丸按钮 + 白色浮层菜单 */
 const props = defineProps<{ rate: number }>()
 const emit = defineEmits<{ change: [rate: number] }>()

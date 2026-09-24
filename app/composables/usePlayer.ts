@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import { dbFetchSetting, dbSaveSetting } from '~/utils/dbClient'
 
 export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
@@ -14,6 +15,7 @@ interface PlayerState {
   volume: number
   muted: boolean
   fullscreen: boolean
+  fullscreenError: string
   error: string
 }
 
@@ -27,11 +29,14 @@ const state = reactive<PlayerState>({
   volume: 1,
   muted: false,
   fullscreen: false,
+  fullscreenError: '',
   error: '',
 })
 
 let el: HTMLVideoElement | null = null
 let settingsLoaded = false
+let fullscreenBusy = false
+let restoreWindowFullscreen = false
 
 async function loadSettings() {
   if (settingsLoaded) return
@@ -42,22 +47,9 @@ async function loadSettings() {
       if (typeof s.rate === 'number') state.rate = clampRate(s.rate)
       if (typeof s.volume === 'number') state.volume = Math.min(1, Math.max(0, s.volume))
       if (typeof s.muted === 'boolean') state.muted = s.muted
-    } else if (import.meta.client) {
-      // 迁移旧 localStorage
-      try {
-        const raw = localStorage.getItem('ai-player.player.v1')
-        if (raw) {
-          const old = JSON.parse(raw) as Partial<Pick<PlayerState, 'rate' | 'volume' | 'muted'>>
-          if (typeof old.rate === 'number') state.rate = clampRate(old.rate)
-          if (typeof old.volume === 'number') state.volume = Math.min(1, Math.max(0, old.volume))
-          if (typeof old.muted === 'boolean') state.muted = old.muted
-          void saveSettings()
-          localStorage.removeItem('ai-player.player.v1')
-        }
-      } catch { /* 忽略 */ }
     }
   } catch {
-    /* 忽略读取异常 */
+    /* 读取失败时沿用默认设置 */
   }
 }
 
@@ -75,7 +67,7 @@ function clampTime(t: number) {
 }
 
 export function usePlayer() {
-  if (import.meta.client) loadSettings()
+  if (typeof window !== 'undefined') loadSettings()
 
   function attach(video: HTMLVideoElement) {
     el = video
@@ -156,14 +148,29 @@ export function usePlayer() {
     saveSettings()
   }
 
+  async function exitFullscreen() {
+    if (!state.fullscreen) return
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    await getCurrentWindow().setFullscreen(restoreWindowFullscreen)
+    state.fullscreen = false
+  }
+
   async function toggleFullscreen(container: HTMLElement | null) {
-    if (!container) return
+    if (!container || fullscreenBusy) return
+    fullscreenBusy = true
+    state.fullscreenError = ''
     try {
-      if (document.fullscreenElement) await document.exitFullscreen()
-      else await container.requestFullscreen()
-    } catch (err) {
-      console.warn('全屏切换失败', err)
-    }
+      if (state.fullscreen) await exitFullscreen()
+      else {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        const appWindow = getCurrentWindow()
+        restoreWindowFullscreen = await appWindow.isFullscreen()
+        await appWindow.setFullscreen(true)
+        state.fullscreen = true
+      }
+    } catch {
+      state.fullscreenError = '全屏切换失败，请重试。'
+    } finally { fullscreenBusy = false }
   }
 
   /** 截取当前画面为 PNG（无损，方便以后 OCR），同时返回画面宽高比 */
@@ -216,13 +223,10 @@ export function usePlayer() {
       const code = video.error?.code
       state.error =
         code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED || code === MediaError.MEDIA_ERR_DECODE
-          ? '浏览器无法解码这个视频。常见原因是 mkv/avi 使用了 Chrome 不支持的编码，可用 ffmpeg 转成 mp4（H.264 + AAC）。'
+          ? '系统不支持当前视频编码。请将视频转换为 MP4 格式（H.264 视频 + AAC 音频）后重试。'
           : '视频加载失败，请检查文件是否完整。'
       state.playing = false
       state.buffering = false
-    },
-    fullscreenChange() {
-      state.fullscreen = !!document.fullscreenElement
     },
   }
 
@@ -240,6 +244,7 @@ export function usePlayer() {
     setVolume,
     toggleMute,
     toggleFullscreen,
+    exitFullscreen,
     captureFrame,
     sync,
   }

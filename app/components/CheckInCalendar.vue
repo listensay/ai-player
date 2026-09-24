@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { useCheckIn } from '~/composables/useStudyCheckIn'
+import AppIcon from '~/components/AppIcon.vue'
+import UiButton from '~/components/UiButton.vue'
 import { calendarDays, formatStudyClock, formatStudyHours } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 
@@ -60,7 +64,7 @@ const days = computed(() => {
     const isChecked = record?.checkedAt != null
     const isToday = cell.date === todayKey.value
     const isSelected = cell.date === selectedDate.value
-    const seconds = record?.seconds ?? 0
+    const seconds = checkIn?.secondsFor(cell.date) ?? record?.seconds ?? 0
     const targetSeconds = record?.targetSeconds ?? ((checkIn?.minutesFor(cell.date) ?? 120) * 60)
     return {
       ...cell,
@@ -79,7 +83,7 @@ const selectedDetail = computed(() => {
   const cell = days.value.find(d => d.date === selectedDate.value)
   const record = checkIn?.state.days[selectedDate.value]
   const isChecked = record?.checkedAt != null
-  const seconds = record?.seconds ?? 0
+  const seconds = checkIn?.secondsFor(selectedDate.value) ?? record?.seconds ?? 0
   const targetSeconds = record?.targetSeconds ?? ((checkIn?.minutesFor(selectedDate.value) ?? 120) * 60)
   const isToday = selectedDate.value === todayKey.value
 
@@ -105,31 +109,31 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
 </script>
 
 <template>
-  <div class="space-y-4" aria-label="学习打卡日历">
+  <div class="check-in-calendar min-w-0 space-y-4" aria-label="学习打卡日历">
     <!-- 打卡统计顶栏 -->
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <div class="rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
+    <div class="check-in-stats grid grid-cols-2 gap-3">
+      <div class="min-w-0 rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
         <p class="text-caption font-medium text-stone">连续打卡</p>
         <p class="mt-1 text-heading-sm font-bold text-charcoal-ink">
           {{ checkIn?.streak.value ?? 0 }} <span class="text-caption font-normal text-stone">天</span>
         </p>
       </div>
 
-      <div class="rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
+      <div class="min-w-0 rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
         <p class="text-caption font-medium text-stone">累计打卡</p>
         <p class="mt-1 text-heading-sm font-bold text-charcoal-ink">
           {{ checkIn?.total.value ?? 0 }} <span class="text-caption font-normal text-stone">天</span>
         </p>
       </div>
 
-      <div class="rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
-        <p class="text-caption font-medium text-stone">今日规划目标</p>
-        <p class="mt-1 truncate text-heading-sm font-bold text-charcoal-ink">
+      <div class="min-w-0 rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
+        <p class="text-caption font-medium text-stone">今日学习目标</p>
+        <p class="mt-1 text-subheading font-bold leading-snug text-charcoal-ink">
           {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}
         </p>
       </div>
 
-      <div class="rounded-2xl border border-linen p-3 text-center sm:p-4" :class="checkIn?.isAchieved.value ? 'bg-emerald-50 border-emerald-300' : 'bg-page-cream'">
+      <div class="min-w-0 rounded-2xl border border-linen p-3 text-center sm:p-4" :class="checkIn?.isAchieved.value ? 'bg-emerald-50 border-emerald-300' : 'bg-page-cream'">
         <p class="text-caption font-medium" :class="checkIn?.isAchieved.value ? 'text-emerald-700 font-bold' : 'text-stone'">
           今日打卡状态
         </p>
@@ -150,18 +154,18 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
     <!-- 今日学习时长进度 -->
     <div class="rounded-2xl border border-linen bg-pure-white p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <span class="text-body-sm font-bold">今日投入时长</span>
-          <span class="ml-2 text-caption text-stone">
+        <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span class="text-body-sm font-bold">今日学习时长</span>
+          <span class="text-caption text-stone">
             {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} / {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}
           </span>
         </div>
         <div>
           <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-caption font-bold text-emerald-800">
-            <AppIcon name="check" :size="12" /> 今日已达成规划目标
+            <AppIcon name="check" :size="12" /> 今日学习目标已完成
           </span>
           <span v-else class="text-caption text-stone">
-            还需投入 {{ formatStudyHours(checkIn?.remainingSeconds.value ?? 0) }} 达成打卡
+            距打卡目标还需 {{ formatStudyHours(checkIn?.remainingSeconds.value ?? 0) }}
           </span>
         </div>
       </div>
@@ -178,7 +182,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
     <!-- 日历主体 -->
     <div class="rounded-2xl border border-linen bg-pure-white p-4 sm:p-5">
       <!-- 月份切换 -->
-      <div class="mb-4 flex items-center justify-between">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h4 class="text-body font-bold text-charcoal-ink">{{ monthLabel }}</h4>
         <div class="flex items-center gap-1.5">
           <UiButton size="sm" variant="ghost" title="上个月" @click="prevMonth">
@@ -233,7 +237,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             <div
               v-if="cell.isChecked"
               class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-pure-white shadow-xs"
-              title="已打卡成功"
+              title="已打卡"
             >
               <AppIcon name="check" :size="13" />
             </div>
@@ -251,14 +255,14 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       <!-- 选中日期详情卡片 -->
       <div v-if="selectedDetail" class="mt-4 rounded-xl border border-linen bg-page-cream p-3.5 text-body-sm">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <span class="font-bold text-charcoal-ink">{{ selectedDetail.date }}</span>
             <span v-if="selectedDetail.isToday" class="rounded bg-deep-indigo text-pure-white px-1.5 py-0.5 text-caption font-bold">今天</span>
             <span
               v-if="selectedDetail.isChecked"
               class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-caption font-bold text-emerald-800"
             >
-              <AppIcon name="check" :size="12" /> 已打卡成功
+              <AppIcon name="check" :size="12" /> 已打卡
               <span v-if="selectedDetail.checkedTimeStr">({{ selectedDetail.checkedTimeStr }})</span>
             </span>
             <span v-else-if="selectedDetail.seconds > 0" class="rounded-full bg-stone/15 px-2 py-0.5 text-caption text-stone">
@@ -266,24 +270,37 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             </span>
             <span v-else class="text-caption text-stone">未学习</span>
           </div>
-          <span class="text-caption text-stone">规划目标：{{ formatStudyHours(selectedDetail.targetSeconds) }}</span>
+          <span class="text-caption text-stone">学习目标：{{ formatStudyHours(selectedDetail.targetSeconds) }}</span>
         </div>
 
-        <div class="mt-2.5 flex flex-wrap items-center justify-between text-caption text-graphite">
-          <span>实际有效投入：<strong class="text-charcoal-ink">{{ formatStudyClock(selectedDetail.seconds) }}</strong> ({{ formatStudyHours(selectedDetail.seconds) }})</span>
+        <div class="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-caption text-graphite">
+          <span>{{ checkIn?.includesWork.value ? '学习时长（看课 + 实践）' : '有效学习时长' }}：<strong class="text-charcoal-ink">{{ formatStudyClock(selectedDetail.seconds) }}</strong> ({{ formatStudyHours(selectedDetail.seconds) }})</span>
           <span v-if="!selectedDetail.isChecked && selectedDetail.remainingSeconds > 0" class="text-stone">
-            还差 {{ formatStudyHours(selectedDetail.remainingSeconds) }} 达成规划
+            距学习目标还需 {{ formatStudyHours(selectedDetail.remainingSeconds) }}
           </span>
           <span v-else-if="selectedDetail.isChecked" class="text-emerald-700 font-medium">
-            已达标当日规划要求
+            当日学习目标已完成
           </span>
         </div>
       </div>
 
       <!-- 规则说明 -->
       <p class="mt-4 text-caption leading-relaxed text-stone">
-        💡 <strong>打卡规则</strong>：根据 AI 规划的学习时间（例如 6 小时），必须在当天累计有效播放达到规划时间后自动打卡，并在日期上方显示绿色打勾（<span class="inline-flex align-middle text-emerald-700 font-bold">✓</span>）。倍速播放按真实物理投入时间计算，暂停、缓冲与跳转不计入，打卡成功后永久保留在历史日历中。
+        <strong>打卡规则</strong>：{{ checkIn?.includesWork.value ? '当日有效看课时长与记录的实践时间合计达到每日总投入后自动打卡。' : '当日有效学习时长达到每日目标后自动打卡，并在日历中记录。' }}倍速播放按实际经过的时间计时；暂停、缓冲和跳转不计入学习时长。
       </p>
     </div>
   </div>
 </template>
+
+<style scoped>
+.check-in-calendar {
+  container-type: inline-size;
+}
+
+/* 概览的半宽面板和导学弹窗共用日历，列数取决于面板而非窗口宽度。 */
+@container (min-width: 42rem) {
+  .check-in-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+</style>

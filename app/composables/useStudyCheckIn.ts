@@ -1,18 +1,27 @@
+import { onBeforeUnmount, onMounted, computed, reactive, ref, watch, inject, provide } from 'vue'
 import type { InjectionKey, Ref } from 'vue'
 import type { Course } from '~/types/course'
 import type { TodayPlan } from '~/types/guide'
 import type { PlaybackSample } from '~/types/practice'
 import type { StudyDay } from '~/types/checkIn'
-import { checkStudyDay, effectivePlaybackSeconds, restoreStudyDays, setStudyTarget, splitStudySeconds, studyStreak } from '~/utils/checkIn'
+import { checkStudyDay, effectivePlaybackSeconds, setStudyTarget, splitStudySeconds, studyStreak } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 import { dbFetchCheckIns, dbSaveCheckIns } from '~/utils/dbClient'
 
-const OLD_STORAGE_PREFIX = 'ai-player.check-in.v1.'
 
 export type StudyCheckInInstance = ReturnType<typeof useStudyCheckIn>
 export const CHECK_IN_KEY: InjectionKey<StudyCheckInInstance> = Symbol('study-check-in')
 
-export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: TodayPlan | null; dailyMinutes: number }>) {
+export interface CheckInPlan {
+  today: TodayPlan | null
+  dailyMinutes: number
+  /** 设置完整学习计划后，当日目标为全部时间分配之和（看课 + 实践）。 */
+  targetMinutes?: number | null
+  /** 各日期记录的实践时间（秒），计入当日学习时长。 */
+  workSeconds?: Record<string, number>
+}
+
+export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPlan>) {
   const state = reactive({ days: {} as Record<string, StudyDay>, date: localDayKey(), storageError: '' })
   const justCheckedIn = ref<StudyDay | null>(null)
   let activeId = ''
@@ -25,7 +34,11 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: T
   const total = computed(() => Object.values(state.days).filter(day => day.checkedAt !== null).length)
   const isAchieved = computed(() => !!current.value?.checkedAt)
   const targetSeconds = computed(() => current.value?.targetSeconds ?? minutesFor(state.date) * 60)
-  const seconds = computed(() => current.value?.seconds ?? 0)
+  const includesWork = computed(() => plan.value.targetMinutes != null)
+  const workFor = (date: string) => plan.value.workSeconds?.[date] ?? 0
+  /** 当日学习时长：有效看课时长 + 记录的实践时间。 */
+  const secondsFor = (date: string) => Math.min(86400, (state.days[date]?.seconds ?? 0) + workFor(date))
+  const seconds = computed(() => secondsFor(state.date))
   const percent = computed(() => {
     const target = targetSeconds.value
     if (target <= 0) return 0
@@ -34,6 +47,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: T
   const remainingSeconds = computed(() => Math.max(0, targetSeconds.value - seconds.value))
 
   function minutesFor(date: string) {
+    if (date === state.date && plan.value.targetMinutes) return plan.value.targetMinutes
     return plan.value.today?.date === date ? plan.value.today.minutes : plan.value.dailyMinutes
   }
 
@@ -54,7 +68,10 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: T
     state.date = localDayKey()
     if (!activeId || activeId !== course.value?.id) return
     const day = ensureDay(state.date)
-    setStudyTarget(day, minutesFor(state.date), Date.now())
+    const wasChecked = day.checkedAt !== null
+    setStudyTarget(day, minutesFor(state.date), Date.now(), workFor(state.date))
+    // 记录实践时间后达到目标，同样视为当日打卡。
+    if (!wasChecked && day.checkedAt !== null) { justCheckedIn.value = { ...day }; persist() }
     scheduleSave()
   }
 
@@ -70,7 +87,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: T
         const day = ensureDay(part.date)
         const wasChecked = day.checkedAt !== null
         day.seconds = Math.min(86400, day.seconds + part.seconds)
-        checkStudyDay(day, now)
+        checkStudyDay(day, now, workFor(part.date))
         if (!wasChecked && day.checkedAt !== null) {
           justCheckedIn.value = { ...day }
           persist()
@@ -84,36 +101,25 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: T
 
   function resetPlayback() { previous = null }
 
-  watch(() => course.value?.id, async () => {
+  watch(() => course.value?.id, async (_id, _oldId, onCleanup) => {
+    let stale = false
+    onCleanup(() => { stale = true })
     persist(); resetPlayback(); activeId = course.value?.id ?? ''
     state.days = {}; state.storageError = ''; state.date = localDayKey()
     justCheckedIn.value = null
     if (!activeId) return
 
     try {
-      // 1. 从 SQLite 读取
+      // 从 SQLite 读取
       const dbDays = await dbFetchCheckIns(activeId)
-      // 2. 检查并迁移旧 localStorage 数据
-      if (import.meta.client) {
-        try {
-          const old = localStorage.getItem(OLD_STORAGE_PREFIX + activeId)
-          if (old) {
-            const restored = restoreStudyDays(JSON.parse(old))
-            for (const [k, v] of Object.entries(restored)) {
-              if (!dbDays[k]) dbDays[k] = v
-            }
-            void dbSaveCheckIns(activeId, Object.values(dbDays))
-            localStorage.removeItem(OLD_STORAGE_PREFIX + activeId)
-          }
-        } catch { /* 忽略旧缓存迁移异常 */ }
-      }
+      if (stale) return
       state.days = dbDays
     } catch {
-      state.storageError = '打卡记录读取失败，本次学习会重新记录。'
+      state.storageError = '打卡记录读取失败，本次学习时长将重新记录。'
     }
   }, { immediate: true, flush: 'sync' })
 
-  watch(() => [course.value?.id, plan.value.today?.date, plan.value.today?.minutes, plan.value.dailyMinutes], syncDay, { immediate: true })
+  watch(() => [course.value?.id, plan.value.today?.date, plan.value.today?.minutes, plan.value.dailyMinutes, plan.value.targetMinutes, workFor(state.date)], syncDay, { immediate: true })
 
   onMounted(() => {
     dayTimer = setInterval(syncDay, 1000)
@@ -141,6 +147,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<{ today: T
     remainingSeconds,
     justCheckedIn,
     minutesFor,
+    secondsFor,
+    includesWork,
     ensureDay,
     sample,
     resetPlayback,

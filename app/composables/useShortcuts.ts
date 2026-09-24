@@ -1,3 +1,4 @@
+import { onBeforeUnmount, onMounted } from 'vue'
 /**
  * 全局快捷键。
  * 规则：
@@ -40,7 +41,7 @@ export const SHORTCUT_GROUPS = [
       { keys: ['⌥', 'T'], label: '插入当前时间戳' },
       { keys: ['⌥', 'S'], label: '截取当前画面到笔记' },
       { keys: ['⌘', 'S'], label: '立即保存笔记', alt: 'Windows 上是 Ctrl S' },
-      { keys: ['/'], label: '在编辑器里唤起插入菜单' },
+      { keys: ['/'], label: '打开编辑器插入菜单' },
     ],
   },
   {

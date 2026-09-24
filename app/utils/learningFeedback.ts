@@ -102,7 +102,7 @@ export function restoreFeedback(raw: Record<string, unknown>, paths: string[]) {
   let today: TodayPlan | null = null
   const t = raw.today
   if (isRecord(t) && typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date)
-    && typeof t.minutes === 'number' && Number.isInteger(t.minutes) && t.minutes >= 5 && t.minutes <= 1440 && Array.isArray(t.items)) {
+    && typeof t.minutes === 'number' && Number.isInteger(t.minutes) && t.minutes >= 0 && t.minutes <= 1440 && Array.isArray(t.items)) {
     const seen = new Set<string>()
     const items: TodayItem[] = []
     for (const i of t.items) {

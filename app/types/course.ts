@@ -1,3 +1,4 @@
+import type { CourseDirectoryHandle, CourseFileHandle } from '~/types/storage'
 /** 课程目录树与观看进度的数据模型 */
 
 export interface VideoEntry {
@@ -12,15 +13,15 @@ export interface VideoEntry {
   dir: string
   /** 顺序号（扁平列表中的下标，从 0 开始） */
   index: number
-  handle: FileSystemFileHandle
-  parent: FileSystemDirectoryHandle
+  handle: CourseFileHandle
+  parent: CourseDirectoryHandle
 }
 
 export interface FolderEntry {
   kind: 'folder'
   name: string
   path: string
-  handle: FileSystemDirectoryHandle
+  handle: CourseDirectoryHandle
   children: Array<FolderEntry | VideoEntry>
   /** 递归统计的视频数 */
   videoCount: number
@@ -30,7 +31,7 @@ export interface Course {
   /** 稳定 id，首次打开时生成并随最近记录保存，用于隔离进度存储 */
   id: string
   name: string
-  handle: FileSystemDirectoryHandle
+  handle: CourseDirectoryHandle
   root: FolderEntry
   /** 扁平、自然排序后的视频列表 */
   videos: VideoEntry[]
@@ -52,7 +53,7 @@ export interface VideoProgress {
 export interface RecentCourse {
   id: string
   name: string
-  handle: FileSystemDirectoryHandle
+  handle?: CourseDirectoryHandle
   videoCount: number
   lastOpenedAt: number
   lastVideoPath?: string

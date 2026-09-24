@@ -1,14 +1,15 @@
+import { onBeforeUnmount, computed, reactive, watch } from 'vue'
+import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { GuideSettings, SubtitleCue } from '~/types/guide'
 import type { PracticeRecord, PracticeScope } from '~/types/practice'
 import { loadLessonSubtitles } from '~/utils/guideMedia'
 import { requestGuideJson } from '~/utils/guideAi'
-import { enoughPracticeMaterial, loadPracticeNote, practicePrompt, practiceSources, restorePractice, reviewPrompt, validatePracticeQuestion, validatePracticeFeedback } from '~/utils/practice'
+import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validatePracticeFeedback } from '~/utils/practice'
 import { dbFetchPractice, dbSavePractice } from '~/utils/dbClient'
 
-const OLD_STORAGE_PREFIX = 'ai-player.practice.v1.'
 
-export function useLessonPractice(course: Ref<Course | null>, settings: GuideSettings) {
+export function useLessonPractice(course: Ref<Course | null>, settings: GuideSettings, available: Ref<boolean>) {
   const state = reactive({
     open: false, path: '', title: '', scope: null as PracticeScope | null,
     note: '', cues: [] as SubtitleCue[], supplement: '',
@@ -21,7 +22,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   const history = computed(() => state.records.filter(r => r.path === state.path))
   const sources = computed(() => practiceSources(state.note, state.cues, state.supplement, state.scope))
   const hasMaterial = computed(() => enoughPracticeMaterial(sources.value))
-  const configured = computed(() => !!settings.baseUrl.trim() && !!settings.model.trim())
+  const configured = computed(() => available.value && !!settings.baseUrl.trim() && !!settings.model.trim())
 
   function persist() {
     if (!activeId || !state.path) return
@@ -65,7 +66,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   async function generate() {
     if (state.busy || !state.open || !activeId) return
     state.error = ''
-    if (!hasMaterial.value) { state.error = '学习材料不足，请补充本次学到的概念、示例或代码，再生成练习。'; return }
+    if (!hasMaterial.value) { state.error = '学习材料不足，请补充本课概念、示例或代码后生成练习。'; return }
     if (!configured.value) { state.error = '请先在 AI 设置中填写服务地址和模型。'; return }
     const controller = new AbortController(); request = controller; state.busy = 'generate'
     // 固定本次提交的材料，等待期间的 UI 变化不能改变题目依据。
@@ -85,9 +86,10 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   async function review() {
     const record = current.value
     if (!record || state.busy || record.attempts.length >= 3) return
+    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return }
     state.error = ''
     const answer = record.draft.trim()
-    if (!answer) { state.error = '先写下你的理解或代码，再查看反馈。'; return }
+    if (!answer) { state.error = '请填写作答内容后提交。'; return }
     const controller = new AbortController(); request = controller; state.busy = 'review'
     try {
       const raw = await requestGuideJson({ ...settings }, practiceReviewPrompt(record, answer), controller.signal)
@@ -97,33 +99,20 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     finally { if (request === controller) { request = null; state.busy = '' } }
   }
 
-  watch(() => course.value?.id, async () => {
+  watch(() => course.value?.id, async (_id, _oldId, onCleanup) => {
+    let stale = false
+    onCleanup(() => { stale = true })
     persist(); cancel(); activeId = ''
     state.open = false; state.records = []; state.selectedId = ''; state.path = ''; state.note = ''; state.cues = []; state.supplement = ''; state.storageError = ''; state.error = ''
     activeId = course.value?.id ?? ''
     if (!activeId) return
     try {
       const practiceMap = await dbFetchPractice(activeId)
+      if (stale) return
       const allRecords = Object.values(practiceMap).flat()
-      // 迁移旧 localStorage
-      if (import.meta.client) {
-        try {
-          const old = localStorage.getItem(OLD_STORAGE_PREFIX + activeId)
-          if (old) {
-            const restored = restorePractice(JSON.parse(old), course.value!.videos.map(v => v.path))
-            for (const r of restored) {
-              if (!allRecords.some(item => item.id === r.id)) {
-                allRecords.push(r as any)
-                void dbSavePractice(activeId, r.path, [r as any])
-              }
-            }
-            localStorage.removeItem(OLD_STORAGE_PREFIX + activeId)
-          }
-        } catch { /* 忽略 */ }
-      }
       state.records = allRecords as any
-    } catch { state.storageError = '练习记录暂时无法读取，可以重新出题。' }
+    } catch { state.storageError = '练习记录读取失败，可重新生成练习。' }
   }, { immediate: true, flush: 'sync' })
   onBeforeUnmount(() => { cancel(); persist() })
-  return { state, current, history, sources, hasMaterial, configured, open, close, cancel, select, updateDraft, generate, review }
+  return { persist, state, current, history, sources, hasMaterial, configured, open, close, cancel, select, updateDraft, generate, review }
 }

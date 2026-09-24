@@ -12,6 +12,7 @@
  * 一次只处理一个任务，其余排队；客户端断开会中止 ffmpeg 与识别。
  */
 import http from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
@@ -23,6 +24,21 @@ import { MODEL_DIR, downloadState, ensureModels, modelsReady } from './models.mj
 
 const PORT = Number(process.env.ASR_PORT || 8765)
 const HOST = '127.0.0.1'
+const TOKEN = process.env.ASR_TOKEN || ''
+const controllers = new Map()
+const cancelled = new Set()
+
+async function readJson(req) {
+  let body = ''
+  for await (const chunk of req) { body += chunk; if (body.length > 16_384) throw new Error('请求内容过大') }
+  return JSON.parse(body)
+}
+function authorized(req) {
+  if (!TOKEN) return true
+  const actual = Buffer.from(req.headers.authorization || '')
+  const expected = Buffer.from(`Bearer ${TOKEN}`)
+  return actual.length === expected.length && timingSafeEqual(actual, expected)
+}
 
 const log = (...args) => console.log(new Date().toLocaleTimeString('zh-CN', { hour12: false }), ...args)
 
@@ -82,20 +98,22 @@ function sse(res) {
   }
 }
 
-async function handleTranscribe(req, res) {
+async function handleTranscribe(req, res, local = null) {
   if (modelState.status !== 'ready') {
-    return json(res, 503, { error: modelState.status === 'error' ? modelState.error : '模型还没准备好，请稍候' })
+    return json(res, 503, { error: modelState.status === 'error' ? modelState.error : '模型尚未就绪，请稍后重试' })
   }
 
-  const fileName = decodeURIComponent(req.headers['x-file-name'] || 'input')
-  const declaredDuration = Number(req.headers['x-duration'] || 0) || 0
+  const fileName = local ? path.basename(local.path) : decodeURIComponent(req.headers['x-file-name'] || 'input')
+  const declaredDuration = Number(local?.duration ?? req.headers['x-duration'] ?? 0) || 0
   const url = new URL(req.url, 'http://localhost')
   const minSilence = Number(url.searchParams.get('minSilence')) || undefined
   const maxSegment = Number(url.searchParams.get('maxSegment')) || undefined
 
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'ai-player-asr-'))
-  const tmpFile = path.join(tmpDir, 'input' + (path.extname(fileName) || '.bin'))
+  const tmpDir = local ? null : await mkdtemp(path.join(os.tmpdir(), 'ai-player-asr-'))
+  const tmpFile = local?.path ?? path.join(tmpDir, 'input' + (path.extname(fileName) || '.bin'))
+  const cleanup = async () => { if (tmpDir) await rm(tmpDir, { recursive: true, force: true }); if (local) controllers.delete(local.jobId) }
   const controller = new AbortController()
+  if (local) { controllers.set(local.jobId, controller); if (cancelled.delete(local.jobId)) controller.abort() }
   // 注意：req 的 close 在请求体接收完就会触发，不能用它判断客户端断开；
   // 要看响应端：连接在我们主动结束之前就关了，才是客户端取消。
   res.on('close', () => {
@@ -103,23 +121,26 @@ async function handleTranscribe(req, res) {
   })
 
   try {
-    await pipeline(req, createWriteStream(tmpFile))
+    if (!local) await pipeline(req, createWriteStream(tmpFile))
   } catch (err) {
-    await rm(tmpDir, { recursive: true, force: true })
+    await cleanup()
     if (!res.headersSent) json(res, 400, { error: `接收文件失败：${err.message}` })
     return
   }
   if (controller.signal.aborted) {
-    await rm(tmpDir, { recursive: true, force: true })
+    await cleanup()
+    res.end()
     return
   }
 
   const send = sse(res)
+  controller.signal.addEventListener('abort', () => res.end(), { once: true })
   if (queued > 0) send('queued', { position: queued })
 
   await enqueue(async () => {
     if (controller.signal.aborted) {
-      await rm(tmpDir, { recursive: true, force: true })
+      await cleanup()
+      res.end()
       return
     }
     const started = Date.now()
@@ -134,7 +155,9 @@ async function handleTranscribe(req, res) {
         maxSegment,
         onSegment: (seg) => send('segment', seg),
         onProgress: (seconds) => {
-          if (seconds - lastProgress < 2 && seconds < declaredDuration) return
+          // 每 2 秒音频报一次；知道总时长时，最后一块一定报（让进度条走到头）
+          const isLast = declaredDuration > 0 && seconds >= declaredDuration
+          if (seconds - lastProgress < 2 && !isLast) return
           lastProgress = seconds
           send('progress', {
             seconds,
@@ -155,13 +178,14 @@ async function handleTranscribe(req, res) {
     } finally {
       kill()
       res.end()
-      await rm(tmpDir, { recursive: true, force: true })
+      await cleanup()
     }
   })
 }
 
 const server = http.createServer(async (req, res) => {
-  cors(res)
+  if (!authorized(req)) return json(res, 401, { error: '未授权的转写请求' })
+  if (!TOKEN) cors(res)
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
     return res.end()
@@ -182,9 +206,25 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
-  if (req.method === 'POST' && pathname === '/transcribe') {
+  if (TOKEN && req.method === 'POST' && pathname === '/cancel') {
     try {
-      await handleTranscribe(req, res)
+      const { jobId } = await readJson(req)
+      if (typeof jobId !== 'string' || jobId.length > 100) throw new Error('无效的任务')
+      if (controllers.has(jobId)) controllers.get(jobId).abort()
+      else { if (cancelled.size >= 1000) cancelled.clear(); cancelled.add(jobId) }
+      return json(res, 200, { ok: true })
+    } catch (err) { return json(res, 400, { error: err.message }) }
+  }
+
+  if (req.method === 'POST' && (pathname === '/transcribe' || (TOKEN && pathname === '/transcribe-local'))) {
+    try {
+      let local = null
+      if (pathname === '/transcribe-local') {
+        local = await readJson(req)
+        if (typeof local.path !== 'string' || !path.isAbsolute(local.path) || typeof local.jobId !== 'string' || local.jobId.length > 100) throw new Error('无效的转写文件')
+        if (controllers.has(local.jobId)) throw new Error('任务已存在')
+      }
+      await handleTranscribe(req, res, local)
     } catch (err) {
       console.error(err)
       if (!res.headersSent) json(res, 500, { error: err.message })
@@ -201,10 +241,22 @@ server.requestTimeout = 0
 server.headersTimeout = 60_000
 
 server.listen(PORT, HOST, () => {
-  log(`AI Player 语音转文字服务已启动：http://${HOST}:${PORT}`)
+  const port = server.address().port
+  if (TOKEN) console.log(JSON.stringify({ event: 'listening', port }))
+  log(`AI Player 语音转文字服务已启动：http://${HOST}:${port}`)
   log(`模型目录：${MODEL_DIR}`)
   void prepare()
 })
 
-process.on('SIGINT', () => process.exit(0))
-process.on('SIGTERM', () => process.exit(0))
+function shutdown() {
+  for (const controller of controllers.values()) controller.abort()
+  server.close()
+  setTimeout(() => process.exit(0), 500).unref()
+}
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)
+server.on('error', err => { console.error(err.message); process.exit(1) })
+if (process.env.AI_PLAYER_PARENT_PID) {
+  const parent = Number(process.env.AI_PLAYER_PARENT_PID)
+  setInterval(() => { try { process.kill(parent, 0) } catch { shutdown() } }, 2000).unref()
+}

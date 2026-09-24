@@ -1,11 +1,15 @@
+import { fileMetadata, mediaSource } from './desktopFiles.ts'
+import type { CourseFileHandle } from '../types/storage'
 import type { VideoEntry } from '../types/course'
 import type { LessonMetadata, SubtitleCue } from '../types/guide'
 
-export async function readVideoDuration(file: File, signal: AbortSignal): Promise<number | null> {
+export async function readVideoDuration(file: File | CourseFileHandle, signal: AbortSignal): Promise<number | null> {
   if (signal.aborted) return null
+  const source = file instanceof File ? { url: URL.createObjectURL(file), release() { URL.revokeObjectURL(this.url) } } : await mediaSource(file)
+  if (signal.aborted) { source.release(); return null }
   return new Promise((resolve) => {
     const video = document.createElement('video')
-    const url = URL.createObjectURL(file)
+    const url = source.url
     const finish = (duration: number | null) => {
       clearTimeout(timer)
       signal.removeEventListener('abort', abort)
@@ -13,7 +17,7 @@ export async function readVideoDuration(file: File, signal: AbortSignal): Promis
       video.onerror = null
       video.removeAttribute('src')
       video.load()
-      URL.revokeObjectURL(url)
+      source.release()
       resolve(duration)
     }
     const abort = () => finish(null)
@@ -38,11 +42,11 @@ export async function collectGuideMetadata(
       const video = videos[cursor++]!
       let metadata: LessonMetadata = { duration: null, size: 0, modified: 0 }
       try {
-        const file = await video.handle.getFile()
+        const file = await fileMetadata(video.handle)
         if (signal.aborted) return
         const old = cache[video.path]
         metadata = old?.size === file.size && old.modified === file.lastModified && old.duration !== null
-          ? old : { size: file.size, modified: file.lastModified, duration: await readVideoDuration(file, signal) }
+          ? old : { size: file.size, modified: file.lastModified, duration: await readVideoDuration(video.handle, signal) }
       } catch { /* 不支持的容器、失效句柄均按未知时长处理 */ }
       if (!signal.aborted) onEntry(video.path, metadata)
     }

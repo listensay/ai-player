@@ -4,6 +4,55 @@ export interface KnowledgeModule {
   id: string
   title: string
   description: string
+  practice?: StagePractice
+}
+
+export type WorkKind = 'code' | 'project' | 'recap'
+/** 每日时间分配（分钟）。video 为看课 / 回看额度，其余为实践时间。 */
+export interface StudyBudget { video: number; code: number; project: number; recap: number }
+/** 完整学习计划：总周期与每日总投入，独立于视频排期。 */
+export interface StudyProgram {
+  days: number
+  startDate: string
+  budget: StudyBudget
+  /** 每隔 N 天安排一次轻量复盘日；0 表示不安排。 */
+  lightEvery: number
+  lightMinutes: number
+  lightTask?: { title: string; instructions: string }
+}
+/** repeat 为每日重复任务（如复盘），完成状态只对当天有效。 */
+export interface StageTask { id: string; kind: WorkKind; title: string; instructions: string; repeat?: boolean }
+export interface StageCheck { id: string; kind: 'exercise' | 'project'; text: string }
+export interface StagePractice {
+  startDay: number
+  endDay: number
+  goal: string
+  project: string
+  skipWhen: string
+  budget?: StudyBudget
+  tasks: StageTask[]
+  checks: StageCheck[]
+}
+export interface WorkEntry {
+  id: string
+  date: string
+  moduleId: string
+  taskId: string
+  kind: WorkKind
+  title: string
+  instructions: string
+  targetMinutes: number
+  minutes: number
+  evidence: string
+  done: boolean
+}
+export interface CheckEvidence { text: string; evidence: string; passed: boolean; updatedAt: number }
+export interface RouteRevision { plan: LearningPlan; includeOptional: boolean; view: 'all' | 'route'; label: string; at: number }
+export interface StudyRecords {
+  entries: WorkEntry[]
+  checks: Record<string, CheckEvidence>
+  activeModuleId: string
+  undo: RouteRevision | null
 }
 
 export interface GuideLesson {
@@ -29,6 +78,7 @@ export interface LearningPlan {
   modules: KnowledgeModule[]
   lessons: GuideLesson[]
   messages: GuideMessage[]
+  program?: StudyProgram
 }
 
 export interface LessonMetadata {
@@ -42,6 +92,19 @@ export interface GuideSettings {
   model: string
   apiKey: string
   timeoutMinutes?: number
+  /** 最大输出 token 数；0 表示不传，由服务端默认值决定。 */
+  maxTokens?: number
+}
+
+export interface AiProfile extends GuideSettings {
+  id: string
+  name: string
+}
+
+export interface AiSettingsCollection {
+  version: 2
+  profiles: AiProfile[]
+  activeId: string
 }
 
 export interface SubtitleCue {

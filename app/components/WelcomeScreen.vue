@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import { useCourseStore } from '~/composables/useCourseStore'
+import { useProgress } from '~/composables/useProgress'
+import { formatRelative } from '~/utils/time'
+import { useRouter } from 'vue-router'
+import AppIcon from '~/components/AppIcon.vue'
+import UiButton from '~/components/UiButton.vue'
+const router = useRouter()
 /**
  * 欢迎页：还没打开课程时的入口。
  * 唯一的蓝色按钮 = 打开课程文件夹；最近打开的课程以白色卡片列出，一键恢复。
@@ -7,16 +15,19 @@ import type { RecentCourse } from '~/types/course'
 
 const store = useCourseStore()
 const progress = useProgress()
-
 const busyId = ref<string | null>(null)
 
 async function reopen(recent: RecentCourse) {
   busyId.value = recent.id
   try {
-    await store.reopenRecent(recent)
+    if (await store.reopenRecent(recent)) await router.push(`/courses/${store.state.course!.id}`)
   } finally {
     busyId.value = null
   }
+}
+
+async function openFolder() {
+  if (await store.openFolder()) await router.push(`/courses/${store.state.course!.id}`)
 }
 
 function doneCount(recent: RecentCourse) {
@@ -36,26 +47,23 @@ function doneCount(recent: RecentCourse) {
     </div>
 
     <h1 class="mt-10 max-w-2xl text-center text-heading-lg font-bold text-charcoal-ink md:text-display">
-      把上百集的教程，看成你自己的小课。
+      本地课程与个性化学习规划
     </h1>
     <p class="mt-5 max-w-xl text-center text-body text-graphite">
-      打开本地课程文件夹，边看边记。笔记里的每个时间点都能跳回视频，截图和进度都留在你自己的电脑上。
+      集成视频播放、笔记记录与 AI 导学，支持时间戳定位、视频截图和学习进度管理。
     </p>
 
     <div class="mt-8 flex flex-col items-center gap-3">
       <UiButton
         variant="primary"
         size="lg"
-        :disabled="!store.state.supported || store.state.loading"
-        @click="store.openFolder()"
+        :disabled="store.state.loading"
+        @click="openFolder"
       >
         <AppIcon name="folder" :size="20" />
         {{ store.state.loading ? '正在读取…' : '打开课程文件夹' }}
       </UiButton>
-      <p v-if="!store.state.supported" class="max-w-md text-center text-body-sm text-error">
-        当前浏览器不支持直接读写本地文件夹。请用 Chrome 或 Edge 打开这个页面。
-      </p>
-      <p v-else class="text-caption text-stone">支持 mp4、webm、mkv、mov 等格式，子文件夹会作为章节展示</p>
+      <p class="text-caption text-stone">支持 MP4、WebM、MKV、MOV 等格式，子文件夹按章节展示</p>
     </div>
 
     <p
@@ -66,6 +74,8 @@ function doneCount(recent: RecentCourse) {
       {{ store.state.error }}
     </p>
 
+    <p v-if="store.state.accessWarning" role="status" class="mt-4 max-w-lg text-center text-caption text-stone">{{ store.state.accessWarning }}</p>
+
     <section v-if="store.state.recents.length" class="mt-16 w-full max-w-2xl" aria-label="最近打开">
       <h2 class="text-body font-bold">最近打开</h2>
       <ul class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -73,7 +83,7 @@ function doneCount(recent: RecentCourse) {
           <button
             type="button"
             class="pane flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-cream-deep disabled:opacity-60"
-            :disabled="busyId !== null"
+            :disabled="busyId !== null || store.state.loading"
             @click="reopen(recent)"
           >
             <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sunbeam-yellow text-charcoal-ink">
@@ -82,7 +92,7 @@ function doneCount(recent: RecentCourse) {
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body font-bold">{{ recent.name }}</span>
               <span class="tabular block text-caption text-stone">
-                {{ recent.videoCount }} 集，已看完 {{ doneCount(recent) }} 集。{{ formatRelative(recent.lastOpenedAt) }}打开过
+                共 {{ recent.videoCount }} 节 · 已完成 {{ doneCount(recent) }} 节 · 最近访问：{{ formatRelative(recent.lastOpenedAt) }}
               </span>
             </span>
             <AppIcon name="chevron-right" :size="18" class="shrink-0 text-stone" />
@@ -97,7 +107,7 @@ function doneCount(recent: RecentCourse) {
           </button>
         </li>
       </ul>
-      <p class="mt-3 text-caption text-stone">重新打开时浏览器会再确认一次文件夹访问权限。</p>
+      <p class="mt-3 text-caption text-stone">自动保存课程位置与学习进度；文件夹移动后可重新关联。</p>
     </section>
   </div>
 </template>

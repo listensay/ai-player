@@ -1,5 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useGuide } from '~/composables/useLearningGuide'
+import { useProgress } from '~/composables/useProgress'
+import AppIcon from '~/components/AppIcon.vue'
+import LessonBadge from '~/components/LessonBadge.vue'
 import type { FolderEntry, VideoEntry } from '~/types/course'
+import { conciseLessonTitle } from '~/utils/studyProgram'
 
 const props = defineProps<{
   node: FolderEntry | VideoEntry
@@ -7,6 +13,8 @@ const props = defineProps<{
   courseId: string
   currentPath: string | null
   expanded: Set<string>
+  /** 定制路线中的序号，与原文件名序号分开。 */
+  routePosition?: number
 }>()
 
 const emit = defineEmits<{
@@ -26,7 +34,7 @@ const videoProgress = computed(() =>
   props.node.kind === 'video' ? progress.get(props.courseId, props.node.path) : undefined,
 )
 
-/** 章节内已看完 / 总数 */
+/** 章节内已完成 / 总数 */
 const folderStats = computed(() => {
   if (props.node.kind !== 'folder') return null
   let done = 0
@@ -78,6 +86,8 @@ function onClick() {
       :aria-expanded="isFolder ? isOpen : undefined"
       :aria-current="isCurrent ? 'true' : undefined"
       :data-path="node.path"
+      :data-route-position="routePosition"
+      :title="node.kind === 'video' ? node.title : node.name"
       @click="onClick"
     >
       <!-- 章节：填充式 chevron，展开时旋转 -->
@@ -111,8 +121,9 @@ function onClick() {
           </span>
           <span v-else class="h-3 w-3 rounded-full" :style="dotStyle" aria-hidden="true" />
         </span>
-        <span class="min-w-0 flex-1 truncate text-body-sm" :class="isCurrent ? 'font-bold' : 'font-medium'">
-          <span v-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span>{{ titleParts?.text }}
+        <span class="min-w-0 flex-1 text-body-sm" :class="[isCurrent ? 'font-bold' : 'font-medium', routePosition ? '[overflow-wrap:anywhere]' : 'truncate']">
+          <span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{ String(routePosition).padStart(2, '0') }}</span>
+          <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span>{{ routePosition && node.kind === 'video' ? conciseLessonTitle(node.title) : titleParts?.text }}
         </span>
         <span
           v-if="videoProgress && !videoProgress.done && videoProgress.ratio > 0"
@@ -121,7 +132,7 @@ function onClick() {
           {{ Math.round(videoProgress.ratio * 100) }}%
         </span>
         <span class="sr-only">
-          {{ isCurrent ? '正在播放' : videoProgress?.done ? '已看完' : '' }}
+          {{ isCurrent ? '正在播放' : videoProgress?.done ? '已完成' : '' }}
         </span>
         <LessonBadge v-if="lesson" :status="lesson.status" compact />
       </template>

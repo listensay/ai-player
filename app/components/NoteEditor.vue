@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, computed, ref } from 'vue'
+import { dbFetchNote, dbSaveNote, dbSaveNoteImage, dbFetchNoteImages } from '~/utils/dbClient'
+import { readTextFile, writeTextFile, writeBlobFile, resolveRelativeFile, isAbsoluteUrl } from '~/utils/fs'
+import { formatTime, timestampToken, timestampSlug, formatRelative } from '~/utils/time'
+import AppIcon from '~/components/AppIcon.vue'
+import UiButton from '~/components/UiButton.vue'
 /**
  * 笔记编辑器：Milkdown Crepe（所见即所得 Markdown）
  *  - 笔记文件与视频同目录同名：01-环境.mp4 -> 01-环境.md
@@ -79,9 +85,9 @@ const statusText = computed(() => {
     case 'loading':
       return '读取笔记…'
     case 'new':
-      return '新笔记，开始输入后会自动保存'
+      return '笔记内容自动保存'
     case 'dirty':
-      return '有未保存的修改'
+      return '修改尚未保存'
     case 'saving':
       return '保存中…'
     case 'saved':
@@ -151,7 +157,7 @@ async function resolveImageSrc(src: string): Promise<string> {
   return src
 }
 
-/** 把图片存入 SQLite 数据库（Base64），同时可选写入本地磁盘 xxx.assets/ */
+/** 图片以 Base64 存入 SQLite，并同步写入课程目录的 xxx.assets/ */
 async function saveImage(blob: Blob, baseName: string, ext = 'png'): Promise<string> {
   const name = `${baseName}.${ext}`
   const base64 = await blobToBase64(blob)
@@ -164,7 +170,7 @@ async function saveImage(blob: Blob, baseName: string, ext = 'png'): Promise<str
     dataBase64: base64,
   })
 
-  // 可选：如果能拿到本地句柄，同步写入本地目录，便于外部工具查看
+  // 同步写入课程目录，便于 Obsidian 等外部工具查看；失败不影响数据库中的记录
   try {
     const dir = await props.video.parent.getDirectoryHandle(assetsDirName.value, { create: true })
     await writeBlobFile(dir, name, blob)
@@ -211,11 +217,12 @@ async function save(): Promise<void> {
   inflight = (async () => {
     try {
       // 存入 SQLite 数据库
-      await dbSaveNote(props.courseId, props.video.path, markdown)
+      const result = await dbSaveNote(props.courseId, props.video.path, markdown)
+      if (!result.success) throw new Error('笔记写入数据库失败，请重试。')
       try {
         await writeTextFile(props.video.parent, noteFileName.value, markdown)
       } catch {
-        /* 忽略本地文件系统错误 */
+        /* 课程目录中的 .md 为副本，写入失败不影响数据库中的笔记 */
       }
       savedVersion = snapshotVersion
       lastSavedMarkdown = markdown
@@ -236,8 +243,12 @@ async function save(): Promise<void> {
 
 /** 在光标处插入时间戳；编辑器没有焦点时追加到文末 */
 function insertTimestamp(seconds: number) {
+  insertInline(`${timestampToken(seconds)} `)
+}
+
+/** 在光标处插入一段行内文本；编辑器没有焦点时追加为文末新段落（逐字稿"引用"也走这里） */
+function insertInline(token: string) {
   if (!crepe || destroyed) return
-  const token = `${timestampToken(seconds)} `
   crepe.editor.action((ctx) => {
     const view = ctx.get(editorViewCtx)
     const { state } = view
@@ -313,7 +324,7 @@ onMounted(async () => {
     defaultValue: existing ?? '',
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
-        text: '在这里记笔记。按 ⌥T 插入当前时间点，⌥S 截取当前画面，输入 / 唤起插入菜单。',
+        text: '记录课程笔记。按 ⌥T 插入时间戳，⌥S 截取画面，输入 / 打开插入菜单。',
         mode: 'doc',
       },
       [Crepe.Feature.ImageBlock]: {
@@ -343,7 +354,7 @@ onMounted(async () => {
       },
       [Crepe.Feature.CodeMirror]: {
         searchPlaceholder: '搜索语言',
-        noResultText: '没有找到',
+        noResultText: '无匹配结果',
         copyText: '复制',
         previewLabel: '预览',
       },
@@ -437,7 +448,7 @@ onBeforeUnmount(() => {
   blobUrls.clear()
 })
 
-defineExpose({ insertTimestamp, insertScreenshot, setPlayhead, save, focus, getMarkdown: () => crepe && !destroyed ? serialize(crepe) : undefined })
+defineExpose({ hasUnsavedChanges: () => status.value === 'error' || version !== savedVersion, insertTimestamp, insertInline, insertScreenshot, setPlayhead, save, focus, getMarkdown: () => crepe && !destroyed ? serialize(crepe) : undefined })
 </script>
 
 <template>
@@ -458,9 +469,9 @@ defineExpose({ insertTimestamp, insertScreenshot, setPlayhead, save, focus, getM
 
     <div ref="rootEl" class="scroll-soft note-editor min-h-0 flex-1 overflow-y-auto" />
     <footer class="flex shrink-0 items-center gap-3 border-t border-linen px-4 py-3">
-      <p class="min-w-0 flex-1 truncate text-caption text-stone" :title="detectedQuestion">{{ detectedQuestion || '选中笔记里的疑问，找回缺失的基础知识' }}</p>
-      <UiButton variant="text" size="sm" title="记录选中文字或最近的疑问及当前时间" :disabled="status === 'loading'" @click="askGuide(true)">记下疑问</UiButton>
-      <UiButton variant="ghost" size="sm" title="将选中文字或最近的疑问带入导学" :disabled="status === 'loading'" @click="askGuide(false)"><AppIcon name="sparkles" :size="15" />找基础</UiButton>
+      <p class="min-w-0 flex-1 truncate text-caption text-stone" :title="detectedQuestion">{{ detectedQuestion || '选中疑问内容，查找相关基础课程' }}</p>
+      <UiButton variant="text" size="sm" title="记录选中文字或最近的疑问及当前时间" :disabled="status === 'loading'" @click="askGuide(true)">记录疑问</UiButton>
+      <UiButton variant="ghost" size="sm" title="将选中文字或最近的疑问带入导学" :disabled="status === 'loading'" @click="askGuide(false)"><AppIcon name="sparkles" :size="15" />查找基础课</UiButton>
     </footer>
   </section>
 </template>

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { onMounted, ref, watch } from 'vue'
+import { SHORTCUT_GROUPS } from '~/composables/useShortcuts'
+import AppIcon from '~/components/AppIcon.vue'
+import UiButton from '~/components/UiButton.vue'
 /** 快捷键面板：原生 <dialog>，白色纸面 + 细边框 */
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -35,7 +39,7 @@ function onBackdropClick(e: MouseEvent) {
       <div class="flex items-start justify-between gap-4">
         <div>
           <h2 class="text-heading-sm font-bold">快捷键</h2>
-          <p class="mt-1 text-body-sm text-graphite">焦点在笔记里时，单键快捷键不会打断输入。</p>
+          <p class="mt-1 text-body-sm text-graphite">编辑笔记时，播放类单键快捷键不生效。</p>
         </div>
         <UiButton variant="text" size="sm" icon title="关闭" @click="emit('close')">
           <AppIcon name="close" :size="18" />

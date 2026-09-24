@@ -1,5 +1,6 @@
-import type { DependencyRisk, GuideLesson, LearningPlan, LessonStatus } from '../types/guide'
+import type { DependencyRisk, GuideLesson, KnowledgeModule, LearningPlan, LessonStatus, StudyProgram } from '../types/guide'
 import type { VideoProgress } from '../types/course'
+import { parseProgram, parseStage } from './studyProgram.ts'
 
 export const LESSON_STATUS_LABELS: Record<LessonStatus, string> = {
   required: '必修', optional: '选修 / 查漏', skipped: '已跳过',
@@ -28,7 +29,10 @@ export function validateLearningPlan(value: unknown, paths: string[], allowEmpty
     const id = requiredText(raw.id, '板块编号', 100)
     if (moduleIds.has(id)) throw new Error('知识板块编号重复，请重新生成。')
     moduleIds.add(id)
-    return { id, title: requiredText(raw.title, '板块名称', 200), description: requiredText(raw.description, '板块说明') }
+    const module: KnowledgeModule = { id, title: requiredText(raw.title, '板块名称', 200), description: requiredText(raw.description, '板块说明') }
+    // 实践安排是可选增强：格式不完整时只忽略该部分，不影响路线本身。
+    if (raw.practice !== undefined && raw.practice !== null) { try { module.practice = parseStage(raw.practice) } catch { /* 忽略无效安排 */ } }
+    return module
   })
   const seen = new Set<string>()
   const lessons: GuideLesson[] = value.lessons.map((raw) => {
@@ -66,13 +70,14 @@ export function validateLearningPlan(value: unknown, paths: string[], allowEmpty
   if (typeof value.dailyMinutes !== 'number' || !Number.isFinite(value.dailyMinutes) || value.dailyMinutes < 5 || value.dailyMinutes > 1440) {
     throw new Error('每日学习时间应为 5–1440 分钟。')
   }
-  // 目录顺序是稳定的默认顺序；播放时再按依赖排序。
-  const order = new Map(paths.map((p, i) => [p, i]))
-  lessons.sort((a, b) => order.get(a.path)! - order.get(b.path)!)
+  // 保留规划的课节顺序。目录仅用于校验路径，不能覆盖定制路线的安排。
+  let program: StudyProgram | undefined
+  if (value.program !== undefined && value.program !== null) { try { program = parseProgram(value.program) } catch { /* 忽略无效计划 */ } }
+  if (program) for (const m of modules) if (m.practice && m.practice.endDay > program.days) delete m.practice
   return {
     version: 1, createdAt: Date.now(), summary: requiredText(value.summary, '路线说明'),
     profile: requiredText(value.profile, '学情画像'), dailyMinutes: Math.round(value.dailyMinutes),
-    modules, lessons, messages: [],
+    modules, lessons, messages: [], ...(program ? { program } : {}),
   }
 }
 
@@ -102,14 +107,16 @@ export function retainPrerequisites(lessons: GuideLesson[], includeOptional = fa
 
 export function orderedRoute(lessons: GuideLesson[], includeOptional: boolean): GuideLesson[] {
   const selected = lessons.filter(l => l.status === 'required' || (includeOptional && l.status === 'optional'))
-  const byPath = new Map(selected.map(l => [l.path, l]))
+  const selectedPaths = new Set(selected.map(l => l.path))
+  const byPath = new Map(lessons.map(l => [l.path, l]))
   const visited = new Set<string>()
   const result: GuideLesson[] = []
   function visit(l: GuideLesson) {
     if (visited.has(l.path)) return
     visited.add(l.path)
     l.prerequisites.forEach(p => { const dependency = byPath.get(p); if (dependency) visit(dependency) })
-    result.push(l)
+    // 略过中间课节仍需保留两端的先修顺序，但不把该课重新加入路线。
+    if (selectedPaths.has(l.path)) result.push(l)
   }
   selected.forEach(visit)
   return result

@@ -1,3 +1,5 @@
+import { computed, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import type { TodayItem, TodayPlan } from '~/types/guide'
 import type { PlaybackSample } from '~/types/practice'
 import { crossedSegmentEnd } from '~/utils/segmentReminder'
@@ -27,7 +29,7 @@ export function useSegmentReminder(courseId: Ref<string | undefined>, path: Ref<
     if (!notified.has(key(item)) && previous && previous.seconds >= item.start && crossedSegmentEnd(previous, current, end)) {
       notified.add(key(item)); reminder.value = { item: { ...item }, end }
     }
-    // 部分浏览器在 ended 前补发 paused timeupdate，保留最后一次播放样本。
+    // 部分 WebView 在 ended 前补发 paused timeupdate，保留最后一次播放样本。
     if (current.seeking || current.playing || current.ended || current.seconds < current.duration) previous = current
   }
   return { active, reminder, start, sample, dismiss: () => { reminder.value = null } }

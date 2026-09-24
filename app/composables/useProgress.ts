@@ -1,3 +1,4 @@
+import { reactive, readonly } from 'vue'
 import type { VideoProgress } from '~/types/course'
 import { dbFetchAllProgress, dbSaveProgress } from '~/utils/dbClient'
 
@@ -9,36 +10,19 @@ const DONE_RATIO = 0.95
 
 type ProgressMap = Record<string, Record<string, VideoProgress>>
 
-let loaded = false
+let loading: Promise<void> | undefined
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 const pendingSaves = new Map<string, { courseId: string; path: string; time: number; duration: number; ratio: number; done: boolean }>()
 
 const state = reactive<{ map: ProgressMap }>({ map: {} })
 
-async function loadFromDb() {
-  if (loaded) return
-  loaded = true
+function loadFromDb() {
+  return loading ??= readFromDb()
+}
+
+async function readFromDb() {
   try {
     const data = await dbFetchAllProgress()
-    // 兼容迁移旧 localStorage 数据
-    if (import.meta.client) {
-      try {
-        const old = localStorage.getItem('ai-player.progress.v1')
-        if (old) {
-          const oldMap = JSON.parse(old) as ProgressMap
-          for (const [cId, videos] of Object.entries(oldMap)) {
-            if (!data[cId]) data[cId] = {}
-            for (const [p, val] of Object.entries(videos)) {
-              if (!data[cId]![p]) {
-                data[cId]![p] = val
-                void dbSaveProgress({ courseId: cId, path: p, time: val.time, duration: val.duration, ratio: val.ratio, done: val.done })
-              }
-            }
-          }
-          localStorage.removeItem('ai-player.progress.v1')
-        }
-      } catch { /* 忽略旧缓存解析错误 */ }
-    }
     state.map = data
   } catch (err) {
     console.warn('从 SQLite 读取进度失败', err)
@@ -68,7 +52,7 @@ function scheduleSave(item: { courseId: string; path: string; time: number; dura
 }
 
 export function useProgress() {
-  if (import.meta.client) void loadFromDb()
+  if (typeof window !== 'undefined') void loadFromDb()
 
   function get(courseId: string, path: string): VideoProgress | undefined {
     return state.map[courseId]?.[path]
@@ -115,6 +99,9 @@ export function useProgress() {
   }
 
   return {
+    /** 只读使用：目录等组件靠它订阅进度变化 */
+    state: readonly(state),
+    ready: loadFromDb,
     get,
     courseProgress,
     update,

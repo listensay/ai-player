@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 /**
  * 品牌图标：填充、圆润，不用线性描边图标（DESIGN.md：Icons are filled, colorful, rounded）。
  * 用 currentColor 填充，颜色由外层文字色决定。

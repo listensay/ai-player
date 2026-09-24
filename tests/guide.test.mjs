@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import './support/tauri-http.mjs'
 import { validateLearningPlan, retainPrerequisites, dependencyRisks, orderedRoute, adjacentRoutePath, buildSchedule } from '../app/utils/guide.ts'
 import { parseAiJson, completionUrl, requestGuideJson, planPrompt } from '../app/utils/guideAi.ts'
 import { parseSubtitles, relevantCues } from '../app/utils/guideMedia.ts'
@@ -18,6 +19,30 @@ test('必修课递归保留跨模块基础，播放顺序满足依赖', () => {
   assert.equal(plan.lessons[0].status, 'skipped')
   assert.deepEqual(orderedRoute([...plan.lessons].reverse(), false).map(l => l.path), paths.slice(1, 4))
   assert.equal(orderedRoute(plan.lessons, true).length, 4)
+})
+
+test('规划顺序不会在校验或重新读取时被原目录顺序覆盖', () => {
+  const raw = fixture()
+  raw.lessons = [3, 1, 4, 0, 2].map(i => ({ ...raw.lessons[i], status: 'required', prerequisites: [] }))
+  const expected = raw.lessons.map(l => l.path)
+  const plan = validateLearningPlan(raw, paths)
+  assert.deepEqual(plan.lessons.map(l => l.path), expected)
+  const restored = validateLearningPlan(JSON.parse(JSON.stringify(plan)), [...paths].reverse())
+  assert.deepEqual(orderedRoute(restored.lessons, false).map(l => l.path), expected)
+})
+
+test('跳过中间课节仍保留两端学习顺序，不自动加入路线外课节', () => {
+  const raw = fixture()
+  raw.lessons.forEach(l => { l.status = 'skipped'; l.prerequisites = [] })
+  raw.lessons[0].status = 'required'
+  raw.lessons[0].prerequisites = [paths[1]]
+  raw.lessons[1].prerequisites = [paths[3]]
+  raw.lessons[3].status = 'required'
+  raw.lessons[4].status = 'optional'
+  const plan = validateLearningPlan(raw, paths)
+  assert.deepEqual(orderedRoute(plan.lessons, false).map(l => l.path), [paths[3], paths[0]])
+  assert.deepEqual(orderedRoute(plan.lessons, true).map(l => l.path), [paths[3], paths[0], paths[4]])
+  assert.equal(plan.lessons[1].status, 'skipped')
 })
 test('手动跳过、取消选修会报告间接依赖；补齐后风险消失', () => {
   const plan = validateLearningPlan(fixture(), paths)
@@ -110,7 +135,7 @@ test('请求正确发送用户配置；截断、鉴权失败与取消均可识�
   try {
     globalThis.fetch = async (url, options) => {
       assert.equal(url, 'https://guide.test/v1/chat/completions')
-      assert.equal(options.headers.Authorization, 'Bearer test-only-key')
+      assert.equal(options.headers.authorization, 'Bearer test-only-key')
       assert.equal(JSON.parse(options.body).model, 'test-model')
       return Response.json({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }] })
     }
@@ -150,4 +175,3 @@ test('AI 响应时长支持自定义配置，最高限制 30 分钟', async () =
     globalThis.fetch = original
   }
 })
-

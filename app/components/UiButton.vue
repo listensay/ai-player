@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 /**
  * 药丸按钮（DESIGN.md）：
  *  primary —— 蓝色，每个视图只放一个，代表最高优先级操作

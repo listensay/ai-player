@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const ffmpegPath = require('ffmpeg-static')
+const ffmpegPath = process.env.AI_PLAYER_FFMPEG || require('ffmpeg-static')
 
 export const SAMPLE_RATE = 16000
 
@@ -31,6 +31,8 @@ export function decodeToPcm(inputPath, opts = {}) {
     { stdio: ['ignore', 'pipe', 'pipe'] },
   )
 
+  let processError = null
+  proc.on('error', err => { processError = err })
   let stderr = ''
   proc.stderr.on('data', (d) => (stderr += d))
 
@@ -54,22 +56,25 @@ export function decodeToPcm(inputPath, opts = {}) {
         for (let i = 0; i < usable; i += 4) view.setFloat32(i, buf.readFloatLE(i), true)
         yield aligned
       }
+      if (processError) throw processError
       const code = await new Promise((resolve) => {
         if (proc.exitCode !== null) resolve(proc.exitCode)
-        else proc.once('exit', resolve)
+        else if (proc.signalCode !== null) resolve(null)
+        else { proc.once('exit', resolve); proc.once('error', () => resolve(-1)) }
       })
       if (code !== 0 && !opts.signal?.aborted) {
         const detail = stderr.trim()
         if (/does not contain any stream/i.test(detail)) {
-          throw new Error('这个文件里没有音轨，无法转写。')
+          throw new Error('文件中未检测到音轨，无法转写。')
         }
         if (/Invalid data found|moov atom not found|EBML header parsing failed/i.test(detail)) {
-          throw new Error('ffmpeg 无法识别这个文件，可能已损坏或不是音视频文件。')
+          throw new Error('无法识别文件格式，请确认文件完整且包含音视频内容。')
         }
         throw new Error(`ffmpeg 解码失败（exit ${code}）：${detail.split('\n')[0] || '未知错误'}`)
       }
     } finally {
       kill()
+      opts.signal?.removeEventListener('abort', kill)
     }
   }
 

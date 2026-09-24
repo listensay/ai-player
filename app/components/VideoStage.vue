@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, computed, ref, watch } from 'vue'
+import { usePlayer } from '~/composables/usePlayer'
+import { useProgress } from '~/composables/useProgress'
+import { formatTime } from '~/utils/time'
+import AppIcon from '~/components/AppIcon.vue'
+import PlaybackRateMenu from '~/components/PlaybackRateMenu.vue'
+import UiButton from '~/components/UiButton.vue'
+import { mediaSource } from '~/utils/desktopFiles'
 import type { VideoEntry } from '~/types/course'
 import type { PlaybackSample } from '~/types/practice'
 
@@ -25,8 +33,9 @@ const videoEl = ref<HTMLVideoElement>()
 
 const loading = ref(true)
 const ended = ref(false)
-let objectUrl: string | null = null
+let releaseSource: (() => void) | null = null
 let lastPersist = 0
+let unlistenResize: (() => void) | undefined
 /** 卸载中：忽略 <video> 在被移除时补发的 pause/timeupdate 事件 */
 let unmounting = false
 
@@ -45,8 +54,8 @@ const savedProgress = computed(() => progress.get(props.courseId, props.video.pa
 const resumeHint = computed(() => {
   const p = savedProgress.value
   if (!p) return ''
-  if (p.done) return '已看完'
-  if (p.ratio > 0) return `上次看到 ${formatTime(p.time)}`
+  if (p.done) return '已完成'
+  if (p.ratio > 0) return `上次播放至 ${formatTime(p.time)}`
   return ''
 })
 
@@ -65,11 +74,12 @@ async function loadSource() {
   loading.value = true
   ended.value = false
   state.error = ''
-  if (objectUrl) URL.revokeObjectURL(objectUrl)
+  releaseSource?.()
   try {
-    const file = await props.video.handle.getFile()
-    objectUrl = URL.createObjectURL(file)
-    v.src = objectUrl
+    const source = await mediaSource(props.video.handle)
+    if (unmounting) { source.release(); return }
+    releaseSource = source.release
+    v.src = source.url
     v.load()
   } catch (err) {
     loading.value = false
@@ -88,7 +98,7 @@ function onLoadedMetadata(e: Event) {
   if (!v || unmounting) return
   player.sync.loadedMetadata(v)
   loading.value = false
-  // 回到上次看到的位置；已看完的从头开始
+  // 回到上次播放至的位置；已完成的从头开始
   const p = savedProgress.value
   if (p && !p.done && p.time > 1 && p.time < v.duration - 3) v.currentTime = p.time
 }
@@ -152,10 +162,6 @@ function onStageClick() {
   player.toggle()
 }
 
-function onFullscreenChange() {
-  player.sync.fullscreenChange()
-}
-
 function toggleFullscreen() {
   void player.toggleFullscreen(wrapperEl.value ?? null)
 }
@@ -165,12 +171,19 @@ function onBeforeUnload() {
   progress.flush()
 }
 
-onMounted(() => {
+onMounted(async () => {
   const v = videoEl.value!
   player.attach(v)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
   window.addEventListener('beforeunload', onBeforeUnload)
   void loadSource()
+  {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    const appWindow = getCurrentWindow()
+    unlistenResize = await appWindow.onResized(async () => {
+      if (state.fullscreen && !await appWindow.isFullscreen()) state.fullscreen = false
+    })
+    if (unmounting) unlistenResize()
+  }
 })
 
 watch(
@@ -188,10 +201,10 @@ onBeforeUnmount(() => {
   unmounting = true
   persistProgress(true)
   progress.flush()
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  unlistenResize?.()
   window.removeEventListener('beforeunload', onBeforeUnload)
   player.detach()
-  if (objectUrl) URL.revokeObjectURL(objectUrl)
+  releaseSource?.()
 })
 
 defineExpose({ toggleFullscreen })
@@ -201,7 +214,8 @@ defineExpose({ toggleFullscreen })
   <div
     ref="wrapperEl"
     class="flex min-h-0 flex-1 flex-col gap-4"
-    :class="state.fullscreen ? 'bg-soft-black p-4' : ''"
+    :class="state.fullscreen ? 'fixed inset-0 z-50 h-dvh w-screen bg-soft-black p-4' : ''"
+    :data-fullscreen="state.fullscreen"
   >
     <!-- 舞台：奶油桌面上唯一的深色物件，24px 圆角 + 2px 偏移阴影 -->
     <div
@@ -214,6 +228,7 @@ defineExpose({ toggleFullscreen })
         class="h-full w-full object-contain"
         playsinline
         preload="metadata"
+        crossorigin="anonymous"
         tabindex="-1"
         @loadedmetadata="onLoadedMetadata"
         @durationchange="onVideoEvent($event, player.sync.durationChange)"
@@ -245,7 +260,7 @@ defineExpose({ toggleFullscreen })
         @click.stop
       >
         <div class="max-w-md rounded-2xl bg-pure-white p-6 text-center">
-          <p class="text-body font-bold text-charcoal-ink">这一集播不了</p>
+          <p class="text-body font-bold text-charcoal-ink">视频无法播放</p>
           <p class="mt-2 text-body-sm text-graphite">{{ state.error }}</p>
         </div>
       </div>
@@ -256,10 +271,10 @@ defineExpose({ toggleFullscreen })
         class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-charcoal-ink/70"
         @click.stop
       >
-        <p class="text-subheading font-bold text-pure-white">这一集看完了</p>
+        <p class="text-subheading font-bold text-pure-white">本节播放结束</p>
         <div class="flex flex-wrap justify-center gap-3">
-          <UiButton @click="emit('practice')">学完一小练</UiButton>
-          <UiButton variant="ghost" @click="onStageClick">再看一遍</UiButton>
+          <UiButton @click="emit('practice')">课后练习</UiButton>
+          <UiButton variant="ghost" @click="onStageClick">重新播放</UiButton>
           <UiButton v-if="hasNext" variant="dark" @click="emit('next')">
             播放下一集
             <AppIcon name="skip-next" :size="18" />
@@ -289,27 +304,12 @@ defineExpose({ toggleFullscreen })
 
     <slot name="reminder" />
 
+    <p v-if="state.fullscreenError" role="alert" class="text-body-sm text-error">{{ state.fullscreenError }}</p>
+
     <!-- 控制条：白色纸面 -->
     <div class="pane shrink-0 px-4 py-3" :class="state.fullscreen ? 'border-transparent' : ''">
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-charcoal-ink text-pure-white shadow-subtle transition-colors hover:bg-soft-black active:translate-y-px active:shadow-none disabled:opacity-40"
-          :aria-label="state.playing ? '暂停' : '播放'"
-          :disabled="!state.ready"
-          @click="onStageClick"
-        >
-          <AppIcon :name="state.playing ? 'pause' : 'play'" :size="22" :class="state.playing ? '' : 'ml-0.5'" />
-        </button>
-
-        <UiButton variant="text" size="sm" icon title="后退 5 秒（←）" :disabled="!state.ready" @click="player.seekBy(-5)">
-          <AppIcon name="rewind" :size="18" />
-        </UiButton>
-        <UiButton variant="text" size="sm" icon title="前进 5 秒（→）" :disabled="!state.ready" @click="player.seekBy(5)">
-          <AppIcon name="forward" :size="18" />
-        </UiButton>
-
-        <span class="tabular ml-1 w-14 shrink-0 text-right text-body-sm font-medium text-charcoal-ink">
+      <div class="mb-2 flex items-center gap-2">
+        <span class="tabular w-14 shrink-0 text-right text-body-sm font-medium text-charcoal-ink">
           {{ formatTime(seekValue) }}
         </span>
 
@@ -332,6 +332,27 @@ defineExpose({ toggleFullscreen })
         <span class="tabular w-14 shrink-0 text-body-sm font-medium text-stone">
           {{ formatTime(state.duration) }}
         </span>
+
+      </div>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-charcoal-ink text-pure-white shadow-subtle transition-colors hover:bg-soft-black active:translate-y-px active:shadow-none disabled:opacity-40"
+          :aria-label="state.playing ? '暂停' : '播放'"
+          :disabled="!state.ready"
+          @click="onStageClick"
+        >
+          <AppIcon :name="state.playing ? 'pause' : 'play'" :size="22" :class="state.playing ? '' : 'ml-0.5'" />
+        </button>
+
+        <UiButton variant="text" size="sm" icon title="后退 5 秒（←）" :disabled="!state.ready" @click="player.seekBy(-5)">
+          <AppIcon name="rewind" :size="18" />
+        </UiButton>
+        <UiButton variant="text" size="sm" icon title="前进 5 秒（→）" :disabled="!state.ready" @click="player.seekBy(5)">
+          <AppIcon name="forward" :size="18" />
+        </UiButton>
+
+        <div class="flex-1" />
 
         <PlaybackRateMenu :rate="state.rate" @change="player.setRate" />
 

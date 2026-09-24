@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
+import { useGuide } from '~/composables/useLearningGuide'
+import { formatTime } from '~/utils/time'
+import UiButton from '~/components/UiButton.vue'
 import { QUESTION_LABELS } from '~/utils/learningFeedback'
 defineEmits<{ select: [id: string]; seek: [path: string, seconds: number] }>()
 const guide = useGuide()
@@ -23,16 +27,16 @@ const questions = computed(() => guide.state.questions.filter(q => filter.value 
           <span class="shrink-0 rounded-full bg-page-cream px-2 py-1 text-caption">{{ QUESTION_LABELS[q.status] }}</span>
         </div>
         <button type="button" class="mt-2 max-w-full break-words text-left text-caption text-stone underline" @click="$emit('seek', q.path, q.seconds)">
-          {{ guide.videoMap.value.get(q.path)?.title }} · {{ formatTime(q.seconds, true) }} · 回到提问位置
+          {{ guide.videoMap.value.get(q.path)?.title }} · {{ formatTime(q.seconds, true) }} · 返回提问位置
         </button>
         <div class="mt-3 flex flex-wrap gap-2">
           <UiButton size="sm" :disabled="!!guide.state.busy" @click="$emit('select', q.id)">继续处理</UiButton>
-          <UiButton v-if="q.status !== 'resolved'" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'resolved')">解决了</UiButton>
+          <UiButton v-if="q.status !== 'resolved'" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'resolved')">标记已解决</UiButton>
           <UiButton v-if="q.status !== 'resolved'" variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'still-confused')">仍不理解</UiButton>
           <UiButton v-else variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'open')">重新打开</UiButton>
         </div>
       </li>
     </ul>
-    <p v-if="!questions.length" class="py-6 text-center text-body-sm text-stone">{{ filter === 'resolved' ? '还没有已解决的疑问' : filter === 'all' ? '还没有记录疑问，在笔记里选中问题即可记下。' : '暂时没有待解决的疑问' }}</p>
+    <p v-if="!questions.length" class="py-6 text-center text-body-sm text-stone">{{ filter === 'resolved' ? '暂无已解决的疑问' : filter === 'all' ? '暂无疑问记录。可在笔记中选中问题并记录。' : '暂无待解决的疑问' }}</p>
   </section>
 </template>

@@ -5,9 +5,11 @@
  * 下载源默认是 sherpa-onnx 的 GitHub Release；国内网络可以用 AI_PLAYER_MODEL_BASE_URL
  * 指向镜像，或者按 README 手动把文件放进模型目录。
  */
-import { spawn } from 'node:child_process'
+import { createReadStream } from 'node:fs'
+import { x as extractTar } from 'tar'
+import unbzip2 from 'unbzip2-stream'
 import { createWriteStream } from 'node:fs'
-import { access, mkdir, rename, rm, stat } from 'node:fs/promises'
+import { access, mkdir, rename, rm, stat, cp, mkdtemp } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -42,7 +44,7 @@ export const downloadState = {
 async function exists(p) {
   try {
     await access(p)
-    return true
+    return (await stat(p)).size > 0
   } catch {
     return false
   }
@@ -57,7 +59,7 @@ export async function modelsReady() {
   return a && b && c
 }
 
-async function download(url, dest, label) {
+export async function download(url, dest, label) {
   downloadState.active = true
   downloadState.file = label
   downloadState.received = 0
@@ -85,14 +87,8 @@ async function download(url, dest, label) {
   }
 }
 
-function extractTarBz2(archive, cwd) {
-  return new Promise((resolve, reject) => {
-    const tar = spawn('tar', ['xjf', archive], { cwd, stdio: ['ignore', 'ignore', 'pipe'] })
-    let stderr = ''
-    tar.stderr.on('data', (d) => (stderr += d))
-    tar.on('error', reject)
-    tar.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`tar 解压失败：${stderr}`))))
-  })
+export async function extractTarBz2(archive, cwd) {
+  await pipeline(createReadStream(archive), unbzip2(), extractTar({ cwd, strict: true, filter: (_path, entry) => entry.type === 'File' || entry.type === 'Directory' }))
 }
 
 let ensuring = null
@@ -102,6 +98,19 @@ export function ensureModels(log = console.log) {
   if (!ensuring) {
     ensuring = (async () => {
       await mkdir(MODEL_DIR, { recursive: true })
+      // Reuse an earlier web installation without changing its files.
+      const legacy = path.join(os.homedir(), '.ai-player', 'models')
+      if (legacy !== MODEL_DIR) {
+        for (const file of [VAD_FILE, `${SENSE_VOICE_NAME}/model.int8.onnx`, `${SENSE_VOICE_NAME}/tokens.txt`]) {
+          const dest = path.join(MODEL_DIR, file)
+          if (!(await exists(dest)) && await exists(path.join(legacy, file))) {
+            await mkdir(path.dirname(dest), { recursive: true })
+            const pending = `${dest}.part`
+            await cp(path.join(legacy, file), pending)
+            await rename(pending, dest)
+          }
+        }
+      }
 
       if (!(await exists(paths.vad))) {
         log(`下载 VAD 模型 -> ${paths.vad}`)
@@ -115,10 +124,19 @@ export function ensureModels(log = console.log) {
           await download(`${BASE_URL}/${SENSE_VOICE_NAME}.tar.bz2`, archive, `${SENSE_VOICE_NAME}.tar.bz2`)
         }
         log('解压模型…')
-        await extractTarBz2(archive, MODEL_DIR)
-        const s = await stat(paths.senseVoiceModel).catch(() => null)
-        if (!s) throw new Error('解压后没有找到 model.int8.onnx，请删除模型目录后重试')
-        await rm(archive, { force: true })
+        const staging = await mkdtemp(path.join(MODEL_DIR, '.extract-'))
+        try {
+          await extractTarBz2(archive, staging)
+          for (const file of ['model.int8.onnx', 'tokens.txt']) {
+            const source = path.join(staging, SENSE_VOICE_NAME, file)
+            if (!(await stat(source)).size) throw new Error('下载的模型不完整，请重试')
+          }
+          await mkdir(paths.senseVoiceDir, { recursive: true })
+          for (const file of ['model.int8.onnx', 'tokens.txt']) await rename(path.join(staging, SENSE_VOICE_NAME, file), path.join(paths.senseVoiceDir, file))
+        } finally {
+          await rm(staging, { recursive: true, force: true })
+          await rm(archive, { force: true })
+        }
       }
       log('模型就绪')
     })().finally(() => {

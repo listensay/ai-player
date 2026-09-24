@@ -1,7 +1,8 @@
+import type { CourseDirectoryHandle } from '~/types/storage'
 import { markRaw } from 'vue'
 import type { FolderEntry, VideoEntry } from '~/types/course'
 
-/** 浏览器 <video> 大概率能播的容器格式；mkv/mov 取决于编码器，播不了时播放器会给出提示 */
+/** 视频播放器支持的容器格式；mkv/mov 取决于编码器，播不了时播放器会给出提示 */
 export const VIDEO_EXTENSIONS = new Set([
   'mp4',
   'm4v',
@@ -20,10 +21,6 @@ export const VIDEO_EXTENSIONS = new Set([
 
 /** 忽略的目录：隐藏目录、截图资源目录、依赖目录 */
 const IGNORED_DIRS = new Set(['node_modules', '.git', '.DS_Store'])
-
-export function isSupportedBrowser(): boolean {
-  return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
-}
 
 export function fileExtension(name: string): string {
   const i = name.lastIndexOf('.')
@@ -49,30 +46,20 @@ export function naturalCompare(a: string, b: string): number {
   return naturalCollator.compare(a, b)
 }
 
-/** 请求（或确认）目录的读写权限；必须在用户手势里调用 requestPermission 才会弹窗 */
-export async function ensurePermission(
-  handle: FileSystemHandle,
-  mode: 'read' | 'readwrite' = 'readwrite',
-): Promise<boolean> {
-  const descriptor = { mode }
-  if ((await handle.queryPermission(descriptor)) === 'granted') return true
-  return (await handle.requestPermission(descriptor)) === 'granted'
-}
-
 /**
  * 递归扫描课程目录，得到树与扁平视频列表。
  * 目录和文件都按自然顺序排序；目录排在文件前面。
- * 所有句柄都用 markRaw 标记，避免被 Vue 的响应式代理包裹（原生方法需要真实的 this）。
+ * 所有句柄都用 markRaw 标记，避免被 Vue 的响应式代理包裹（文件操作需要真实的 this）。
  */
 export async function scanCourse(
-  root: FileSystemDirectoryHandle,
+  root: CourseDirectoryHandle,
 ): Promise<{ tree: FolderEntry; videos: VideoEntry[] }> {
   const videos: VideoEntry[] = []
 
-  async function walk(dir: FileSystemDirectoryHandle, path: string): Promise<FolderEntry> {
+  async function walk(dir: CourseDirectoryHandle, path: string): Promise<FolderEntry> {
     const folders: FolderEntry[] = []
     const files: VideoEntry[] = []
-    const subdirs: FileSystemDirectoryHandle[] = []
+    const subdirs: CourseDirectoryHandle[] = []
     const rawDir = markRaw(dir)
 
     for await (const entry of dir.values()) {
@@ -127,7 +114,7 @@ export async function scanCourse(
 }
 
 export async function readTextFile(
-  dir: FileSystemDirectoryHandle,
+  dir: CourseDirectoryHandle,
   name: string,
 ): Promise<string | null> {
   try {
@@ -141,7 +128,7 @@ export async function readTextFile(
 }
 
 export async function writeTextFile(
-  dir: FileSystemDirectoryHandle,
+  dir: CourseDirectoryHandle,
   name: string,
   text: string,
 ): Promise<void> {
@@ -152,7 +139,7 @@ export async function writeTextFile(
 }
 
 export async function writeBlobFile(
-  dir: FileSystemDirectoryHandle,
+  dir: CourseDirectoryHandle,
   name: string,
   blob: Blob,
 ): Promise<void> {
@@ -164,7 +151,7 @@ export async function writeBlobFile(
 
 /** 按相对路径（可含多级目录）读取文件；不存在返回 null */
 export async function resolveRelativeFile(
-  base: FileSystemDirectoryHandle,
+  base: CourseDirectoryHandle,
   relativePath: string,
 ): Promise<File | null> {
   const parts = relativePath.split('/').filter((p) => p && p !== '.')

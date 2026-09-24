@@ -1,8 +1,5 @@
-# Nuxt dev/build outputs
-.output
+# Build outputs
 .data
-.nuxt
-.nitro
 .cache
 dist
 test-results
@@ -25,9 +22,8 @@ logs
 .env.*
 !.env.example
 
-# SQLite Database
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/*.db-journal
 
+# Desktop build output
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/runtime/

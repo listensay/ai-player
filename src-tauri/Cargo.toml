@@ -1,0 +1,32 @@
+[package]
+name = "ai-player"
+version = "0.1.0"
+description = "Local video learning workspace"
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+name = "ai_player_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.6", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-http = "~2.6"
+rusqlite = { version = "0.38", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+futures-util = "0.3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+urlpattern = "0.3"
+regex = "1"
