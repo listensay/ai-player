@@ -357,6 +357,7 @@ export function provideCourseWorkspace() {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     const { listen } = await import('@tauri-apps/api/event')
     const appWindow = getCurrentWindow()
+    await appWindow.maximize().catch(() => {})
     const closeSafely = async () => {
       if (closing) return
       closing = true
