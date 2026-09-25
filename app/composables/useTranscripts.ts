@@ -11,6 +11,14 @@ import type { CourseDirectoryHandle } from '~/types/storage'
 import { markRaw } from 'vue'
 import type { VideoEntry } from '~/types/course'
 import type { TranscriptSegment, TranscriptState, TranscriptStatus } from '~/types/transcript'
+import type { GuideSettings } from '~/types/guide'
+import { requestGuideJson } from '~/utils/guideAi'
+import {
+  applyTranscriptCorrections,
+  batchTranscriptSegments,
+  refineTranscriptPrompt,
+  validateTranscriptCorrections,
+} from '~/utils/transcriptAi'
 
 interface Job {
   courseId: string
@@ -23,6 +31,7 @@ interface Job {
 
 const states = reactive(new Map<string, TranscriptState>())
 const jobs = new Map<string, Job>()
+const refineJobs = new Map<string, AbortController>()
 const loads = new Map<string, Promise<void>>()
 const runs = new Map<string, Promise<void>>()
 const jobCount = ref(0)
@@ -41,6 +50,9 @@ function blank(): TranscriptState {
     fileName: '',
     elapsed: 0,
     language: '',
+    refining: false,
+    refineProgress: '',
+    refineError: '',
   }
 }
 
@@ -167,13 +179,89 @@ export function useTranscripts() {
 
   function cancel(courseId: string, path: string) {
     jobs.get(key(courseId, path))?.controller.abort()
+    cancelRefine(courseId, path)
   }
 
   /** 重新转写：先丢掉内存里的结果（文件会在完成时被覆盖） */
   function reset(courseId: string, path: string) {
+    cancelRefine(courseId, path)
     const s = ensure(key(courseId, path))
     if (s.status === 'transcribing') return
     Object.assign(s, blank(), { status: 'none' })
+  }
+
+  async function refine(
+    courseId: string,
+    video: VideoEntry,
+    settings: GuideSettings,
+  ): Promise<{ total: number; changed: number }> {
+    const k = key(courseId, video.path)
+    const s = ensure(k)
+    if (s.status !== 'ready' || !s.segments.length) {
+      throw new Error('当前课节没有可校对的逐字稿。')
+    }
+    if (s.refining) {
+      throw new Error('AI 校对正在进行中。')
+    }
+    if (!settings.baseUrl?.trim() || !settings.model?.trim()) {
+      throw new Error('请先在 AI 设置中配置并启用服务。')
+    }
+
+    const controller = new AbortController()
+    refineJobs.set(k, controller)
+    s.refining = true
+    s.refineProgress = ''
+    s.refineError = ''
+
+    try {
+      const batches = batchTranscriptSegments(s.segments)
+      let totalChanged = 0
+      let currentSegments = [...s.segments]
+
+      for (const [index, batch] of batches.entries()) {
+        if (controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
+        s.refineProgress = `${index + 1} / ${batches.length}`
+
+        const raw = await requestGuideJson(
+          settings,
+          refineTranscriptPrompt(video.title, batch),
+          controller.signal,
+        )
+        if (controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
+
+        const corrections = validateTranscriptCorrections(raw, batch)
+        const { updatedSegments, changedCount } = applyTranscriptCorrections(currentSegments, corrections)
+        currentSegments = updatedSegments
+        totalChanged += changedCount
+        s.segments = currentSegments
+      }
+
+      const fileName = s.fileName || `${video.title}.srt`
+      await writeTextFile(video.parent, fileName, toSrt(s.segments))
+      s.fileName = fileName
+      s.refineProgress = ''
+      return { total: s.segments.length, changed: totalChanged }
+    } catch (err) {
+      if (controller.signal.aborted) {
+        s.refineProgress = ''
+        s.refineError = ''
+        throw new DOMException('已取消', 'AbortError')
+      }
+      const message = (err as Error).message || 'AI 校对失败，请重试。'
+      s.refineError = message
+      throw err
+    } finally {
+      s.refining = false
+      refineJobs.delete(k)
+    }
+  }
+
+  function cancelRefine(courseId: string, path: string) {
+    const controller = refineJobs.get(key(courseId, path))
+    if (controller) {
+      controller.abort()
+      refineJobs.delete(key(courseId, path))
+    }
   }
 
   const tasks = computed(() => {
@@ -182,5 +270,5 @@ export function useTranscripts() {
   })
   const activeJobs = computed(() => jobCount.value)
 
-  return { get, load, prepare, transcribe, cancel, reset, activeJobs, tasks, asr }
+  return { get, load, prepare, transcribe, cancel, reset, refine, cancelRefine, activeJobs, tasks, asr }
 }

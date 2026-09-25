@@ -18,7 +18,7 @@ const {
   onVideoSample, navigateEpisode, recordQuestion, openGuide, openPractice,
   practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment,
   selectGuideVideo, returnToLesson, answerQuestion, selectVideo, insertTimestamp,
-  screenshot, seekTo, quoteToNote,
+  screenshot, seekTo, quoteToNote, showToast,
 } = useCourseWorkspace()
 function bindStage(instance: unknown) { stage.value = instance as typeof stage.value }
 function bindNoteEditor(instance: unknown) { noteEditor.value = instance as typeof noteEditor.value }
@@ -191,7 +191,10 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           :video="video"
           :course-id="course.id"
           :active="rightTab === 'transcript'"
+          :ai-settings="guide.state.settings"
+          :ai-configured="guide.configured.value"
           @quote="quoteToNote"
+          @toast="showToast"
         />
       </div>
     </main>

@@ -13,16 +13,20 @@ import UiButton from '~/components/UiButton.vue'
  * 组件常驻（v-show 切换页签），转写任务本身放在 useTranscripts 里，切课也不会中断。
  */
 import type { VideoEntry } from '~/types/course'
+import type { GuideSettings } from '~/types/guide'
 
 const props = defineProps<{
   video: VideoEntry
   courseId: string
   /** 面板当前是否可见（可见时才探测服务、自动滚动） */
   active: boolean
+  aiSettings?: GuideSettings
+  aiConfigured?: boolean
 }>()
 
 const emit = defineEmits<{
   quote: [text: string]
+  toast: [message: string]
 }>()
 
 const transcripts = useTranscripts()
@@ -79,6 +83,29 @@ function startTranscribe() {
 function retranscribe() {
   transcripts.reset(props.courseId, props.video.path)
   startTranscribe()
+}
+
+async function handleRefine() {
+  if (!props.aiConfigured || !props.aiSettings) {
+    emit('toast', '请先在 AI 设置中配置并启用服务')
+    return
+  }
+  try {
+    const result = await transcripts.refine(props.courseId, props.video, props.aiSettings)
+    if (result.changed > 0) {
+      emit('toast', `AI 校对完成，已优化 ${result.changed} 处术语与拼写`)
+    } else {
+      emit('toast', '逐字稿校对完成，未发现需修正的拼写或术语')
+    }
+  } catch (err) {
+    if ((err as Error).name !== 'AbortError') {
+      emit('toast', (err as Error).message || 'AI 校对失败')
+    }
+  }
+}
+
+function cancelRefine() {
+  transcripts.cancelRefine(props.courseId, props.video.path)
 }
 
 function quote(seg: { start: number; text: string }) {
@@ -225,12 +252,13 @@ onBeforeUnmount(() => {
           >
             <button
               type="button"
-              class="tabular mt-0.5 h-6 shrink-0 rounded-full px-2 text-caption font-bold transition-colors"
+              class="tabular mt-0.5 h-6 shrink-0 rounded-full px-2 text-caption font-bold transition-colors inline-flex items-center gap-1"
               :class="index === activeIndex ? 'bg-charcoal-ink text-pure-white' : 'bg-page-cream text-graphite group-hover:bg-linen'"
-              :title="`跳转至 ${formatTime(seg.start)}`"
+              :title="seg.refined ? `跳转至 ${formatTime(seg.start)}（AI 已校对）` : `跳转至 ${formatTime(seg.start)}`"
               @click="seek(seg.start)"
             >
-              {{ formatTime(seg.start) }}
+              <span>{{ formatTime(seg.start) }}</span>
+              <span v-if="seg.refined" class="h-1.5 w-1.5 rounded-full bg-mindful-blue" title="AI 已校对修正" />
             </button>
             <button
               type="button"
@@ -264,6 +292,29 @@ onBeforeUnmount(() => {
           <template v-else>{{ state.segments.length }} 句</template>
         </span>
         <div class="flex shrink-0 items-center gap-2">
+          <span v-if="state.refining" class="inline-flex items-center gap-1.5 font-medium text-mindful-blue">
+            <AppIcon name="sparkles" :size="13" class="animate-spin" />
+            AI 纠错中 {{ state.refineProgress }}
+          </span>
+          <button
+            v-if="state.refining"
+            type="button"
+            class="text-stone hover:text-charcoal-ink"
+            @click="cancelRefine"
+          >
+            取消
+          </button>
+          <button
+            v-else-if="state.status === 'ready'"
+            type="button"
+            class="inline-flex items-center gap-1 hover:text-charcoal-ink"
+            :disabled="!aiConfigured"
+            :title="!aiConfigured ? '需在 AI 设置中配置并启用服务' : '使用 AI 校对含糊英文、技术术语与发音错别字'"
+            @click="handleRefine"
+          >
+            <AppIcon name="sparkles" :size="13" />
+            AI 纠错
+          </button>
           <button
             v-if="!follow"
             type="button"
@@ -273,7 +324,7 @@ onBeforeUnmount(() => {
             定位当前句
           </button>
           <button
-            v-if="state.status === 'ready'"
+            v-if="state.status === 'ready' && !state.refining"
             type="button"
             class="hover:text-charcoal-ink"
             :disabled="asr.state.status !== 'ready'"

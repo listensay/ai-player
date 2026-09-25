@@ -7,6 +7,8 @@ export interface TranscriptSegment {
   /** 结束秒 */
   end: number
   text: string
+  /** 是否经由 AI 校对优化 */
+  refined?: boolean
 }
 
 export type TranscriptStatus =
@@ -30,6 +32,10 @@ export interface TranscriptState {
   /** 转写耗时（秒） */
   elapsed: number
   language: string
+  /** AI 纠错校对中 */
+  refining?: boolean
+  refineProgress?: string
+  refineError?: string
 }
 
 export interface TranscriptMatch {

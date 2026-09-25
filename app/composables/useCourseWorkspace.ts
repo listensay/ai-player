@@ -383,7 +383,7 @@ export function provideCourseWorkspace() {
     await desktopInvoke('frontend_ready')
   })
   onBeforeUnmount(() => { unlistenClose?.(); unlistenQuit?.() })
-  const workspace = { store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideQuestion, guideTab, returnPoint, feedbackQuestionId, pendingSeek, treeOpen, rightTab, transcripts, currentView, toast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, recordQuestion, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment, selectGuideVideo, returnToLesson, answerQuestion, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
+  const workspace = { store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideQuestion, guideTab, returnPoint, feedbackQuestionId, pendingSeek, treeOpen, rightTab, transcripts, currentView, toast, showToast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, recordQuestion, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment, selectGuideVideo, returnToLesson, answerQuestion, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
   provide(COURSE_WORKSPACE, workspace)
   return workspace
 }
