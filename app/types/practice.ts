@@ -6,14 +6,25 @@ export interface PracticeSource {
   start?: number
   end?: number
 }
-export interface PracticeQuestion {
-  kind: 'explain' | 'code' | 'task'
+export type PracticeKind = 'single-choice' | 'multiple-choice' | 'true-false' | 'fill-blank' | 'explain' | 'code' | 'task'
+export interface PracticeKnowledge {
+  category: 'fact' | 'concept' | 'procedure' | 'application'
+  level: 'awareness' | 'proficiency' | 'mastery'
+  reason: string
+}
+interface PracticeQuestionBase {
   prompt: string
   concepts: string[]
   criteria: string[]
   referenceAnswer: string
   sourceIds: string[]
+  /** 旧练习没有学习目标，保持未分类；新题必须提供。 */
+  knowledge?: PracticeKnowledge
 }
+export type PracticeQuestion = PracticeQuestionBase & (
+  | { kind: 'single-choice' | 'multiple-choice' | 'true-false'; options: Array<{ id: string; text: string }>; correctOptionIds: string[] }
+  | { kind: 'fill-blank' | 'explain' | 'code' | 'task' }
+)
 export interface PracticeFeedback {
   result: 'solid' | 'partial' | 'retry'
   strengths: string[]

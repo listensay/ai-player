@@ -61,18 +61,33 @@ const rows = computed(() => {
     </table>
 
     <div class="mt-4 space-y-2 text-body-sm">
-      <details v-if="preview.added.length"><summary class="cursor-pointer font-bold">新增课节（{{ preview.added.length }}）</summary>
-        <ul class="mt-2 list-disc space-y-1 pl-5 text-caption text-graphite"><li v-for="(name, i) in names(preview.added)" :key="i" class="[overflow-wrap:anywhere]">{{ name }}</li></ul>
-        <p v-if="preview.added.length > LIMIT" class="mt-1 text-caption text-stone">另有 {{ preview.added.length - LIMIT }} 节</p>
-      </details>
-      <details v-if="preview.removed.length"><summary class="cursor-pointer font-bold">移出课节（{{ preview.removed.length }}）</summary>
-        <ul class="mt-2 list-disc space-y-1 pl-5 text-caption text-graphite"><li v-for="(name, i) in names(preview.removed)" :key="i" class="[overflow-wrap:anywhere]">{{ name }}</li></ul>
-        <p v-if="preview.removed.length > LIMIT" class="mt-1 text-caption text-stone">另有 {{ preview.removed.length - LIMIT }} 节</p>
-      </details>
-      <details v-if="preview.moved.length"><summary class="cursor-pointer font-bold">顺序调整（{{ preview.moved.length }}）</summary>
-        <ul class="mt-2 list-disc space-y-1 pl-5 text-caption text-graphite"><li v-for="(name, i) in names(preview.moved)" :key="i" class="[overflow-wrap:anywhere]">{{ name }}</li></ul>
-        <p v-if="preview.moved.length > LIMIT" class="mt-1 text-caption text-stone">另有 {{ preview.moved.length - LIMIT }} 节</p>
-      </details>
+      <VExpansionPanels v-if="preview.added.length" class="my-3">
+        <VExpansionPanel value="content">
+          <VExpansionPanelTitle>新增课节（{{ preview.added.length }}）</VExpansionPanelTitle>
+          <VExpansionPanelText>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-caption text-graphite"><li v-for="(name, i) in names(preview.added)" :key="i" class="[overflow-wrap:anywhere]">{{ name }}</li></ul>
+            <p v-if="preview.added.length > LIMIT" class="mt-1 text-caption text-stone">另有 {{ preview.added.length - LIMIT }} 节</p>
+          </VExpansionPanelText>
+        </VExpansionPanel>
+      </VExpansionPanels>
+      <VExpansionPanels v-if="preview.removed.length" class="my-3">
+        <VExpansionPanel value="content">
+          <VExpansionPanelTitle>移出课节（{{ preview.removed.length }}）</VExpansionPanelTitle>
+          <VExpansionPanelText>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-caption text-graphite"><li v-for="(name, i) in names(preview.removed)" :key="i" class="[overflow-wrap:anywhere]">{{ name }}</li></ul>
+            <p v-if="preview.removed.length > LIMIT" class="mt-1 text-caption text-stone">另有 {{ preview.removed.length - LIMIT }} 节</p>
+          </VExpansionPanelText>
+        </VExpansionPanel>
+      </VExpansionPanels>
+      <VExpansionPanels v-if="preview.moved.length" class="my-3">
+        <VExpansionPanel value="content">
+          <VExpansionPanelTitle>顺序调整（{{ preview.moved.length }}）</VExpansionPanelTitle>
+          <VExpansionPanelText>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-caption text-graphite"><li v-for="(name, i) in names(preview.moved)" :key="i" class="[overflow-wrap:anywhere]">{{ name }}</li></ul>
+            <p v-if="preview.moved.length > LIMIT" class="mt-1 text-caption text-stone">另有 {{ preview.moved.length - LIMIT }} 节</p>
+          </VExpansionPanelText>
+        </VExpansionPanel>
+      </VExpansionPanels>
       <p v-if="!preview.added.length && !preview.removed.length && !preview.moved.length" class="text-caption text-stone">路线课节与顺序没有变化。</p>
     </div>
 

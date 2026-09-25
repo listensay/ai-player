@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import { useProgress } from '~/composables/useProgress'
 import { useCheckIn } from '~/composables/useStudyCheckIn'
 import AppIcon from '~/components/AppIcon.vue'
 import CheckInCalendar from '~/components/CheckInCalendar.vue'
-import LessonBadge from '~/components/LessonBadge.vue'
 import StagePanel from '~/components/StagePanel.vue'
 import StageProgressBars from '~/components/StageProgressBars.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
@@ -107,6 +106,7 @@ function itemTitle(item: TodayItem) {
   return video ? conciseLessonTitle(video.title) : item.path
 }
 function startItem(item: TodayItem) {
+  tasksOpen.value = false
   if (item.questionId) { emit('guide', 'help'); return }
   emit('segment', item)
 }
@@ -151,7 +151,10 @@ const groups = computed(() => {
 })
 const allOpen = computed(() => groups.value.every(g => openModules.has(g.moduleId)))
 function isOpen(id: string) { return searching.value || openModules.has(id) }
-function toggleModule(id: string) { if (openModules.has(id)) openModules.delete(id); else openModules.add(id) }
+function setModuleOpen(id: string, value: unknown) {
+  if (value === 'content') openModules.add(id)
+  else openModules.delete(id)
+}
 function toggleAll() {
   if (allOpen.value) openModules.clear()
   else for (const g of groups.value) openModules.add(g.moduleId)
@@ -168,292 +171,200 @@ const moduleStats = computed(() => {
   return result
 })
 const openStage = ref('')
-
-// —— 推荐说明：为什么学、服务哪个项目、何时可跳过 ——
-const openInfo = ref('')
-function lessonInfo(path: string) {
-  const lesson = guide.lessonMap.value.get(path)
-  if (!lesson) return null
-  const module = guide.moduleMap.value.get(lesson.moduleId)
-  return {
-    lesson,
-    stage: module?.title ?? '',
-    serves: module?.practice?.project ?? module?.description ?? '',
-    skipWhen: module?.practice?.skipWhen ?? '已掌握本课全部知识点时，可在导学中标记为“已掌握”，路线将自动略过本课。',
-    prerequisites: lesson.prerequisites.map(p => guide.videoMap.value.get(p)).filter((v): v is VideoEntry => !!v).map(v => conciseLessonTitle(v.title)),
-  }
+const tasksOpen = ref(false)
+const catalogEl = ref<HTMLElement>()
+const nextWork = computed(() => guide.todayWork.value.find(item => !item.done))
+const workDone = computed(() => guide.todayWork.value.filter(item => item.done).length)
+async function revealStage() {
+  if (!activeModule.value) return
+  openStage.value = activeModule.value.id
+  openModules.add(activeModule.value.id)
+  searchQuery.value = ''; filter.value = 'all'; guide.state.view = 'route'
+  await nextTick()
+  catalogEl.value?.querySelector(`[data-module="${CSS.escape(activeModule.value.id)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 }
 </script>
 
 <template>
-  <div class="scroll-soft min-h-0 flex-1 overflow-y-auto bg-page-cream p-4 sm:p-6 lg:p-8">
-    <div class="mx-auto max-w-6xl space-y-6">
-      <!-- 课程头部：完整计划与视频排期分开展示 -->
-      <section class="pane relative overflow-hidden p-6 sm:p-7">
-        <div class="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div class="min-w-0 flex-1">
+  <div class="overview-page scroll-soft">
+    <div class="overview-shell">
+      <section class="overview-course-header pane p-5 sm:p-6" aria-label="课程概况">
+        <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div class="min-w-0 flex-1 basis-80">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center gap-1.5 rounded-full border border-linen bg-page-cream px-3 py-1 text-caption font-bold text-stone">
-                <AppIcon name="folder" :size="13" class="text-stone" />
-                本地课程
-              </span>
-              <span v-if="guide.state.plan" class="inline-flex items-center gap-1 rounded-full bg-deep-indigo/10 px-3 py-1 text-caption font-bold text-deep-indigo">
-                <AppIcon name="sparkles" :size="13" />
-                已定制 AI 路线
-              </span>
-              <span v-if="timeSummary?.plan" class="inline-flex items-center rounded-full bg-sunbeam-yellow/30 px-3 py-1 text-caption font-bold text-charcoal-ink" data-testid="plan-day">
-                {{ timeSummary.plan }}
-              </span>
+              <h1 class="line-clamp-2 text-heading-sm leading-snug [overflow-wrap:anywhere]" :title="course.name">{{ course.name }}</h1>
+              <span v-if="timeSummary?.plan" class="rounded-full bg-sunbeam-yellow/30 px-2 py-1 text-caption font-bold">{{ timeSummary.plan }}</span>
             </div>
-
-            <h1 class="mt-2.5 text-heading font-bold leading-snug text-charcoal-ink [overflow-wrap:anywhere] sm:text-heading-lg" :title="course.name">
-              {{ course.name }}
-            </h1>
-
-            <div class="mt-3 flex flex-wrap items-center gap-2.5 text-caption text-graphite">
-              <span class="font-bold text-charcoal-ink">{{ routeView ? '路线' : '共' }} {{ viewStats.total }} 节</span>
-              <span class="text-stone">·</span>
+            <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-stone">
+              <span>{{ routeView ? '路线' : '共' }} {{ viewStats.total }} 节</span>
               <span>已完成 <strong class="text-charcoal-ink">{{ viewStats.done }}</strong> 节</span>
-              <span class="text-stone">·</span>
-              <span>学习中 <strong class="text-charcoal-ink">{{ viewStats.started }}</strong> 节</span>
-            </div>
-
-            <div v-if="timeSummary" class="mt-3 max-w-3xl space-y-1 text-caption leading-relaxed text-graphite" aria-label="时间安排">
-              <p v-if="guide.program.value">
-                <span class="font-bold text-charcoal-ink">每日总投入 {{ formatMinutes(guide.todayTotalMinutes.value ?? 0) }}</span>
-                <template v-if="allocation.length">：{{ allocation.map(a => `${a.label} ${formatMinutes(a.target)}`).join(' · ') }}</template>
-                <template v-if="guide.lightDay.value">（今日为轻量复盘日）</template>
-              </p>
-              <p>{{ timeSummary.video }}</p>
-              <p v-if="!guide.program.value" class="text-stone">
-                未设置完整学习计划，当前仅安排看课。
-                <button type="button" class="font-bold text-charcoal-ink underline" @click="emit('guide', 'plan')">设置总周期与每日分配</button>
-              </p>
-            </div>
-
-            <div class="mt-4 flex max-w-md items-center gap-3">
-              <div class="h-2 flex-1 overflow-hidden rounded-full bg-linen">
-                <div class="h-full rounded-full bg-charcoal-ink transition-all duration-300" :style="{ width: `${progressPercent}%` }" />
-              </div>
-              <span class="text-caption font-bold text-charcoal-ink tabular">视频 {{ progressPercent }}%</span>
+              <span>学习中 {{ viewStats.started }} 节</span>
+              <span class="flex items-center gap-2"><span class="h-1.5 w-20 overflow-hidden rounded-full bg-linen"><span class="block h-full rounded-full bg-deep-indigo" :style="{ width: `${progressPercent}%` }" /></span>视频 {{ progressPercent }}%</span>
             </div>
           </div>
-
-          <div class="flex min-w-0 flex-col items-start gap-2 lg:max-w-sm lg:items-end">
-            <div class="flex flex-wrap items-center gap-2.5">
-              <UiButton v-if="resumeVideo" variant="dark" size="lg" class="gap-2" @click="startResume">
-                <AppIcon name="play" :size="18" />
-                <span>{{ viewStats.done === viewStats.total ? '复习首课' : viewStats.started || viewStats.done ? '继续学习' : '开始学习' }}</span>
-              </UiButton>
-              <UiButton variant="ghost" size="lg" class="gap-2" @click="emit('guide')">
-                <AppIcon name="sparkles" :size="18" class="text-deep-indigo" />
-                <span>{{ guide.state.plan ? '学习路线' : 'AI 定制路线' }}</span>
-              </UiButton>
+          <div class="flex min-w-0 flex-col gap-2 sm:items-end">
+            <div class="flex flex-wrap gap-2">
+              <UiButton v-if="resumeVideo" variant="dark" @click="startResume"><AppIcon name="play" :size="16" />{{ viewStats.done === viewStats.total ? '复习首课' : viewStats.started || viewStats.done ? '继续学习' : '开始学习' }}</UiButton>
+              <UiButton @click="emit('guide')"><AppIcon name="sparkles" :size="16" />{{ guide.state.plan ? '学习路线' : 'AI 定制路线' }}</UiButton>
             </div>
-            <p v-if="resumeVideo" class="max-w-full text-caption leading-relaxed text-stone [overflow-wrap:anywhere] lg:text-right" :title="resumeVideo.title">
-              <span class="font-medium text-charcoal-ink">{{ routeView ? '接下来学习' : stats.started || stats.done ? '最近学习' : '首节课程' }}：</span>第 {{ lessonNumber(resumeVideo) }} 节 · {{ lessonTitle(resumeVideo) }}
-            </p>
           </div>
+        </div>
+        <div v-if="timeSummary" class="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-linen pt-2 text-caption text-stone" aria-label="时间安排">
+          <span v-if="guide.program.value" class="font-bold text-graphite">每日总投入 {{ formatMinutes(guide.todayTotalMinutes.value ?? 0) }}<template v-if="guide.lightDay.value"> · 轻量复盘日</template></span>
+          <span>{{ timeSummary.video }}</span>
+          <button v-if="!guide.program.value" type="button" class="font-bold text-deep-indigo" @click="emit('guide', 'plan')">设置总周期与每日分配</button>
         </div>
       </section>
 
-      <!-- 今日任务中心 -->
-      <section class="pane p-5 sm:p-6" aria-label="今日任务">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 class="text-subheading text-charcoal-ink">今日任务</h2>
-            <p class="mt-0.5 text-caption text-stone">
-              {{ guide.todayDate.value }}<template v-if="guide.program.value && guide.planDay.value && guide.planDay.value >= 1"> · 计划第 {{ guide.planDay.value }} 天</template>
-              <template v-if="guide.lightDay.value"> · 轻量复盘日，不安排新课</template>
-            </p>
+      <div class="overview-summaries shrink-0">
+        <section class="overview-summary pane min-w-0 p-5" aria-label="今日任务">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-body font-bold">今日任务 <span class="ml-1 text-caption font-normal text-stone">{{ guide.todayDate.value.slice(5) }}</span></h2>
+            <UiButton size="sm" variant="text" @click="tasksOpen = true">管理安排 →</UiButton>
           </div>
-          <UiButton size="sm" variant="ghost" @click="emit('guide', 'today')">管理安排 →</UiButton>
-        </div>
+          <ul v-if="allocation.length" class="overview-allocation mt-4 grid grid-cols-2 gap-x-6 gap-y-3" aria-label="今日时间分配">
+            <li v-for="item in allocation" :key="item.key" class="min-w-0">
+              <p class="text-caption text-stone">{{ item.label }}</p>
+              <p class="mt-0.5 whitespace-nowrap text-caption tabular font-bold">{{ item.done }} / {{ item.target }}<span class="font-normal text-stone"> 分钟</span></p>
+            </li>
+          </ul>
+          <div class="mt-5 flex items-center gap-3 border-t border-linen pt-4">
+            <AppIcon name="play" :size="16" class="shrink-0 text-stone" />
+            <div class="min-w-0 flex-1"><p class="truncate text-body-sm font-bold" :title="nextVideoItem ? `${itemTitle(nextVideoItem)} · ${formatStudyDuration(nextVideoItem.seconds)}` : ''"><span class="mr-2 text-caption font-normal text-stone">看课 {{ videoItems.filter(i => i.done).length }}/{{ videoItems.length }}</span>{{ nextVideoItem ? itemTitle(nextVideoItem) : guide.state.plan ? '暂无待看课节' : '先定制学习路线' }}</p></div>
+            <UiButton v-if="nextVideoItem" size="sm" @click="startItem(nextVideoItem)">播放下一段</UiButton>
+            <UiButton v-else-if="!guide.state.plan" size="sm" @click="emit('guide', 'plan')">定制</UiButton>
+          </div>
+          <div class="mt-3 flex items-center gap-3">
+            <AppIcon name="note" :size="16" class="shrink-0 text-stone" />
+            <div class="min-w-0 flex-1"><p class="truncate text-body-sm font-bold" :title="nextWork?.title"><span class="mr-2 text-caption font-normal text-stone">实践 {{ workDone }} / {{ guide.todayWork.value.length }} 项</span>{{ nextWork?.title ?? (guide.todayWork.value.length ? '今日已完成' : '暂无安排') }}</p></div>
+            <UiButton v-if="guide.todayWork.value.length" size="sm" variant="text" @click="tasksOpen = true">记录实践</UiButton>
+            <UiButton v-else size="sm" variant="text" @click="emit('guide', 'plan')">设置</UiButton>
+          </div>
+        </section>
 
-        <div class="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-12">
-          <div class="min-w-0 space-y-5 lg:col-span-7">
-            <!-- 每日时间分配与完成情况 -->
-            <ul v-if="allocation.length" class="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="今日时间分配">
-              <li v-for="item in allocation" :key="item.key" class="min-w-0 rounded-xl border border-linen bg-page-cream p-3">
-                <p class="truncate text-caption text-stone">{{ item.label }}</p>
-                <p class="mt-1 text-body-sm font-bold tabular">{{ item.done }}<span class="font-normal text-stone"> / {{ item.target }} 分钟</span></p>
-                <div class="mt-1.5 h-1 overflow-hidden rounded-full bg-linen"><div class="h-full rounded-full bg-charcoal-ink" :style="{ width: `${item.target ? Math.min(100, Math.round(item.done / item.target * 100)) : 100}%` }" /></div>
+        <section class="overview-summary pane min-w-0 p-5" aria-label="阶段进度">
+          <div class="mb-4 flex items-center justify-between gap-2"><h2 class="text-body font-bold">当前阶段</h2><UiButton v-if="activeModule" size="sm" variant="text" @click="revealStage">查看阶段验收</UiButton></div>
+          <template v-if="guide.state.plan && activeModule">
+            <VSelect aria-label="当前阶段" :model-value="guide.state.records.activeModuleId"
+              :items="[{ value: '', title: guide.scheduledModule.value ? `按计划日期：${guide.scheduledModule.value.title}` : `按学习进度：${(guide.progressModule.value ?? activeModule).title}` }, ...stageOptions.map(m => ({ value: m.id, title: m.title }))]"
+              @update:model-value="guide.setActiveModule($event ?? '')" />
+            <p class="mt-4 line-clamp-2 text-body-sm leading-relaxed text-stone" :title="activeModule.practice?.goal ?? activeModule.description">{{ activeModule.practice?.goal ?? activeModule.description }}</p>
+            <StageProgressBars v-if="activeProgress" class="overview-stage-progress mt-4" inline :progress="activeProgress" />
+            <p v-if="stageLag" class="mt-2 text-caption text-deep-indigo">计划阶段与视频进度不同，可切换阶段或安排复盘。</p>
+            <button v-if="guide.unresolvedQuestions.value.length" type="button" class="mt-2 text-caption font-bold text-deep-indigo" @click="emit('guide', 'help')">{{ guide.unresolvedQuestions.value.length }} 个待解决疑问 →</button>
+          </template>
+          <p v-else class="mt-3 text-body-sm leading-relaxed text-stone">定制学习路线后，在这里查看当前阶段、学习目标与验收进度。</p>
+        </section>
+
+      </div>
+      <section class="overview-history pane min-w-0 p-5" aria-label="学习打卡日历">
+        <h2 class="mb-4 text-subheading font-bold">学习打卡</h2>
+        <CheckInCalendar compact @plan="emit('guide', 'plan')" />
+          <section class="mt-5 border-t border-linen pt-4" aria-label="近 7 天投入">
+            <div class="flex justify-between gap-2 text-caption"><h3 class="font-bold">近 7 天投入</h3><span class="text-stone">合计 {{ formatMinutes(week.total) }}</span></div>
+            <ol class="mt-1 grid grid-cols-7 gap-2">
+              <li v-for="row in week.rows" :key="row.date" class="min-w-0 text-center" :title="`${row.date} · 看课 ${row.video} 分钟 · 实践 ${row.work} 分钟${row.checked ? ' · 已打卡' : ''}`">
+                <div class="flex h-7 items-end justify-center" aria-hidden="true"><span class="flex w-full max-w-5 flex-col-reverse overflow-hidden rounded-sm bg-linen" :style="{ height: `${Math.max(2, (row.video + row.work) / week.max * 28)}px` }"><span class="bg-charcoal-ink" :style="{ height: `${row.video / Math.max(1, row.video + row.work) * 100}%` }" /><span class="bg-deep-indigo/60" :style="{ height: `${row.work / Math.max(1, row.video + row.work) * 100}%` }" /></span></div>
+                <span class="mt-1 block text-[10px] tabular" :class="row.checked ? 'font-bold text-deep-indigo' : 'text-stone'">{{ row.label }}</span>
+                <span class="sr-only">看课 {{ row.video }} 分钟，实践 {{ row.work }} 分钟{{ row.checked ? '，已打卡' : '' }}</span>
               </li>
-            </ul>
-
-            <div>
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <h3 class="text-body-sm font-bold">看课 / 回看</h3>
-                <UiButton v-if="nextVideoItem" size="sm" variant="dark" @click="startItem(nextVideoItem)"><AppIcon name="play" :size="14" />播放下一段</UiButton>
-              </div>
-              <ul v-if="videoItems.length" class="mt-2 space-y-2">
-                <li v-for="item in videoItems" :key="item.id" class="flex items-start gap-3 rounded-xl border border-linen bg-pure-white p-3">
-                  <input type="checkbox" :checked="item.done" class="mt-1 accent-charcoal-ink" :aria-label="`完成：${itemTitle(item)}`"
-                    @change="guide.completeTodayItem(item.id, ($event.target as HTMLInputElement).checked)" />
-                  <div class="min-w-0 flex-1">
-                    <button type="button" class="block max-w-full text-left text-body-sm font-bold text-charcoal-ink [overflow-wrap:anywhere] hover:underline"
-                      :class="item.done ? 'text-stone line-through' : ''" @click="startItem(item)">{{ itemTitle(item) }}</button>
-                    <p class="mt-1 text-caption text-stone">{{ item.kind === 'question' ? '处理疑问' : item.kind === 'review' ? '补学基础' : '学习片段' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
-                  </div>
-                </li>
-              </ul>
-              <p v-else class="mt-2 rounded-xl border border-linen bg-pure-white p-3 text-caption text-stone">
-                {{ !guide.state.plan ? '尚未生成学习路线。' : guide.lightDay.value || guide.todayBudget.value?.video === 0 ? '今日未安排看课。' : '当前没有待学课节。' }}
-              </p>
-            </div>
-
-            <div>
-              <h3 class="text-body-sm font-bold">实践任务</h3>
-              <TodayWorkList v-if="guide.todayWork.value.length" class="mt-2" />
-              <div v-else class="mt-2 rounded-xl border border-linen bg-pure-white p-3 text-caption leading-relaxed text-stone">
-                <template v-if="!guide.state.plan">生成学习路线并设置完整学习计划后，这里会安排编码、项目与复习任务。</template>
-                <template v-else-if="!guide.program.value">未设置完整学习计划，今日只安排看课。<button type="button" class="font-bold text-charcoal-ink underline" @click="emit('guide', 'plan')">设置计划</button></template>
-                <template v-else-if="(guide.planDay.value ?? 0) < 1">计划尚未开始。</template>
-                <template v-else-if="!activeModule?.practice">当前阶段尚未设置实践任务。<button type="button" class="font-bold text-charcoal-ink underline" @click="emit('guide', 'plan')">补全实践安排</button></template>
-                <template v-else>当前阶段的实践任务均已完成，可在阶段验收中记录成果。</template>
-              </div>
-            </div>
-          </div>
-
-          <aside class="min-w-0 space-y-4 lg:col-span-5">
-            <div v-if="guide.state.plan && activeModule" class="rounded-2xl border border-linen bg-page-cream p-4" aria-label="阶段进度">
-              <label class="block text-caption font-bold text-stone">当前阶段
-                <select class="mt-1 w-full rounded-lg border border-linen bg-pure-white px-2 py-1.5 text-body-sm font-bold text-charcoal-ink" :value="guide.state.records.activeModuleId"
-                  @change="guide.setActiveModule(($event.target as HTMLSelectElement).value)">
-                  <option value="">{{ guide.scheduledModule.value ? `按计划日期：${guide.scheduledModule.value.title}` : `按学习进度：${(guide.progressModule.value ?? activeModule).title}` }}</option>
-                  <option v-for="m in stageOptions" :key="m.id" :value="m.id">{{ m.title }}</option>
-                </select>
-              </label>
-              <p v-if="activeModule.practice" class="mt-3 text-caption leading-relaxed text-graphite [overflow-wrap:anywhere]"><strong class="text-charcoal-ink">阶段目标：</strong>{{ activeModule.practice.goal }}</p>
-              <p v-else class="mt-3 text-caption leading-relaxed text-graphite [overflow-wrap:anywhere]">{{ activeModule.description }}</p>
-              <StageProgressBars v-if="activeProgress" class="mt-3" :progress="activeProgress" />
-              <p v-if="stageLag" class="mt-3 rounded-lg bg-pure-white p-2.5 text-caption leading-relaxed text-graphite">
-                计划日期已进入“{{ stageLag.scheduled.title }}”，视频进度仍在“{{ stageLag.current.title }}”。可在复盘日补齐，或切换当前阶段。
-              </p>
-              <button type="button" class="mt-3 text-caption font-bold underline" @click="openStage = activeModule.id; openModules.add(activeModule.id); searchQuery = ''; filter = 'all'; guide.state.view = 'route'">查看阶段验收</button>
-            </div>
-            <div v-else class="rounded-2xl border border-linen bg-page-cream p-4 text-center">
-              <p class="text-body-sm text-stone">尚未生成学习路线，请先设置学习目标与每日时间。</p>
-              <UiButton variant="primary" size="sm" class="mt-3" @click="emit('guide', 'plan')">定制学习路线</UiButton>
-            </div>
-
-            <div v-if="guide.unresolvedQuestions.value.length" class="rounded-2xl border border-linen bg-pure-white p-4">
-              <div class="flex items-center justify-between gap-2">
-                <span class="text-caption font-bold text-charcoal-ink">待解决疑问（{{ guide.unresolvedQuestions.value.length }}）</span>
-                <button type="button" class="text-caption font-bold text-stone underline" @click="emit('guide', 'help')">查找基础课</button>
-              </div>
-              <p class="mt-1 text-caption leading-relaxed text-stone [overflow-wrap:anywhere]">{{ guide.unresolvedQuestions.value[0]?.text }}</p>
-            </div>
-          </aside>
-        </div>
+            </ol>
+          </section>
+        <p class="mt-2 text-caption text-stone">深色为看课 · 紫色为实践</p>
       </section>
-
       <!-- 课程目录 / 学习路线 -->
-      <section class="pane p-5 sm:p-6" aria-label="课程章节目录">
+      <section ref="catalogEl" class="overview-catalog pane min-w-0 p-5" aria-label="课程章节目录">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h3 class="text-subheading text-charcoal-ink">{{ routeView ? '学习路线' : '课程目录' }}</h3>
-            <p class="mt-0.5 text-caption text-stone">{{ routeView ? '按学习阶段和先修顺序排列，序号为路线顺序；默认展开当前阶段' : '按原课程目录排列，选择课节进入播放器' }}</p>
           </div>
           <div class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-            <input v-model="searchQuery" type="search" placeholder="搜索课节名称…"
-              class="w-full min-w-0 rounded-xl border border-linen bg-pure-white px-3 py-1.5 text-caption text-charcoal-ink placeholder:text-stone focus:border-charcoal-ink focus:outline-none sm:w-56" />
-            <div class="flex max-w-full flex-wrap items-center rounded-xl border border-linen bg-pure-white p-0.5 text-caption font-medium text-stone">
-              <button type="button" class="whitespace-nowrap rounded-lg px-2.5 py-1 transition-colors" :class="filter === 'all' ? 'bg-charcoal-ink text-pure-white font-bold' : 'hover:text-charcoal-ink'" @click="filter = 'all'">全部 ({{ viewStats.total }})</button>
-              <button type="button" class="whitespace-nowrap rounded-lg px-2.5 py-1 transition-colors" :class="filter === 'unwatched' ? 'bg-charcoal-ink text-pure-white font-bold' : 'hover:text-charcoal-ink'" @click="filter = 'unwatched'">待学 ({{ viewStats.total - viewStats.done }})</button>
-              <button type="button" class="whitespace-nowrap rounded-lg px-2.5 py-1 transition-colors" :class="filter === 'done' ? 'bg-charcoal-ink text-pure-white font-bold' : 'hover:text-charcoal-ink'" @click="filter = 'done'">已完成 ({{ viewStats.done }})</button>
+            <div class="w-full min-w-0 sm:w-64">
+              <VTextField :model-value="searchQuery" type="search" label="搜索课节名称" placeholder="搜索课节名称…"
+                density="compact" clearable @update:model-value="searchQuery = $event ?? ''">
+                <template #prepend-inner><AppIcon name="search" :size="18" /></template>
+              </VTextField>
             </div>
+            <VBtnToggle v-model="filter" mandatory class="catalog-status" aria-label="按课程状态筛选">
+              <VBtn value="all">全部 ({{ viewStats.total }})</VBtn>
+              <VBtn value="unwatched">待学 ({{ viewStats.total - viewStats.done }})</VBtn>
+              <VBtn value="done">已完成 ({{ viewStats.done }})</VBtn>
+            </VBtnToggle>
           </div>
         </div>
 
-        <div v-if="guide.state.plan" class="mt-4 flex flex-wrap items-center gap-3">
+        <div v-if="guide.state.plan" class="mt-3 flex flex-wrap items-center gap-3">
           <div class="flex rounded-full bg-page-cream p-1" aria-label="概览目录视图">
             <button type="button" :aria-pressed="routeView" class="rounded-full px-4 py-1.5 text-caption font-bold" :class="routeView ? 'bg-charcoal-ink text-pure-white' : 'text-stone'" @click="guide.state.view = 'route'">AI 定制路线</button>
             <button type="button" :aria-pressed="!routeView" class="rounded-full px-4 py-1.5 text-caption font-bold" :class="!routeView ? 'bg-pure-white' : 'text-stone'" @click="guide.state.view = 'all'">完整目录</button>
           </div>
-          <label v-if="routeView" class="flex items-center gap-2 text-caption text-stone"><input v-model="guide.state.includeOptional" type="checkbox" class="accent-charcoal-ink" />包含选修 / 查漏</label>
-          <button v-if="routeView && groups.length > 1 && !searching" type="button" class="text-caption font-bold underline" @click="toggleAll">{{ allOpen ? '全部收起' : '全部展开' }}</button>
-          <button v-if="guide.state.records.undo" type="button" class="ml-auto text-caption font-bold text-stone underline" :disabled="!!guide.state.busy" @click="guide.undo()">撤销：{{ guide.state.records.undo.label }}</button>
+          <label v-if="routeView" class="flex items-center gap-2 text-caption text-stone"><VCheckbox v-model="guide.state.includeOptional" class="shrink-0" />包含选修 / 查漏</label>
+          <button v-if="routeView && groups.length > 1 && !searching" type="button" class="text-caption font-bold hover:text-deep-indigo" @click="toggleAll">{{ allOpen ? '全部收起' : '全部展开' }}</button>
+          <button v-if="guide.state.records.undo" type="button" class="ml-auto text-caption font-bold text-stone hover:text-deep-indigo" :disabled="!!guide.state.busy" @click="guide.undo()">撤销：{{ guide.state.records.undo.label }}</button>
         </div>
         <p v-if="guide.state.notice && guide.state.notice.startsWith('已撤销')" role="status" class="mt-3 text-caption text-stone">{{ guide.state.notice }}</p>
 
+        <div class="overview-catalog-content scroll-soft mt-5">
         <!-- 路线视图：按阶段折叠 -->
-        <div v-if="routeView" class="mt-5 space-y-3">
-          <section v-for="group in groups" :key="group.key" class="rounded-2xl border border-linen" :data-module="group.moduleId" :aria-label="moduleTitles.get(group.moduleId) ?? '未分组课节'">
-            <button type="button" class="flex w-full items-start gap-3 rounded-2xl p-4 text-left hover:bg-cream-deep" :aria-expanded="isOpen(group.moduleId)" @click="toggleModule(group.moduleId)">
-              <AppIcon name="chevron-right" :size="18" class="mt-0.5 shrink-0 text-stone transition-transform" :class="isOpen(group.moduleId) ? 'rotate-90' : ''" />
-              <span class="min-w-0 flex-1">
-                <span class="flex flex-wrap items-center gap-2">
-                  <span class="text-body-sm font-bold text-deep-indigo [overflow-wrap:anywhere]">{{ moduleTitles.get(group.moduleId) }}</span>
-                  <span v-if="group.moduleId === activeModule?.id" class="rounded-full bg-sunbeam-yellow px-2 py-0.5 text-[11px] font-bold text-charcoal-ink">当前阶段</span>
-                  <span v-if="guide.stageProgressMap.value.get(group.moduleId)?.complete" class="rounded-full bg-charcoal-ink px-2 py-0.5 text-[11px] font-bold text-pure-white">阶段完成</span>
-                </span>
-                <span class="mt-1 block text-caption text-stone">
-                  <template v-if="guide.moduleMap.value.get(group.moduleId)?.practice">第 {{ guide.moduleMap.value.get(group.moduleId)!.practice!.startDay }}–{{ guide.moduleMap.value.get(group.moduleId)!.practice!.endDay }} 天 · </template>
-                  必修 {{ moduleStats.get(group.moduleId)?.total ?? group.videos.length }} 节 · 已看 {{ moduleStats.get(group.moduleId)?.done ?? 0 }} 节
-                  <template v-if="moduleStats.get(group.moduleId)?.seconds"> · 视频约 {{ formatStudyDuration(moduleStats.get(group.moduleId)!.seconds) }}</template>
-                  <template v-if="guide.moduleMap.value.get(group.moduleId)?.practice?.checks.length"> · 验收 {{ (guide.stageProgressMap.value.get(group.moduleId)?.exercise.done ?? 0) + (guide.stageProgressMap.value.get(group.moduleId)?.project.done ?? 0) }}/{{ guide.moduleMap.value.get(group.moduleId)!.practice!.checks.length }}</template>
-                </span>
-              </span>
-            </button>
-            <div v-if="isOpen(group.moduleId)" class="border-t border-linen px-4 pt-3 pb-4">
-              <div v-if="guide.moduleMap.value.get(group.moduleId)" class="mb-3 flex flex-wrap items-start justify-between gap-3">
-                <p class="min-w-0 flex-1 text-caption leading-relaxed text-graphite [overflow-wrap:anywhere]">
-                  <template v-if="guide.moduleMap.value.get(group.moduleId)!.practice"><strong class="text-charcoal-ink">阶段交付：</strong>{{ guide.moduleMap.value.get(group.moduleId)!.practice!.project }}</template>
-                  <template v-else>{{ guide.moduleMap.value.get(group.moduleId)!.description.slice(0, 160) }}{{ guide.moduleMap.value.get(group.moduleId)!.description.length > 160 ? '…' : '' }}</template>
-                </p>
-                <button type="button" class="shrink-0 text-caption font-bold underline" :aria-expanded="openStage === group.moduleId" @click="openStage = openStage === group.moduleId ? '' : group.moduleId">
-                  {{ openStage === group.moduleId ? '收起阶段详情' : '阶段目标与验收' }}
-                </button>
-              </div>
-              <div v-if="openStage === group.moduleId && guide.moduleMap.value.get(group.moduleId)" class="mb-4 rounded-xl bg-page-cream/60 p-3">
-                <StageProgressBars v-if="guide.stageProgressMap.value.get(group.moduleId)" class="mb-4" inline :progress="guide.stageProgressMap.value.get(group.moduleId)!" />
-                <StagePanel :module="guide.moduleMap.value.get(group.moduleId)!" />
-              </div>
-              <div class="course-lesson-grid grid items-start gap-3">
-                <div v-for="v in group.videos" :key="v.path" class="flex min-w-0 flex-col rounded-2xl border border-linen bg-pure-white transition-colors hover:border-charcoal-ink">
-                  <button type="button" :data-path="v.path" :data-route-position="guide.routePositions.value.get(v.path)" :title="v.title"
-                    class="group flex w-full min-w-0 items-start gap-3 p-4 text-left" @click="emit('play', v)">
-                    <span class="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-xl px-2 text-caption font-bold"
-                      :class="getVideoProgress(v.path)?.done ? 'bg-charcoal-ink text-pure-white' : getVideoProgress(v.path)?.ratio ? 'bg-sunbeam-yellow/40 text-charcoal-ink' : 'bg-page-cream text-stone'">
-                      <AppIcon v-if="getVideoProgress(v.path)?.done" name="check" :size="14" />
-                      <span v-else>{{ String(lessonNumber(v)).padStart(2, '0') }}</span>
+        <div v-if="routeView" class="space-y-2">
+          <section v-for="group in groups" :key="group.key" class="min-w-0" :data-module="group.moduleId" :aria-label="moduleTitles.get(group.moduleId) ?? '未分组课节'">
+            <VExpansionPanels class="course-panels" :model-value="isOpen(group.moduleId) ? 'content' : undefined" :readonly="searching" @update:model-value="setModuleOpen(group.moduleId, $event)">
+              <VExpansionPanel value="content">
+                <VExpansionPanelTitle>
+                  <span class="min-w-0 flex-1 sm:flex sm:items-center sm:justify-between sm:gap-4">
+                    <span class="flex flex-wrap items-center gap-2">
+                      <span class="text-body-sm font-bold text-deep-indigo [overflow-wrap:anywhere]">{{ moduleTitles.get(group.moduleId) }}</span>
+                      <span v-if="group.moduleId === activeModule?.id" class="rounded-full bg-sunbeam-yellow px-2 py-0.5 text-[11px] font-bold text-charcoal-ink">当前阶段</span>
+                      <span v-if="guide.stageProgressMap.value.get(group.moduleId)?.complete" class="rounded-full bg-charcoal-ink px-2 py-0.5 text-[11px] font-bold text-pure-white">阶段完成</span>
                     </span>
-                    <span class="min-w-0 flex-1">
-                      <span class="block whitespace-normal text-body-sm font-bold leading-relaxed text-charcoal-ink [overflow-wrap:anywhere] group-hover:text-deep-indigo">{{ lessonTitle(v) }}</span>
-                      <span class="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1 text-caption text-stone">
-                        <span v-if="getVideoProgress(v.path)?.done" class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink">已完成</span>
-                        <span v-else-if="getVideoProgress(v.path)?.ratio" class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink">已看 {{ Math.round((getVideoProgress(v.path)?.ratio ?? 0) * 100) }}%</span>
-                        <span v-else class="shrink-0 whitespace-nowrap">未学习</span>
-                        <span v-if="v.dir" class="min-w-0 [overflow-wrap:anywhere]">{{ conciseSource(v.dir) }}</span>
+                    <span class="mt-1 block text-caption font-normal text-stone sm:mt-0">
+                      <template v-if="guide.moduleMap.value.get(group.moduleId)?.practice">第 {{ guide.moduleMap.value.get(group.moduleId)!.practice!.startDay }}–{{ guide.moduleMap.value.get(group.moduleId)!.practice!.endDay }} 天 · </template>
+                      必修 {{ moduleStats.get(group.moduleId)?.total ?? group.videos.length }} 节 · 已看 {{ moduleStats.get(group.moduleId)?.done ?? 0 }} 节
+                      <template v-if="moduleStats.get(group.moduleId)?.seconds"> · 视频约 {{ formatStudyDuration(moduleStats.get(group.moduleId)!.seconds) }}</template>
+                      <template v-if="guide.moduleMap.value.get(group.moduleId)?.practice?.checks.length"> · 验收 {{ (guide.stageProgressMap.value.get(group.moduleId)?.exercise.done ?? 0) + (guide.stageProgressMap.value.get(group.moduleId)?.project.done ?? 0) }}/{{ guide.moduleMap.value.get(group.moduleId)!.practice!.checks.length }}</template>
+                    </span>
+                  </span>
+                </VExpansionPanelTitle>
+                <VExpansionPanelText>
+                  <VExpansionPanels v-if="guide.moduleMap.value.get(group.moduleId)" :model-value="openStage" class="stage-details mb-3" @update:model-value="openStage = $event ?? ''">
+                    <VExpansionPanel :value="group.moduleId">
+                      <VExpansionPanelTitle>{{ openStage === group.moduleId ? '收起阶段详情' : '阶段目标与验收' }}</VExpansionPanelTitle>
+                      <VExpansionPanelText>
+                        <StageProgressBars v-if="guide.stageProgressMap.value.get(group.moduleId)" class="mb-4" inline :progress="guide.stageProgressMap.value.get(group.moduleId)!" />
+                        <StagePanel :module="guide.moduleMap.value.get(group.moduleId)!" />
+                      </VExpansionPanelText>
+                    </VExpansionPanel>
+                  </VExpansionPanels>
+                  <div class="course-lesson-grid grid items-stretch gap-3">
+                    <button v-for="v in group.videos" :key="v.path" type="button" :data-path="v.path" :data-route-position="guide.routePositions.value.get(v.path)" :title="v.title"
+                      class="group flex h-full w-full min-w-0 items-start gap-3 rounded-xl border border-linen bg-pure-white p-4 text-left transition-colors hover:border-charcoal-ink" @click="emit('play', v)">
+                      <span class="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-xl px-2 text-caption font-bold"
+                        :class="getVideoProgress(v.path)?.done ? 'bg-charcoal-ink text-pure-white' : getVideoProgress(v.path)?.ratio ? 'bg-sunbeam-yellow/40 text-charcoal-ink' : 'bg-page-cream text-stone'">
+                        <AppIcon v-if="getVideoProgress(v.path)?.done" name="check" :size="14" />
+                        <span v-else>{{ String(lessonNumber(v)).padStart(2, '0') }}</span>
                       </span>
-                    </span>
-                    <span class="mt-2 shrink-0 text-stone transition-transform group-hover:translate-x-0.5 group-hover:text-charcoal-ink"><AppIcon name="chevron-right" :size="16" /></span>
-                  </button>
-                  <div v-if="lessonInfo(v.path)" class="border-t border-linen px-4 py-2">
-                    <button type="button" class="text-caption font-bold text-deep-indigo" :aria-expanded="openInfo === v.path" @click="openInfo = openInfo === v.path ? '' : v.path">
-                      {{ openInfo === v.path ? '收起推荐说明' : '为什么学这节' }}
+                      <span class="min-w-0 flex-1">
+                        <span class="line-clamp-2 text-body-sm font-bold leading-relaxed text-charcoal-ink [overflow-wrap:anywhere] group-hover:text-deep-indigo">{{ lessonTitle(v) }}</span>
+                        <span class="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1 text-caption text-stone">
+                          <span v-if="getVideoProgress(v.path)?.done" class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink">已完成</span>
+                          <span v-else-if="getVideoProgress(v.path)?.ratio" class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink">已看 {{ Math.round((getVideoProgress(v.path)?.ratio ?? 0) * 100) }}%</span>
+                          <span v-else class="shrink-0 whitespace-nowrap">未学习</span>
+                          <span v-if="v.dir" class="min-w-0 [overflow-wrap:anywhere]">{{ conciseSource(v.dir) }}</span>
+                        </span>
+                      </span>
+                      <span class="mt-2 shrink-0 text-stone transition-transform group-hover:translate-x-0.5 group-hover:text-charcoal-ink"><AppIcon name="chevron-right" :size="16" /></span>
                     </button>
-                    <dl v-if="openInfo === v.path" class="mt-2 space-y-2 pb-1 text-caption leading-relaxed text-graphite" :aria-label="`${lessonTitle(v)} 推荐说明`">
-                      <div class="flex items-center gap-2"><LessonBadge :status="lessonInfo(v.path)!.lesson.status" compact /><span class="text-stone">{{ lessonInfo(v.path)!.stage }}</span></div>
-                      <div><dt class="font-bold text-charcoal-ink">推荐原因</dt><dd class="[overflow-wrap:anywhere]">{{ lessonInfo(v.path)!.lesson.reason }}</dd></div>
-                      <div v-if="lessonInfo(v.path)!.serves"><dt class="font-bold text-charcoal-ink">服务的项目与目标</dt><dd class="[overflow-wrap:anywhere]">{{ lessonInfo(v.path)!.serves }}</dd></div>
-                      <div><dt class="font-bold text-charcoal-ink">可以跳过的条件</dt><dd class="[overflow-wrap:anywhere]">{{ lessonInfo(v.path)!.skipWhen }}</dd></div>
-                      <div v-if="lessonInfo(v.path)!.prerequisites.length"><dt class="font-bold text-charcoal-ink">先修课节</dt><dd class="[overflow-wrap:anywhere]">{{ lessonInfo(v.path)!.prerequisites.join('、') }}</dd></div>
-                      <div><dt class="font-bold text-charcoal-ink">原文件</dt><dd class="text-stone [overflow-wrap:anywhere]">{{ v.path }}</dd></div>
-                      <button type="button" class="font-bold underline" @click="emit('guide', 'plan')">调整学习状态</button>
-                    </dl>
                   </div>
-                </div>
-              </div>
-            </div>
+                </VExpansionPanelText>
+              </VExpansionPanel>
+            </VExpansionPanels>
           </section>
         </div>
 
         <!-- 完整目录 -->
-        <div v-else class="course-lesson-grid mt-5 grid gap-3">
+        <div v-else class="course-lesson-grid grid gap-3">
           <button v-for="v in filteredVideos" :key="v.path" type="button" :data-path="v.path"
-            class="group flex w-full min-w-0 items-start gap-3 rounded-2xl border border-linen bg-pure-white p-4 text-left transition-colors hover:border-charcoal-ink"
+            class="group flex h-full w-full min-w-0 items-start gap-3 rounded-xl border border-linen bg-pure-white p-4 text-left transition-colors hover:border-charcoal-ink"
             @click="emit('play', v)">
             <span class="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-xl px-2 text-caption font-bold"
               :class="getVideoProgress(v.path)?.done ? 'bg-charcoal-ink text-pure-white' : getVideoProgress(v.path)?.ratio ? 'bg-sunbeam-yellow/40 text-charcoal-ink' : 'bg-page-cream text-stone'">
@@ -461,7 +372,7 @@ function lessonInfo(path: string) {
               <span v-else>{{ String(lessonNumber(v)).padStart(2, '0') }}</span>
             </span>
             <span class="min-w-0 flex-1">
-              <span class="block whitespace-normal text-body-sm font-bold leading-relaxed text-charcoal-ink [overflow-wrap:anywhere] group-hover:text-deep-indigo" :title="v.title">{{ lessonTitle(v) }}</span>
+              <span class="line-clamp-2 text-body-sm font-bold leading-relaxed text-charcoal-ink [overflow-wrap:anywhere] group-hover:text-deep-indigo" :title="v.title">{{ lessonTitle(v) }}</span>
               <span class="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1 text-caption text-stone">
                 <span v-if="getVideoProgress(v.path)?.done" class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink">已完成</span>
                 <span v-else-if="getVideoProgress(v.path)?.ratio" class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink">已看 {{ Math.round((getVideoProgress(v.path)?.ratio ?? 0) * 100) }}%</span>
@@ -474,46 +385,69 @@ function lessonInfo(path: string) {
         </div>
 
         <div v-if="!filteredVideos.length" class="py-12 text-center text-body-sm text-stone">未找到匹配的课节</div>
+        </div>
       </section>
 
-      <!-- 辅助信息：打卡日历与近 7 天投入 -->
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <section class="pane min-w-0 p-5 sm:p-6 lg:col-span-7" aria-label="学习打卡日历">
-          <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 class="text-subheading text-charcoal-ink">学习打卡</h3>
-              <p class="mt-0.5 text-caption text-stone">{{ checkIn?.includesWork.value ? '看课与实践时间合计达到每日总投入后自动打卡' : guide.state.plan ? '达到每日学习目标后自动打卡' : '设置每日学习目标，记录学习进度' }}</p>
-            </div>
-            <UiButton size="sm" variant="ghost" @click="emit('guide', 'plan')">{{ guide.state.plan ? '调整计划时间' : '定制路线' }}</UiButton>
-          </div>
-          <CheckInCalendar @plan="emit('guide', 'plan')" />
-        </section>
-        <section class="pane min-w-0 p-5 sm:p-6 lg:col-span-5" aria-label="近 7 天投入">
-          <h3 class="text-subheading text-charcoal-ink">近 7 天投入</h3>
-          <p class="mt-0.5 text-caption text-stone">合计 {{ formatMinutes(week.total) }}，用于每周复盘。</p>
-          <ol class="mt-4 space-y-2.5">
-            <li v-for="row in week.rows" :key="row.date" class="grid grid-cols-[3rem_minmax(0,1fr)_4.5rem] items-center gap-2 text-caption">
-              <span class="tabular text-stone">{{ row.label }}</span>
-              <span class="flex h-2.5 overflow-hidden rounded-full bg-linen" :title="`看课 ${row.video} 分钟 · 实践 ${row.work} 分钟`">
-                <span class="h-full bg-charcoal-ink" :style="{ width: `${row.video / week.max * 100}%` }" />
-                <span class="h-full bg-deep-indigo/60" :style="{ width: `${row.work / week.max * 100}%` }" />
-              </span>
-              <span class="tabular text-right" :class="row.checked ? 'font-bold text-charcoal-ink' : 'text-stone'">{{ row.video + row.work }} 分钟</span>
-            </li>
-          </ol>
-          <p class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-caption text-stone">
-            <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-charcoal-ink" />看课</span>
-            <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-deep-indigo/60" />实践记录</span>
-            <span>加粗为已打卡</span>
-          </p>
-        </section>
-      </div>
+
     </div>
+    <VDialog v-model="tasksOpen" max-width="880" aria-label="今日任务明细">
+      <div class="paper-dialog flex min-h-0 flex-col">
+        <header class="flex shrink-0 items-center justify-between border-b border-linen px-5 py-3"><h2 class="text-subheading">今日任务</h2><div class="flex gap-2"><UiButton size="sm" variant="text" @click="tasksOpen = false; emit('guide', 'today')">调整安排</UiButton><UiButton size="sm" icon title="关闭今日任务" @click="tasksOpen = false"><AppIcon name="close" :size="18" /></UiButton></div></header>
+        <div class="scroll-soft min-h-0 overflow-y-auto p-5">
+          <h3 class="text-body font-bold">看课 / 回看</h3>
+              <ul v-if="videoItems.length" class="mt-2 space-y-2">
+                <li v-for="item in videoItems" :key="item.id" class="flex items-start gap-3 rounded-xl border border-linen bg-pure-white p-3">
+                  <VCheckbox :model-value="item.done" class="shrink-0" :aria-label="`完成：${itemTitle(item)}`"
+                    @update:model-value="guide.completeTodayItem(item.id, !!$event)" />
+                  <div class="min-w-0 flex-1">
+                    <button type="button" class="block max-w-full text-left text-body-sm font-bold text-charcoal-ink [overflow-wrap:anywhere] hover:text-deep-indigo"
+                      :class="item.done ? 'text-stone line-through' : ''" @click="startItem(item)">{{ itemTitle(item) }}</button>
+                    <p class="mt-1 text-caption text-stone">{{ item.kind === 'question' ? '处理疑问' : item.kind === 'review' ? '补学基础' : '学习片段' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="mt-2 rounded-xl border border-linen bg-pure-white p-3 text-caption text-stone">
+                {{ !guide.state.plan ? '尚未生成学习路线。' : guide.lightDay.value || guide.todayBudget.value?.video === 0 ? '今日未安排看课。' : '当前没有待学课节。' }}
+              </p>
+
+          <h3 class="mt-5 text-body font-bold">实践任务</h3>
+          <TodayWorkList v-if="guide.todayWork.value.length" class="mt-3" />
+          <p v-else class="mt-2 text-body-sm text-stone">今日暂无实践安排，可在学习路线中设置每日时间与实践任务。</p>
+        </div>
+      </div>
+    </VDialog>
   </div>
 </template>
 
 <style scoped>
-.course-lesson-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+.overview-page { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 24px; background: var(--color-page-cream); }
+.overview-shell { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 24px; max-width: 1440px; margin-inline: auto; }
+.overview-summaries { display: grid; grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 24px; }
+.overview-summary { container-type: inline-size; }
+.overview-stage-progress { grid-template-columns: minmax(0, 1fr); }
+@container (min-width: 22rem) {
+  .overview-stage-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container (min-width: 24rem) {
+  .overview-allocation { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.overview-catalog-content { max-height: min(70vh, 760px); overflow-y: auto; overscroll-behavior: contain; }
+.course-lesson-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); }
+.catalog-status { height: 40px; padding: 3px; border: 1px solid var(--color-linen); border-radius: 8px; }
+.catalog-status :deep(.v-btn) { height: 32px; min-width: 0; padding-inline: 12px; font-size: 12px; }
+.catalog-status :deep(.v-btn--active) { background: var(--color-charcoal-ink); color: white; }
+.stage-details :deep(.v-expansion-panel-title) { min-height: 40px; padding-block: 8px; }
+@media (min-width: 1100px) {
+  .overview-shell { grid-template-columns: minmax(0, 1fr) 360px; }
+  .overview-course-header { grid-column: 1 / -1; }
+  .overview-summaries { grid-column: 2; grid-row: 2; }
+  /* 宽屏时目录不参与行高计算，拉伸至与右侧栏等高，课节在内部滚动。 */
+  .overview-catalog { grid-column: 1; grid-row: 2 / 4; align-self: stretch; display: flex; flex-direction: column; contain: size; min-height: 30rem; }
+  .overview-catalog-content { flex: 1 1 0; min-height: 0; max-height: none; }
+  .overview-history { grid-column: 2; grid-row: 3; }
+}
+@media (max-width: 639px) {
+  .overview-page { padding: 16px; }
+  .overview-shell, .overview-summaries { gap: 20px; }
 }
 </style>

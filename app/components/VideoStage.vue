@@ -44,10 +44,6 @@ const scrubbing = ref(false)
 const scrubValue = ref(0)
 
 const seekValue = computed(() => (scrubbing.value ? scrubValue.value : state.currentTime))
-const seekFill = computed(() =>
-  state.duration > 0 ? `${Math.min(100, (seekValue.value / state.duration) * 100)}%` : '0%',
-)
-const volumeFill = computed(() => `${(state.muted ? 0 : state.volume) * 100}%`)
 
 const savedProgress = computed(() => progress.get(props.courseId, props.video.path))
 
@@ -139,21 +135,20 @@ function onVideoEvent(e: Event, handler: (v: HTMLVideoElement) => void) {
   handler(v)
 }
 
-function onSeekInput(e: Event) {
-  const value = Number((e.target as HTMLInputElement).value)
+function onSeekStart(value: number) {
   scrubbing.value = true
   scrubValue.value = value
 }
 
-function onSeekChange(e: Event) {
-  const value = Number((e.target as HTMLInputElement).value)
+function onSeekInput(value: number) {
+  if (scrubbing.value) scrubValue.value = value
+  else onSeekChange(value) // 键盘调节没有拖动起止事件，直接定位。
+}
+
+function onSeekChange(value: number) {
   scrubbing.value = false
   player.seek(value)
   ended.value = false
-}
-
-function onVolumeInput(e: Event) {
-  player.setVolume(Number((e.target as HTMLInputElement).value))
 }
 
 function onStageClick() {
@@ -193,6 +188,7 @@ watch(
     state.ready = false
     state.currentTime = 0
     state.duration = 0
+    scrubbing.value = false
     void loadSource()
   },
 )
@@ -313,21 +309,21 @@ defineExpose({ toggleFullscreen })
           {{ formatTime(seekValue) }}
         </span>
 
-        <label class="flex min-w-0 flex-1 items-center px-1">
-          <span class="sr-only">播放进度</span>
-          <input
-            type="range"
-            class="range-soft"
+        <div class="flex min-w-0 flex-1 items-center px-1">
+          <VSlider
+            class="player-slider"
+            aria-label="播放进度"
+            :aria-valuetext="`${formatTime(seekValue)} / ${formatTime(state.duration)}`"
             min="0"
             :max="state.duration || 0"
             step="0.1"
-            :value="seekValue"
+            :model-value="seekValue"
             :disabled="!state.ready"
-            :style="{ '--range-fill': seekFill }"
-            @input="onSeekInput"
-            @change="onSeekChange"
+            @start="onSeekStart"
+            @update:model-value="onSeekInput"
+            @end="onSeekChange"
           />
-        </label>
+        </div>
 
         <span class="tabular w-14 shrink-0 text-body-sm font-medium text-stone">
           {{ formatTime(state.duration) }}
@@ -366,19 +362,18 @@ defineExpose({ toggleFullscreen })
           >
             <AppIcon :name="state.muted || state.volume === 0 ? 'volume-mute' : 'volume'" :size="18" />
           </UiButton>
-          <label class="flex w-20 items-center">
-            <span class="sr-only">音量</span>
-            <input
-              type="range"
-              class="range-soft"
+          <div class="flex w-20 items-center">
+            <VSlider
+              class="player-slider"
+              aria-label="音量"
+              :aria-valuetext="`${Math.round((state.muted ? 0 : state.volume) * 100)}%`"
               min="0"
               max="1"
               step="0.05"
-              :value="state.muted ? 0 : state.volume"
-              :style="{ '--range-fill': volumeFill }"
-              @input="onVolumeInput"
+              :model-value="state.muted ? 0 : state.volume"
+              @update:model-value="player.setVolume"
             />
-          </label>
+          </div>
         </div>
 
         <UiButton

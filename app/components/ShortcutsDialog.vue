@@ -1,40 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
 import { SHORTCUT_GROUPS } from '~/composables/useShortcuts'
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
-/** 快捷键面板：原生 <dialog>，白色纸面 + 细边框 */
-const props = defineProps<{ open: boolean }>()
+defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
-
-const dialogEl = ref<HTMLDialogElement>()
-
-watch(
-  () => props.open,
-  (open) => {
-    const d = dialogEl.value
-    if (!d) return
-    if (open && !d.open) d.showModal()
-    else if (!open && d.open) d.close()
-  },
-)
-
-onMounted(() => {
-  if (props.open) dialogEl.value?.showModal()
-})
-
-function onBackdropClick(e: MouseEvent) {
-  if (e.target === dialogEl.value) emit('close')
-}
 </script>
 
 <template>
-  <dialog
-    ref="dialogEl"
-    class="m-auto w-[min(92vw,640px)] rounded-3xl border border-linen bg-pure-white p-0 text-charcoal-ink shadow-float backdrop:bg-charcoal-ink/40"
-    @close="emit('close')"
-    @click="onBackdropClick"
-  >
+  <VDialog :model-value="open" aria-label="快捷键" width="640" @update:model-value="!$event && emit('close')">
+    <div class="paper-dialog overflow-y-auto bg-pure-white">
     <div class="p-8">
       <div class="flex items-start justify-between gap-4">
         <div>
@@ -73,5 +47,6 @@ function onBackdropClick(e: MouseEvent) {
         </section>
       </div>
     </div>
-  </dialog>
+    </div>
+  </VDialog>
 </template>

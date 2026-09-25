@@ -43,7 +43,10 @@ const routeGroups = computed(() => {
 })
 const routeOpen = (id: string) => isFiltering.value || openModules.has(id)
 const allRouteOpen = computed(() => routeGroups.value.every(g => openModules.has(g.moduleId)))
-function toggleModule(id: string) { if (openModules.has(id)) openModules.delete(id); else openModules.add(id) }
+function setModuleOpen(id: string, value: unknown) {
+  if (value === 'content') openModules.add(id)
+  else openModules.delete(id)
+}
 function toggleRouteAll() {
   if (allRouteOpen.value) openModules.clear()
   else for (const g of routeGroups.value) openModules.add(g.moduleId)
@@ -183,25 +186,23 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         <button type="button" :aria-pressed="routeView" class="flex-1 rounded-full py-1.5 text-caption font-bold" :class="routeView ? 'bg-charcoal-ink text-pure-white' : 'text-stone'" @click="guide.state.plan ? guide.state.view = 'route' : emit('guide')">AI 定制路线</button>
       </div>
       <div v-if="routeView" class="mb-3 rounded-xl border border-linen p-3">
-        <div class="flex items-center justify-between gap-2"><p class="text-caption text-stone">已选 {{ guide.route.value.length }} 节 · {{ guide.program.value && (guide.planDay.value ?? 0) >= 1 ? `计划第 ${guide.planDay.value} / ${guide.program.value.days} 天` : `视频排期约 ${guide.schedule.value.days} 天` }}</p><button type="button" class="text-caption font-bold underline" @click="emit('guide')">调整</button></div>
-        <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><input v-model="guide.state.includeOptional" type="checkbox" :disabled="!!guide.state.busy" class="accent-charcoal-ink" />包含选修 / 查漏</label>
+        <div class="flex items-center justify-between gap-2"><p class="text-caption text-stone">已选 {{ guide.route.value.length }} 节 · {{ guide.program.value && (guide.planDay.value ?? 0) >= 1 ? `计划第 ${guide.planDay.value} / ${guide.program.value.days} 天` : `视频排期约 ${guide.schedule.value.days} 天` }}</p><button type="button" class="text-caption font-bold hover:text-deep-indigo" @click="emit('guide')">调整</button></div>
+        <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><VCheckbox v-model="guide.state.includeOptional" :disabled="!!guide.state.busy" class="shrink-0" />包含选修 / 查漏</label>
         <button type="button" :disabled="!guide.firstLesson.value" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ !guide.firstLesson.value ? '当前没有待学课节' : guide.schedule.value.completed ? '继续学习' : '开始学习' }}</button>
-        <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error underline" @click="emit('guide')">{{ guide.risks.value.length }} 节前置知识缺失，查看建议</button>
+        <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error hover:text-deep-indigo" @click="emit('guide')">{{ guide.risks.value.length }} 节前置知识缺失，查看建议</button>
       </div>
-      <label class="relative block">
-        <span class="sr-only">搜索课时</span>
-        <AppIcon
-          name="search"
-          :size="16"
-          class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-stone"
-        />
-        <input
-          v-model="store.state.query"
+      <div>
+        <VTextField
+          :model-value="store.state.query"
           type="search"
+          label="搜索课时"
           placeholder="搜索课时"
-          class="h-9 w-full rounded-lg border border-ash bg-pure-white pr-3 pl-9 text-body-sm text-charcoal-ink placeholder:text-stone focus:border-charcoal-ink focus:outline-none"
-        />
-      </label>
+          clearable
+          @update:model-value="store.state.query = $event ?? ''"
+        >
+          <template #prepend-inner><AppIcon name="search" :size="18" /></template>
+        </VTextField>
+      </div>
 
       <div class="mt-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="按观看状态筛选">
         <button
@@ -230,19 +231,21 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
 
     <div ref="listEl" class="scroll-soft min-h-0 flex-1 overflow-y-auto px-2 pb-3">
       <ul v-if="routeView && visibleRoute.length" aria-label="AI 推荐课节">
-        <template v-for="group in routeGroups" :key="group.key">
-          <li class="pt-2">
-            <button type="button" class="flex w-full items-start gap-1.5 rounded-lg px-2 py-2 text-left text-caption font-bold leading-relaxed text-deep-indigo hover:bg-cream-deep"
-              :aria-expanded="routeOpen(group.moduleId)" @click="toggleModule(group.moduleId)">
-              <AppIcon name="chevron-right" :size="14" class="mt-0.5 shrink-0 transition-transform" :class="routeOpen(group.moduleId) ? 'rotate-90' : ''" />
-              <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{{ moduleTitles.get(group.moduleId) }}</span>
-              <span class="tabular shrink-0 font-medium text-stone">{{ group.videos.length }}</span>
-            </button>
-          </li>
-          <template v-if="routeOpen(group.moduleId)">
-            <CourseTreeNode v-for="entry in group.videos" :key="entry.path" :node="entry" :depth="0" :course-id="course.id" :current-path="currentPath" :expanded="expanded" :route-position="guide.routePositions.value.get(entry.path)" @select="emit('select', $event)" />
-          </template>
-        </template>
+        <li v-for="group in routeGroups" :key="group.key" class="pt-2">
+          <VExpansionPanels class="sidebar-panels" :model-value="routeOpen(group.moduleId) ? 'content' : undefined" :readonly="isFiltering" @update:model-value="setModuleOpen(group.moduleId, $event)">
+            <VExpansionPanel value="content">
+              <VExpansionPanelTitle>
+                <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{{ moduleTitles.get(group.moduleId) }}</span>
+                <span class="tabular shrink-0 font-medium text-stone">{{ group.videos.length }}</span>
+              </VExpansionPanelTitle>
+              <VExpansionPanelText>
+                <ul>
+                  <CourseTreeNode v-for="entry in group.videos" :key="entry.path" :node="entry" :depth="0" :course-id="course.id" :current-path="currentPath" :expanded="expanded" :route-position="guide.routePositions.value.get(entry.path)" @select="emit('select', $event)" />
+                </ul>
+              </VExpansionPanelText>
+            </VExpansionPanel>
+          </VExpansionPanels>
+        </li>
       </ul>
       <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">没有符合条件的路线课节</p>
       <ul v-else-if="visibleRoot" role="tree">

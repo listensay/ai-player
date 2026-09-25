@@ -2,11 +2,14 @@ import { createApp, h } from 'vue'
 import { isDesktop } from './utils/platform'
 import App from './app.vue'
 import { router } from './router'
+import { vuetify } from './plugins/vuetify'
 import '@fontsource-variable/plus-jakarta-sans'
+import './styles/vuetify-base.scss'
 import './styles/main.css'
 
 if (isDesktop()) {
   const app = createApp(App)
+  app.use(vuetify)
   app.use(router)
   await router.isReady()
   app.mount('#app')

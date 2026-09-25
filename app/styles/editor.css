@@ -94,8 +94,17 @@
 
 .milkdown .ProseMirror a {
   color: var(--color-mindful-blue);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
+}
+.milkdown .ProseMirror a:hover {
+  color: var(--color-deep-indigo);
+}
+.milkdown .milkdown-link-preview > .link-preview > .link-display,
+.milkdown .milkdown-link-preview > .link-preview > .link-display:hover {
+  text-decoration: none;
+}
+.milkdown .milkdown-link-preview > .link-preview > .link-display:hover {
+  color: var(--color-deep-indigo);
 }
 
 /* 代码块：奶油色面 + 圆角，不用阴影 */

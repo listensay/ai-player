@@ -111,7 +111,11 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
 <template>
   <div class="check-in-calendar min-w-0 space-y-4" aria-label="学习打卡日历">
     <!-- 打卡统计顶栏 -->
-    <div class="check-in-stats grid grid-cols-2 gap-3">
+    <div v-if="compact" class="flex flex-wrap gap-x-5 gap-y-2 text-caption text-stone">
+      <span>连续打卡 <strong class="text-charcoal-ink">{{ checkIn?.streak.value ?? 0 }}</strong> 天</span>
+      <span>累计打卡 <strong class="text-charcoal-ink">{{ checkIn?.total.value ?? 0 }}</strong> 天</span>
+    </div>
+    <div v-else class="check-in-stats grid grid-cols-2 gap-3">
       <div class="min-w-0 rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
         <p class="text-caption font-medium text-stone">连续打卡</p>
         <p class="mt-1 text-heading-sm font-bold text-charcoal-ink">
@@ -152,7 +156,14 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
     </div>
 
     <!-- 今日学习时长进度 -->
-    <div class="rounded-2xl border border-linen bg-pure-white p-4">
+    <div v-if="compact">
+      <p class="flex flex-wrap items-baseline justify-between gap-2 text-caption text-stone">
+        <span>今日 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} / {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}</span>
+        <strong class="text-deep-indigo">{{ checkIn?.isAchieved.value ? '已打卡' : `已学 ${checkIn?.percent.value ?? 0}%` }}</strong>
+      </p>
+      <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-linen"><div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${checkIn?.percent.value ?? 0}%` }" /></div>
+    </div>
+    <div v-else class="rounded-2xl border border-linen bg-pure-white p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <span class="text-body-sm font-bold">今日学习时长</span>
@@ -180,7 +191,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
     </div>
 
     <!-- 日历主体 -->
-    <div class="rounded-2xl border border-linen bg-pure-white p-4 sm:p-5">
+    <div :class="compact ? '' : 'rounded-2xl border border-linen bg-pure-white p-4 sm:p-5'">
       <!-- 月份切换 -->
       <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h4 class="text-body font-bold text-charcoal-ink">{{ monthLabel }}</h4>
@@ -208,8 +219,9 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           v-for="cell in days"
           :key="cell.date"
           type="button"
-          class="relative flex min-h-[58px] flex-col items-center justify-between rounded-xl p-1.5 transition-all text-center"
+          class="relative flex flex-col items-center justify-between rounded-xl p-1.5 transition-all text-center"
           :class="[
+            compact ? 'min-h-11' : 'min-h-[58px]',
             !cell.currentMonth ? 'text-stone/40 opacity-50' : 'text-charcoal-ink',
             cell.isSelected ? 'ring-2 ring-charcoal-ink' : 'hover:bg-page-cream',
             cell.isToday ? 'border border-deep-indigo/40 bg-page-cream/60' : '',
@@ -253,7 +265,11 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       </div>
 
       <!-- 选中日期详情卡片 -->
-      <div v-if="selectedDetail" class="mt-4 rounded-xl border border-linen bg-page-cream p-3.5 text-body-sm">
+      <div v-if="compact && selectedDetail" class="mt-4 rounded-xl bg-page-cream p-3 text-caption leading-relaxed">
+        <p class="flex flex-wrap justify-between gap-2"><strong>{{ selectedDetail.date }}{{ selectedDetail.isToday ? ' · 今天' : '' }}</strong><span>{{ selectedDetail.isChecked ? '已打卡' : selectedDetail.seconds > 0 ? '学习中' : '未学习' }}</span></p>
+        <p class="mt-1 text-stone">已学 {{ formatStudyClock(selectedDetail.seconds) }} · 目标 {{ formatStudyHours(selectedDetail.targetSeconds) }}</p>
+      </div>
+      <div v-else-if="selectedDetail" class="mt-4 rounded-xl border border-linen bg-page-cream p-3.5 text-body-sm">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex min-w-0 flex-wrap items-center gap-2">
             <span class="font-bold text-charcoal-ink">{{ selectedDetail.date }}</span>
@@ -285,7 +301,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       </div>
 
       <!-- 规则说明 -->
-      <p class="mt-4 text-caption leading-relaxed text-stone">
+      <p v-if="!compact" class="mt-4 text-caption leading-relaxed text-stone">
         <strong>打卡规则</strong>：{{ checkIn?.includesWork.value ? '当日有效看课时长与记录的实践时间合计达到每日总投入后自动打卡。' : '当日有效学习时长达到每日目标后自动打卡，并在日历中记录。' }}倍速播放按实际经过的时间计时；暂停、缓冲和跳转不计入学习时长。
       </p>
     </div>

@@ -1,83 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-/**
- * 品牌图标：填充、圆润，不用线性描边图标（DESIGN.md：Icons are filled, colorful, rounded）。
- * 用 currentColor 填充，颜色由外层文字色决定。
- */
-const paths: Record<string, string> = {
-  sparkles: 'M12 2a1 1 0 0 1 .94.66l2.12 5.78 5.78 2.12a1 1 0 0 1 0 1.88l-5.78 2.12-2.12 5.78a1 1 0 0 1-1.88 0l-2.12-5.78-5.78-2.12a1 1 0 0 1 0-1.88l5.78-2.12 2.12-5.78A1 1 0 0 1 12 2zM20 2a.6.6 0 0 1 .56.4l.5 1.54 1.54.5a.6.6 0 0 1 0 1.12l-1.54.5-.5 1.54a.6.6 0 0 1-1.12 0l-.5-1.54-1.54-.5a.6.6 0 0 1 0-1.12l1.54-.5.5-1.54A.6.6 0 0 1 20 2z',
-  route: 'M6 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm12 12a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 5a1.5 1.5 0 0 0 0 3h5a1.5 1.5 0 0 1 0 3H7a4.5 4.5 0 0 0 0 9h3a1.5 1.5 0 0 0 0-3H7a1.5 1.5 0 0 1 0-3h10a4.5 4.5 0 0 0 0-9h-5z',
-  play: 'M8 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 8 5.5z',
-  pause:
-    'M6 5h3.5a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm8.5 0H18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-3.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z',
-  rewind:
-    'M11.5 6.6a1 1 0 0 0-1.6-.8l-6.5 5.4a1 1 0 0 0 0 1.6l6.5 5.4a1 1 0 0 0 1.6-.8V6.6zm9 0a1 1 0 0 0-1.6-.8l-6.5 5.4a1 1 0 0 0 0 1.6l6.5 5.4a1 1 0 0 0 1.6-.8V6.6z',
-  forward:
-    'M12.5 6.6a1 1 0 0 1 1.6-.8l6.5 5.4a1 1 0 0 1 0 1.6l-6.5 5.4a1 1 0 0 1-1.6-.8V6.6zm-9 0a1 1 0 0 1 1.6-.8l6.5 5.4a1 1 0 0 1 0 1.6l-6.5 5.4a1 1 0 0 1-1.6-.8V6.6z',
-  'skip-next':
-    'M6 6.7a1 1 0 0 1 1.55-.83l7.2 4.8v-4.2a1 1 0 1 1 2 0v11a1 1 0 1 1-2 0v-4.2l-7.2 4.8A1 1 0 0 1 6 17.3V6.7z',
-  'skip-prev':
-    'M18 6.7a1 1 0 0 0-1.55-.83l-7.2 4.8v-4.2a1 1 0 1 0-2 0v11a1 1 0 1 0 2 0v-4.2l7.2 4.8A1 1 0 0 0 18 17.3V6.7z',
-  folder:
-    'M3 6.5A2.5 2.5 0 0 1 5.5 4h3.9a2 2 0 0 1 1.42.59L12.4 6.2a1 1 0 0 0 .7.3h5.4A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-11z',
-  film: 'M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5v-13zM10 8.7v6.6a.6.6 0 0 0 .9.52l5.4-3.3a.6.6 0 0 0 0-1.03l-5.4-3.3a.6.6 0 0 0-.9.51z',
-  camera:
-    'M9.2 4a2 2 0 0 0-1.7.94L6.7 6.3H5.5A2.5 2.5 0 0 0 3 8.8v8.7A2.5 2.5 0 0 0 5.5 20h13a2.5 2.5 0 0 0 2.5-2.5V8.8a2.5 2.5 0 0 0-2.5-2.5h-1.2l-.8-1.36A2 2 0 0 0 14.8 4H9.2zM12 9.3a3.7 3.7 0 1 1 0 7.4 3.7 3.7 0 0 1 0-7.4z',
-  clock:
-    'M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19zm-.9 4.6a1 1 0 0 1 2 0v4.5l2.9 1.7a1 1 0 1 1-1 1.74l-3.4-2A1 1 0 0 1 11.1 12V7.1z',
-  'chevron-right':
-    'M9.3 6.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L13.6 12 9.3 7.7a1 1 0 0 1 0-1.4z',
-  'chevron-down':
-    'M6.3 9.3a1 1 0 0 1 1.4 0l4.3 4.3 4.3-4.3a1 1 0 1 1 1.4 1.4l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1 0-1.4z',
-  volume:
-    'M4 9.5A1.5 1.5 0 0 1 5.5 8h2.6l4.1-3.4A1 1 0 0 1 13.8 5.4v13.2a1 1 0 0 1-1.6.8L8.1 16H5.5A1.5 1.5 0 0 1 4 14.5v-5zm12.4-1.3a1 1 0 0 1 1.4.1 5.5 5.5 0 0 1 0 7.4 1 1 0 1 1-1.5-1.3 3.5 3.5 0 0 0 0-4.8 1 1 0 0 1 .1-1.4z',
-  'volume-mute':
-    'M4 9.5A1.5 1.5 0 0 1 5.5 8h2.6l4.1-3.4A1 1 0 0 1 13.8 5.4v13.2a1 1 0 0 1-1.6.8L8.1 16H5.5A1.5 1.5 0 0 1 4 14.5v-5zm12.2.3a1 1 0 0 1 1.4 0l1.4 1.4 1.4-1.4a1 1 0 1 1 1.4 1.4L20.4 12l1.4 1.4a1 1 0 0 1-1.4 1.4L19 13.4l-1.4 1.4a1 1 0 0 1-1.4-1.4l1.4-1.4-1.4-1.4a1 1 0 0 1 0-1.4z',
-  fullscreen:
-    'M4 8.5V5.5A1.5 1.5 0 0 1 5.5 4h3a1 1 0 0 1 0 2H6v2.5a1 1 0 0 1-2 0zm11.5-4.5h3A1.5 1.5 0 0 1 20 5.5v3a1 1 0 1 1-2 0V6h-2.5a1 1 0 1 1 0-2zM4 15.5a1 1 0 0 1 2 0V18h2.5a1 1 0 1 1 0 2h-3A1.5 1.5 0 0 1 4 18.5v-3zm14 0a1 1 0 1 1 2 0v3a1.5 1.5 0 0 1-1.5 1.5h-3a1 1 0 1 1 0-2H18v-2.5z',
-  'fullscreen-exit':
-    'M8.5 4a1 1 0 0 1 1 1v3.5A1.5 1.5 0 0 1 8 10H4.5a1 1 0 0 1 0-2h3V5a1 1 0 0 1 1-1zm7 0a1 1 0 0 1 1 1v3h3a1 1 0 1 1 0 2H16a1.5 1.5 0 0 1-1.5-1.5V5a1 1 0 0 1 1-1zM4.5 14H8a1.5 1.5 0 0 1 1.5 1.5V19a1 1 0 1 1-2 0v-3h-3a1 1 0 1 1 0-2zm11.5 0h3.5a1 1 0 1 1 0 2h-3v3a1 1 0 1 1-2 0v-3.5A1.5 1.5 0 0 1 16 14z',
-  check:
-    'M9.6 16.2l-3.5-3.5a1 1 0 0 1 1.4-1.4l2.8 2.8 6.4-6.4a1 1 0 1 1 1.4 1.4l-7.1 7.1a1 1 0 0 1-1.4 0z',
-  search:
-    'M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4 4a1.2 1.2 0 0 1-1.7 1.7l-4-4A7.5 7.5 0 1 1 10.5 3zm0 2.4a5.1 5.1 0 1 0 0 10.2 5.1 5.1 0 0 0 0-10.2z',
-  close:
-    'M6.3 6.3a1 1 0 0 1 1.4 0L12 10.6l4.3-4.3a1 1 0 1 1 1.4 1.4L13.4 12l4.3 4.3a1 1 0 0 1-1.4 1.4L12 13.4l-4.3 4.3a1 1 0 0 1-1.4-1.4L10.6 12 6.3 7.7a1 1 0 0 1 0-1.4z',
-  keyboard:
-    'M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9zM6 8.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM8 12a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm4 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-7.5 3.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2h-7z',
-  note: 'M6.5 3A2.5 2.5 0 0 0 4 5.5v13A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5V9.4a2 2 0 0 0-.59-1.41l-4.4-4.4A2 2 0 0 0 13.6 3H6.5zM8 12a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1zm1 3a1 1 0 1 0 0 2h4a1 1 0 1 0 0-2H9z',
-  trash:
-    'M9 3.5A1.5 1.5 0 0 1 10.5 2h3A1.5 1.5 0 0 1 15 3.5V4h4a1 1 0 1 1 0 2h-1l-.8 12.2A2 2 0 0 1 15.2 20H8.8a2 2 0 0 1-2-1.8L6 6H5a1 1 0 0 1 0-2h4v-.5zM10 9a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1zm4 0a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0v-6a1 1 0 0 0-1-1z',
-  menu: 'M4 7a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1zm0 5a1 1 0 0 1 1-1h14a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1zm1 4a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5z',
-  dashboard: 'M3 5.5A2.5 2.5 0 0 1 5.5 3h4A2.5 2.5 0 0 1 12 5.5v4A2.5 2.5 0 0 1 9.5 12h-4A2.5 2.5 0 0 1 3 9.5v-4zm11 0A2.5 2.5 0 0 1 16.5 3h2A2.5 2.5 0 0 1 21 5.5v2A2.5 2.5 0 0 1 18.5 10h-2A2.5 2.5 0 0 1 14 7.5v-2zm-11 9A2.5 2.5 0 0 1 5.5 12h2A2.5 2.5 0 0 1 10 14.5v4A2.5 2.5 0 0 1 7.5 21h-2A2.5 2.5 0 0 1 3 18.5v-4zm9-1a2.5 2.5 0 0 1 2.5-2.5h4a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-2.5 2.5h-4A2.5 2.5 0 0 1 12 18.5v-5z',
-  'arrow-left': 'M20 12a1 1 0 0 1-1 1H7.41l4.3 4.29a1 1 0 0 1-1.42 1.42l-6-6a1 1 0 0 1 0-1.42l6-6a1 1 0 0 1 1.42 1.42L7.41 11H19a1 1 0 0 1 1 1z',
+import { ArrowLeft, Camera, Check, ChevronDown, ChevronRight, Clock, FastForward, Film, FolderOpen, Keyboard, LayoutDashboard, Maximize, Menu, Minimize, NotebookPen, Pause, Play, Rewind, Route, Search, SkipBack, SkipForward, Sparkles, Trash2, Volume2, VolumeX, X } from '@lucide/vue'
+
+// 使用 Lucide 的标准图标，统一圆角描边；不再维护手写 SVG 路径。
+const icons = {
+  sparkles: Sparkles, route: Route, play: Play, pause: Pause, rewind: Rewind, forward: FastForward,
+  'skip-prev': SkipBack, 'skip-next': SkipForward, folder: FolderOpen, film: Film, camera: Camera,
+  clock: Clock, 'chevron-right': ChevronRight, 'chevron-down': ChevronDown, volume: Volume2,
+  'volume-mute': VolumeX, fullscreen: Maximize, 'fullscreen-exit': Minimize, check: Check,
+  search: Search, close: X, keyboard: Keyboard, note: NotebookPen, trash: Trash2, menu: Menu,
+  dashboard: LayoutDashboard, 'arrow-left': ArrowLeft,
 }
-
-export type IconName = keyof typeof paths
-
-const props = withDefaults(
-  defineProps<{
-    name: IconName | string
-    /** 像素尺寸 */
-    size?: number | string
-  }>(),
-  { size: 20 },
-)
-
-const d = computed(() => paths[props.name] ?? '')
+export type IconName = keyof typeof icons
+withDefaults(defineProps<{ name: IconName; size?: number | string }>(), { size: 20 })
 </script>
 
 <template>
-  <svg
-    :width="size"
-    :height="size"
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    fill-rule="evenodd"
-    aria-hidden="true"
-    focusable="false"
-    class="shrink-0"
-  >
-    <path :d="d" />
-  </svg>
+  <component :is="icons[name]" :size="Number(size)" :stroke-width="2.2" aria-hidden="true" focusable="false" class="shrink-0" />
 </template>

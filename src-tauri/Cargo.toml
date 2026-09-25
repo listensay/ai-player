@@ -27,6 +27,3 @@ futures-util = "0.3"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-[dev-dependencies]
-urlpattern = "0.3"
-regex = "1"

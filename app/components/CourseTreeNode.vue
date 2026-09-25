@@ -26,7 +26,6 @@ const progress = useProgress()
 const guide = useGuide()
 const lesson = computed(() => guide.lessonMap.value.get(props.node.path))
 
-const isFolder = computed(() => props.node.kind === 'folder')
 const isOpen = computed(() => props.node.kind === 'folder' && props.expanded.has(props.node.path))
 const isCurrent = computed(() => props.node.kind === 'video' && props.node.path === props.currentPath)
 
@@ -68,88 +67,78 @@ const titleParts = computed(() => {
 const indent = computed(() => `${8 + props.depth * 14}px`)
 
 function onClick() {
-  if (props.node.kind === 'folder') emit('toggle', props.node.path)
-  else emit('select', props.node)
+  if (props.node.kind === 'video') emit('select', props.node)
 }
 </script>
 
 <template>
   <li>
-    <button
+    <VExpansionPanels v-if="node.kind === 'folder'" class="sidebar-panels" :model-value="isOpen ? 'content' : undefined" @update:model-value="emit('toggle', node.path)">
+      <VExpansionPanel value="content">
+        <VExpansionPanelTitle :style="{ paddingLeft: indent }" :data-path="node.path" :title="node.name">
+          <span class="min-w-0 flex-1 truncate text-body-sm font-bold">{{ node.name }}</span>
+          <span v-if="folderStats" class="tabular shrink-0 text-caption text-stone">{{ folderStats.done }}/{{ folderStats.total }}</span>
+        </VExpansionPanelTitle>
+        <VExpansionPanelText>
+          <ul role="group">
+            <CourseTreeNode
+              v-for="child in node.children"
+              :key="child.path"
+              :node="child"
+              :depth="depth + 1"
+              :course-id="courseId"
+              :current-path="currentPath"
+              :expanded="expanded"
+              @select="emit('select', $event)"
+              @toggle="emit('toggle', $event)"
+            />
+          </ul>
+        </VExpansionPanelText>
+      </VExpansionPanel>
+    </VExpansionPanels>
+    <button v-else
       type="button"
       class="group flex w-full items-center gap-2.5 rounded-lg py-1.5 pr-2 text-left transition-colors duration-100 ease-soft hover:bg-cream-deep"
       :class="[
         isCurrent ? 'bg-page-cream text-charcoal-ink' : 'text-charcoal-ink',
-        isFolder ? 'mt-1' : '',
       ]"
       :style="{ paddingLeft: indent }"
-      :aria-expanded="isFolder ? isOpen : undefined"
       :aria-current="isCurrent ? 'true' : undefined"
       :data-path="node.path"
       :data-route-position="routePosition"
-      :title="node.kind === 'video' ? node.title : node.name"
+      :title="node.title"
       @click="onClick"
     >
-      <!-- 章节：填充式 chevron，展开时旋转 -->
-      <template v-if="isFolder">
-        <AppIcon
-          name="chevron-right"
-          :size="16"
-          class="text-stone transition-transform duration-150 ease-soft"
-          :class="isOpen ? 'rotate-90' : ''"
-        />
-        <span class="min-w-0 flex-1 truncate text-body-sm font-bold">{{ node.name }}</span>
-        <span v-if="folderStats" class="tabular shrink-0 text-caption text-stone">
-          {{ folderStats.done }}/{{ folderStats.total }}
-        </span>
-      </template>
-
       <!-- 课时：进度圆点 + 标题 -->
-      <template v-else>
-        <span class="relative flex h-4 w-4 shrink-0 items-center justify-center">
-          <span
-            v-if="isCurrent"
-            class="h-3 w-3 rounded-full bg-sunbeam-yellow ring-2 ring-charcoal-ink"
-            aria-hidden="true"
-          />
-          <span
-            v-else-if="videoProgress?.done"
-            class="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-charcoal-ink text-pure-white"
-            aria-hidden="true"
-          >
-            <AppIcon name="check" :size="10" />
-          </span>
-          <span v-else class="h-3 w-3 rounded-full" :style="dotStyle" aria-hidden="true" />
-        </span>
-        <span class="min-w-0 flex-1 text-body-sm" :class="[isCurrent ? 'font-bold' : 'font-medium', routePosition ? '[overflow-wrap:anywhere]' : 'truncate']">
-          <span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{ String(routePosition).padStart(2, '0') }}</span>
-          <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span>{{ routePosition && node.kind === 'video' ? conciseLessonTitle(node.title) : titleParts?.text }}
-        </span>
+      <span class="relative flex h-4 w-4 shrink-0 items-center justify-center">
         <span
-          v-if="videoProgress && !videoProgress.done && videoProgress.ratio > 0"
-          class="tabular shrink-0 text-caption text-stone"
+          v-if="isCurrent"
+          class="h-3 w-3 rounded-full bg-sunbeam-yellow ring-2 ring-charcoal-ink"
+          aria-hidden="true"
+        />
+        <span
+          v-else-if="videoProgress?.done"
+          class="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-charcoal-ink text-pure-white"
+          aria-hidden="true"
         >
-          {{ Math.round(videoProgress.ratio * 100) }}%
+          <AppIcon name="check" :size="10" />
         </span>
-        <span class="sr-only">
-          {{ isCurrent ? '正在播放' : videoProgress?.done ? '已完成' : '' }}
-        </span>
-        <LessonBadge v-if="lesson" :status="lesson.status" compact />
-      </template>
+        <span v-else class="h-3 w-3 rounded-full" :style="dotStyle" aria-hidden="true" />
+      </span>
+      <span class="min-w-0 flex-1 text-body-sm" :class="[isCurrent ? 'font-bold' : 'font-medium', routePosition ? '[overflow-wrap:anywhere]' : 'truncate']">
+        <span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{ String(routePosition).padStart(2, '0') }}</span>
+        <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span>{{ routePosition && node.kind === 'video' ? conciseLessonTitle(node.title) : titleParts?.text }}
+      </span>
+      <span
+        v-if="videoProgress && !videoProgress.done && videoProgress.ratio > 0"
+        class="tabular shrink-0 text-caption text-stone"
+      >
+        {{ Math.round(videoProgress.ratio * 100) }}%
+      </span>
+      <span class="sr-only">
+        {{ isCurrent ? '正在播放' : videoProgress?.done ? '已完成' : '' }}
+      </span>
+      <LessonBadge v-if="lesson" :status="lesson.status" compact />
     </button>
-
-    <ul v-if="isFolder && isOpen && node.kind === 'folder'" role="group">
-      <CourseTreeNode
-        v-for="child in node.children"
-        :key="child.path"
-        :node="child"
-        :depth="depth + 1"
-        :course-id="courseId"
-        :current-path="currentPath"
-        :expanded="expanded"
-        @select="emit('select', $event)"
-        @toggle="emit('toggle', $event)"
-      />
-    </ul>
   </li>
 </template>

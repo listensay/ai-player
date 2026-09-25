@@ -1,0 +1,10 @@
+// Keep Tailwind's spacing and DESIGN.md tokens authoritative. Vuetify's global
+// utility/color classes otherwise use !important and override those tokens.
+@use 'vuetify/settings' with (
+  $layers: true,
+  $utilities: false,
+  $color-pack: false,
+  $reset: false,
+  $body-font-family: ('Plus Jakarta Sans Variable', 'PingFang SC', sans-serif)
+);
+@use 'vuetify/styles';

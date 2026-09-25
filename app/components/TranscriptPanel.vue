@@ -175,17 +175,19 @@ onBeforeUnmount(() => {
     <!-- 有逐字稿：搜索 + 列表 -->
     <template v-if="state.status === 'ready' || state.status === 'transcribing'">
       <div class="flex items-center gap-2 border-b border-linen px-4 py-3">
-        <label class="relative min-w-0 flex-1">
-          <span class="sr-only">搜索逐字稿</span>
-          <AppIcon name="search" :size="16" class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-stone" />
-          <input
-            v-model="query"
+        <div class="min-w-0 flex-1">
+          <VTextField
+            :model-value="query"
             type="search"
+            label="搜索逐字稿"
             placeholder="搜索本节逐字稿"
-            class="h-9 w-full rounded-lg border border-ash bg-pure-white pr-3 pl-9 text-body-sm text-charcoal-ink placeholder:text-stone focus:border-charcoal-ink focus:outline-none"
+            clearable
+            @update:model-value="query = $event ?? ''"
             @keydown.enter.prevent="jumpMatch($event.shiftKey ? -1 : 1)"
-          />
-        </label>
+          >
+            <template #prepend-inner><AppIcon name="search" :size="18" /></template>
+          </VTextField>
+        </div>
         <template v-if="query">
           <span class="tabular shrink-0 text-caption text-stone">
             {{ matches.length ? `${matchCursor + 1}/${matches.length}` : '0 处' }}
@@ -203,7 +205,7 @@ onBeforeUnmount(() => {
       <div v-if="state.status === 'transcribing'" class="border-b border-linen bg-page-cream px-4 py-2">
         <div class="flex items-center justify-between gap-3 text-caption">
           <span class="font-medium text-charcoal-ink">正在转写… {{ progressText }}</span>
-          <button type="button" class="text-stone underline-offset-2 hover:text-charcoal-ink hover:underline" @click="transcripts.cancel(courseId, video.path)">取消</button>
+          <button type="button" class="text-stone hover:text-charcoal-ink" @click="transcripts.cancel(courseId, video.path)">取消</button>
         </div>
         <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-linen">
           <div
@@ -275,7 +277,7 @@ onBeforeUnmount(() => {
           <button
             v-if="state.status === 'ready'"
             type="button"
-            class="underline-offset-2 hover:text-charcoal-ink hover:underline"
+            class="hover:text-charcoal-ink"
             :disabled="asr.state.status !== 'ready'"
             @click="retranscribe"
           >

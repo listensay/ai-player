@@ -15,9 +15,8 @@ const questions = computed(() => guide.state.questions.filter(q => filter.value 
   <section class="pane p-5" aria-label="疑问清单">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h3 class="text-subheading">疑问清单 <span class="text-body-sm text-stone">{{ guide.unresolvedQuestions.value.length }} 个待解决</span></h3>
-      <select v-model="filter" aria-label="筛选疑问状态" class="rounded-full border border-linen bg-page-cream px-3 py-2 text-caption">
-        <option value="open">待解决</option><option value="resolved">已解决</option><option value="all">全部疑问</option>
-      </select>
+      <VSelect v-model="filter" aria-label="筛选疑问状态" class="w-40 max-w-48 flex-none"
+        :items="[{ title: '待解决', value: 'open' }, { title: '已解决', value: 'resolved' }, { title: '全部疑问', value: 'all' }]" />
     </div>
     <p class="mt-2 text-caption leading-relaxed text-stone">记录课节与提问位置。回看后选择“仍不理解”，会将回看过的基础课加入补学；解决疑问不会自动标记知识已掌握。</p>
     <ul class="mt-3 divide-y divide-linen">
@@ -26,7 +25,7 @@ const questions = computed(() => guide.state.questions.filter(q => filter.value 
           <p class="min-w-0 whitespace-pre-wrap break-words text-body-sm font-bold">{{ q.text }}</p>
           <span class="shrink-0 rounded-full bg-page-cream px-2 py-1 text-caption">{{ QUESTION_LABELS[q.status] }}</span>
         </div>
-        <button type="button" class="mt-2 max-w-full break-words text-left text-caption text-stone underline" @click="$emit('seek', q.path, q.seconds)">
+        <button type="button" class="mt-2 max-w-full break-words text-left text-caption text-stone hover:text-deep-indigo" @click="$emit('seek', q.path, q.seconds)">
           {{ guide.videoMap.value.get(q.path)?.title }} · {{ formatTime(q.seconds, true) }} · 返回提问位置
         </button>
         <div class="mt-3 flex flex-wrap gap-2">

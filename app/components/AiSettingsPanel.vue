@@ -51,7 +51,7 @@ async function remove() {
     <h3 class="text-heading-sm">AI 服务配置</h3>
     <p class="mt-2 text-body-sm leading-relaxed text-graphite">保存多组服务与模型配置，按需选择用于学习路线、疑问回溯和课后练习的 AI。</p>
     <div v-if="ai.state.error" role="alert" class="pane mt-4 p-4 text-body-sm text-error">
-      {{ ai.state.error }}<button type="button" class="ml-2 underline" :disabled="ai.state.loading" @click="ai.load">重新读取</button>
+      {{ ai.state.error }}<UiButton variant="text" size="sm" class="ml-2" :disabled="ai.state.loading" @click="ai.load">重新读取</UiButton>
     </div>
     <div class="pane mt-5 space-y-4 p-5">
       <AiProfileSelector :disabled="!!guide.state.busy" @selected="edit" />
@@ -74,13 +74,13 @@ async function remove() {
     <form class="pane mt-5 space-y-4 p-5" @submit.prevent="save">
       <h4 class="text-body font-bold">{{ editingId ? '编辑配置' : '新增配置' }}</h4>
       <fieldset :disabled="disabled" class="min-w-0 space-y-4 disabled:opacity-60">
-        <label class="block text-body-sm font-bold">配置名称<input v-model="draft.name" required maxlength="60" class="ai-input mt-2" placeholder="例如：日常学习、本地模型" /></label>
-        <label class="block text-body-sm font-bold">服务地址<input v-model="draft.baseUrl" type="url" required autocomplete="off" class="ai-input mt-2" placeholder="https://api.example.com/v1" /></label>
+        <VTextField v-model="draft.name" required maxlength="60" placeholder="例如：日常学习、本地模型"  label="配置名称" />
+        <VTextField v-model="draft.baseUrl" type="url" required autocomplete="off" placeholder="https://api.example.com/v1"  label="服务地址" />
         <p class="text-caption text-stone">支持 OpenAI 兼容服务；本机 Ollama 可使用 http://localhost:11434/v1。</p>
-        <label class="block text-body-sm font-bold">模型名称<input v-model="draft.model" required autocomplete="off" class="ai-input mt-2" placeholder="填写服务支持的模型名称" /></label>
-        <label class="block text-body-sm font-bold">API 密钥<input v-model="draft.apiKey" type="password" autocomplete="off" class="ai-input mt-2" placeholder="本机无鉴权服务可留空" /></label>
-        <label class="block text-body-sm font-bold">响应超时时长（分钟）<input v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required class="ai-input mt-2" /></label>
-        <label class="block text-body-sm font-bold">最大输出长度（token）<input v-model.number="draft.maxTokens" type="number" min="256" max="1000000" step="1" class="ai-input mt-2" placeholder="留空则使用服务默认值" /></label>
+        <VTextField v-model="draft.model" required autocomplete="off" placeholder="填写服务支持的模型名称"  label="模型名称" />
+        <VTextField v-model="draft.apiKey" type="password" autocomplete="off" placeholder="本机无鉴权服务可留空"  label="API 密钥" />
+        <VTextField v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required  label="响应超时时长（分钟）" />
+        <VTextField v-model.number="draft.maxTokens" type="number" min="256" max="1000000" step="1" placeholder="留空则使用服务默认值"  label="最大输出长度（token）" />
         <p class="text-caption text-stone">课程较多时学习路线较长，若提示输出被截断，请调高此值（例如 32000），且不超过所选模型的输出上限。</p>
         <p class="text-caption text-stone">各组配置独立保存，切换后新请求使用所选 AI。服务配置与密钥保存在本地。</p>
         <div class="flex flex-wrap gap-2">
@@ -100,8 +100,3 @@ async function remove() {
     <UiButton v-if="ai.configured.value" class="mt-4" @click="emit('done')">返回定制路线</UiButton>
   </section>
 </template>
-
-<style scoped>
-@reference '../styles/main.css';
-.ai-input { @apply block w-full min-w-0 rounded-xl border border-linen bg-page-cream px-3 py-2.5 font-normal outline-none focus:border-charcoal-ink; }
-</style>

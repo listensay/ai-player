@@ -31,7 +31,7 @@ async function connect(replaceHandle = false) {
       <div v-if="!store.state.loading" class="mt-6 flex flex-wrap items-center justify-center gap-3">
         <UiButton v-if="recent" @click="connect(true)">关联课程文件夹</UiButton>
         <UiButton v-if="!recent" variant="ghost" @click="store.restoreCourse(String(route.params.id))">重试</UiButton>
-        <RouterLink to="/" class="rounded-full px-4 py-2 text-body-sm font-bold underline underline-offset-4">返回首页</RouterLink>
+        <RouterLink to="/" class="rounded-full px-4 py-2 text-body-sm font-bold hover:text-deep-indigo">返回首页</RouterLink>
       </div>
     </section>
   </main>

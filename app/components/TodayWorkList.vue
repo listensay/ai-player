@@ -18,22 +18,26 @@ function setMinutes(entry: WorkEntry, event: Event) {
   <ul class="space-y-2.5" aria-label="今日实践任务">
     <li v-for="entry in guide.todayWork.value" :key="entry.id" :data-work-id="entry.id" class="rounded-xl border border-linen bg-pure-white p-3">
       <div class="flex items-start gap-3">
-        <input type="checkbox" class="mt-1 accent-charcoal-ink" :checked="entry.done" :aria-label="`${repeat(entry) ? '完成今日任务' : '完成任务'}：${entry.title}`"
-          @change="guide.updateWork(entry.id, { done: ($event.target as HTMLInputElement).checked })" />
+        <VCheckbox class="shrink-0" :model-value="entry.done" :aria-label="`${repeat(entry) ? '完成今日任务' : '完成任务'}：${entry.title}`"
+          @update:model-value="guide.updateWork(entry.id, { done: !!$event })" />
         <div class="min-w-0 flex-1">
           <p class="text-caption text-stone">{{ WORK_LABELS[entry.kind] }} · 计划 {{ formatMinutes(entry.targetMinutes) }}{{ repeat(entry) ? ' · 每日任务' : '' }}</p>
           <p class="mt-0.5 text-body-sm font-bold leading-relaxed [overflow-wrap:anywhere]" :class="entry.done ? 'text-stone line-through' : 'text-charcoal-ink'">{{ entry.title }}</p>
-          <details class="mt-1 text-caption text-graphite">
-            <summary class="cursor-pointer text-stone">操作要求</summary>
-            <p class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ entry.instructions }}</p>
-          </details>
+          <VExpansionPanels class="my-3">
+            <VExpansionPanel value="content">
+              <VExpansionPanelTitle>操作要求</VExpansionPanelTitle>
+              <VExpansionPanelText>
+                <p class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ entry.instructions }}</p>
+              </VExpansionPanelText>
+            </VExpansionPanel>
+          </VExpansionPanels>
           <div class="mt-2 flex flex-wrap items-center gap-2 text-caption">
             <label class="flex shrink-0 items-center gap-1.5 text-stone">已投入
-              <input type="number" min="0" max="1440" step="5" :value="entry.minutes" :aria-label="`${entry.title} 已投入分钟数`"
-                class="w-16 rounded-lg border border-linen bg-page-cream px-2 py-1 text-center text-charcoal-ink" @change="setMinutes(entry, $event)" />分钟
+              <VTextField type="number" min="0" max="1440" step="5" :model-value="entry.minutes" :aria-label="`${entry.title} 已投入分钟数`"
+                class="w-16 text-center" @change="setMinutes(entry, $event)" />分钟
             </label>
-            <input type="text" maxlength="6000" :value="entry.evidence" :aria-label="`${entry.title} 成果记录`" placeholder="成果记录：提交链接、完成内容或遇到的问题"
-              class="min-w-0 flex-1 basis-48 rounded-lg border border-linen bg-page-cream px-3 py-1 text-charcoal-ink focus:border-charcoal-ink focus:outline-none"
+            <VTextField type="text" maxlength="6000" :model-value="entry.evidence" :aria-label="`${entry.title} 成果记录`" placeholder="成果记录：提交链接、完成内容或遇到的问题"
+              class="min-w-0 flex-1 basis-48"
               @change="guide.updateWork(entry.id, { evidence: ($event.target as HTMLInputElement).value })" />
           </div>
         </div>

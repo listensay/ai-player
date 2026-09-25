@@ -15,7 +15,8 @@ const {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col bg-page-cream text-charcoal-ink">
+  <VApp>
+  <div :inert="helpOpen || guideOpen || practice.state.open" class="flex h-dvh flex-col overflow-hidden bg-page-cream text-charcoal-ink">
     <AppTopBar
       :course-name="course?.name"
       :course-id="course?.id"
@@ -60,4 +61,5 @@ const {
       @close="guideOpen = false" @select="selectGuideVideo" @segment="startSegment" />
     <PracticeDialog v-if="course" :practice="practice" @settings="openGuide(undefined, 'settings')" @seek="selectGuideVideo" @help="openGuide($event, 'help')" />
   </div>
+  </VApp>
 </template>

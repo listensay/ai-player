@@ -108,6 +108,34 @@ Headspace lives in a sunlit wellness retreat on warm paper: a cream canvas (#f9f
 
 ## Components
 
+### 输入控件
+
+所有表单输入统一使用 Vuetify 组件：文本和数字使用 `VTextField`，多行内容使用 `VTextarea`，选择项使用 `VSelect`、`VCheckbox` 或 `VRadioGroup`，文件选择使用 `VFileInput`，播放进度和音量使用 `VSlider`。应用模板不再直接使用原生 `input`、`textarea`、`select` 或手写滑块；保留组件自带的键盘操作与无障碍语义。
+
+输入框采用白色背景、Linen 细边框与 8px 圆角；无提示或校验信息时不预留底部空白。播放滑块使用 Linen 轨道、Charcoal Ink 已播放部分与 Sunbeam Yellow 圆形手柄。
+
+搜索框使用 `VTextField` 的浮动标签、Lucide 搜索图标和组件清空按钮，不只保留占位文字与边框；隐藏浏览器自带的搜索装饰和清空按钮，避免出现两套控件。清空后恢复完整结果。
+
+### 课程概览布局
+
+概览兼顾扫读和留白：顶部展示课程、进度与学习入口；桌面左侧展示课程列表，右侧依次纵向排列今日任务、当前阶段和完整月历，支持切换月份和选择日期。小屏自然纵向排列，不强制把所有内容压进一个视口。
+
+概览最大宽度为 1440px，桌面区域间距 24px，卡片内边距 20–24px；手机区域间距 20px。搜索框与状态筛选组统一为 40px 高度。七天投入保留月历下方的紧凑七列图表，日历与其他卡片不互相拉伸。概览月历精简重复的统计卡片，保留日期网格、今日目标和所选日期记录；任务明细继续使用 Vuetify 弹窗。长课程列表限制自身高度，页面允许自然滚动。
+
+### 扩展面板
+
+可展开的课程章节、阶段详情、实践说明和练习内容统一使用 Vuetify 的 `VExpansionPanels`、`VExpansionPanel`、`VExpansionPanelTitle` 与 `VExpansionPanelText`。使用组件自带的交互、键盘操作、展开动画和延迟渲染，不再使用原生 `details/summary` 或自行组合按钮和隐藏容器实现面板。
+
+外观采用白色背景、Linen 细边框、16px 圆角和 Lucide 展开图标；标题展开前后保持一致高度，不增加阴影。长列表继续分页，关闭的重型内容不提前渲染。
+
+正文与标题之间保留 12px 内边距，正文左右及底部保持 16px，不让进度、说明或输入框紧贴标题。侧栏目录保留紧凑排列，不叠加正文内边距。
+
+### 链接与文字操作
+
+链接及文字操作按钮在默认、悬停（hover）、聚焦和按下状态均不使用文字下划线，包括课程标题、回看入口、笔记正文链接和链接预览浮层。不要使用 `underline`、`hover:underline` 或通过底边框模拟下划线。
+
+用文字颜色、字重和已有的按钮背景区分可点击内容；悬停时可使用 Deep Indigo，键盘操作保留清晰的焦点轮廓。正文链接使用 Mindful Blue。完成事项的删除线属于状态标记，继续保留。
+
 ### Yellow Announcement Banner
 **Role:** Top-of-page promotional strip
 

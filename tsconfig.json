@@ -15,5 +15,5 @@
     "noEmit": true,
     "paths": { "~/*": ["./app/*"] }
   },
-  "include": ["app/**/*.ts", "app/**/*.vue", "vite.config.ts", "playwright.config.ts"]
+  "include": ["app/**/*.ts", "app/**/*.vue", "vite.config.ts"]
 }

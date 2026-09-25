@@ -42,19 +42,23 @@ const budgetText = computed(() => {
       <div class="min-w-0 rounded-xl bg-page-cream p-3"><dt class="text-caption font-bold text-stone">可跳过课程的条件</dt><dd class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ practice.skipWhen }}</dd></div>
     </dl>
 
-    <details v-if="practice.tasks.length" class="rounded-xl border border-linen p-3">
-      <summary class="cursor-pointer font-bold">实践任务（{{ practice.tasks.filter(t => !t.repeat && taskDone(t.id, t.title)).length }}/{{ practice.tasks.filter(t => !t.repeat).length }} 项已完成）</summary>
-      <ol class="mt-2 divide-y divide-linen">
-        <li v-for="task in practice.tasks" :key="task.id" class="py-2.5">
-          <p class="flex flex-wrap items-center gap-2">
-            <span class="rounded-full bg-page-cream px-2 py-0.5 text-caption font-bold text-graphite">{{ WORK_LABELS[task.kind] }}</span>
-            <span class="min-w-0 font-bold [overflow-wrap:anywhere]" :class="!task.repeat && taskDone(task.id, task.title) ? 'text-stone line-through' : ''">{{ task.title }}</span>
-            <span v-if="task.repeat" class="text-caption text-stone">每日任务</span>
-          </p>
-          <p class="mt-1 text-caption leading-relaxed text-graphite [overflow-wrap:anywhere]">{{ task.instructions }}</p>
-        </li>
-      </ol>
-    </details>
+    <VExpansionPanels v-if="practice.tasks.length" class="my-3">
+      <VExpansionPanel value="content">
+        <VExpansionPanelTitle>实践任务（{{ practice.tasks.filter(t => !t.repeat && taskDone(t.id, t.title)).length }}/{{ practice.tasks.filter(t => !t.repeat).length }} 项已完成）</VExpansionPanelTitle>
+        <VExpansionPanelText>
+          <ol class="mt-2 divide-y divide-linen">
+            <li v-for="task in practice.tasks" :key="task.id" class="py-2.5">
+              <p class="flex flex-wrap items-center gap-2">
+                <span class="rounded-full bg-page-cream px-2 py-0.5 text-caption font-bold text-graphite">{{ WORK_LABELS[task.kind] }}</span>
+                <span class="min-w-0 font-bold [overflow-wrap:anywhere]" :class="!task.repeat && taskDone(task.id, task.title) ? 'text-stone line-through' : ''">{{ task.title }}</span>
+                <span v-if="task.repeat" class="text-caption text-stone">每日任务</span>
+              </p>
+              <p class="mt-1 text-caption leading-relaxed text-graphite [overflow-wrap:anywhere]">{{ task.instructions }}</p>
+            </li>
+          </ol>
+        </VExpansionPanelText>
+      </VExpansionPanel>
+    </VExpansionPanels>
 
     <section v-if="practice.checks.length" aria-label="验收清单">
       <h5 class="font-bold">验收清单</h5>
@@ -67,12 +71,12 @@ const budgetText = computed(() => {
             <span class="shrink-0 text-caption font-bold" :class="passed(check) ? 'text-charcoal-ink' : 'text-stone'">{{ passed(check) ? '已通过' : stale(check) ? '要求已变化，需重新确认' : '待验收' }}</span>
           </div>
           <div class="mt-2 flex flex-wrap items-center gap-2">
-            <input v-model="drafts[check.id]" type="text" maxlength="6000" :aria-label="`验收证据：${check.text}`" placeholder="仓库链接、测试结果或演示说明"
-              class="min-w-0 flex-1 basis-56 rounded-lg border border-linen bg-page-cream px-3 py-1.5 text-caption focus:border-charcoal-ink focus:outline-none"
+            <VTextField v-model="drafts[check.id]" type="text" maxlength="6000" :aria-label="`验收证据：${check.text}`" placeholder="仓库链接、测试结果或演示说明"
+              class="min-w-0 flex-1 basis-56"
               @change="save(check, passed(check))" />
             <label class="flex shrink-0 items-center gap-1.5 text-caption font-bold" :class="drafts[check.id]?.trim() ? '' : 'text-stone'">
-              <input type="checkbox" class="accent-charcoal-ink" :checked="passed(check)" :disabled="!drafts[check.id]?.trim()"
-                @change="save(check, ($event.target as HTMLInputElement).checked)" />通过
+              <VCheckbox class="shrink-0" :model-value="passed(check)" :disabled="!drafts[check.id]?.trim()"
+                @update:model-value="save(check, !!$event)" />通过
             </label>
           </div>
         </li>

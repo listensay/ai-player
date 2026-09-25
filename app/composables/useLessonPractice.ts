@@ -5,7 +5,7 @@ import type { GuideSettings, SubtitleCue } from '~/types/guide'
 import type { PracticeRecord, PracticeScope } from '~/types/practice'
 import { loadLessonSubtitles } from '~/utils/guideMedia'
 import { requestGuideJson } from '~/utils/guideAi'
-import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validatePracticeFeedback } from '~/utils/practice'
+import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validatePracticeFeedback, restorePractice, isChoiceQuestion, practiceAnswerText, reviewPracticeChoice } from '~/utils/practice'
 import { dbFetchPractice, dbSavePractice } from '~/utils/dbClient'
 
 
@@ -27,12 +27,12 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   function persist() {
     if (!activeId || !state.path) return
     const recordsForPath = state.records.filter(r => r.path === state.path)
-    void dbSavePractice(activeId, state.path, recordsForPath as any)
+    void dbSavePractice(activeId, state.path, recordsForPath)
   }
   function cancel() { request?.abort(); request = null; state.busy = '' }
   function close() { cancel(); persist(); state.open = false }
   function select(id: string) { if (state.busy) return; state.selectedId = id; state.error = '' }
-  function updateDraft(answer: string) { if (current.value && !state.busy) { current.value.draft = answer.slice(0, 8000); persist() } }
+  function updateDraft(answer: string) { if (current.value && !state.busy) { current.value.draft = answer.slice(0, 8000); state.error = ''; persist() } }
 
   async function open(video: VideoEntry, scope: PracticeScope | null, noteSnapshot?: string) {
     if (!activeId) return
@@ -74,9 +74,9 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     const scope = state.scope ? { ...state.scope } : null
     const path = state.path
     try {
-      const raw = await requestGuideJson({ ...settings }, practicePrompt(state.title, submitted, scope), controller.signal)
+      const raw = await requestGuideJson({ ...settings }, practicePrompt(state.title, submitted, scope, history.value.map(r => r.question)), controller.signal)
       if (controller.signal.aborted) return
-      const question = validatePracticeQuestion(raw, submitted)
+      const question = validatePracticeQuestion(raw, submitted, true)
       const record: PracticeRecord = { id: crypto.randomUUID(), path, createdAt: Date.now(), scope, sources: submitted, question, draft: '', attempts: [] }
       state.records = [record, ...state.records].slice(0, 20); state.selectedId = record.id; persist()
     } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
@@ -86,10 +86,13 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   async function review() {
     const record = current.value
     if (!record || state.busy || record.attempts.length >= 3) return
-    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return }
     state.error = ''
-    const answer = record.draft.trim()
-    if (!answer) { state.error = '请填写作答内容后提交。'; return }
+    const answer = practiceAnswerText(record.question, record.draft)
+    if (!answer) { state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容后提交。'; return }
+    if (isChoiceQuestion(record.question)) {
+      record.attempts.push({ answer, feedback: reviewPracticeChoice(record.question, record.draft), at: Date.now() }); persist(); return
+    }
+    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return }
     const controller = new AbortController(); request = controller; state.busy = 'review'
     try {
       const raw = await requestGuideJson({ ...settings }, practiceReviewPrompt(record, answer), controller.signal)
@@ -110,7 +113,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
       const practiceMap = await dbFetchPractice(activeId)
       if (stale) return
       const allRecords = Object.values(practiceMap).flat()
-      state.records = allRecords as any
+      state.records = restorePractice(allRecords.sort((a, b) => b.createdAt - a.createdAt), course.value?.videos.map(v => v.path) ?? [])
     } catch { state.storageError = '练习记录读取失败，可重新生成练习。' }
   }, { immediate: true, flush: 'sync' })
   onBeforeUnmount(() => { cancel(); persist() })

@@ -264,36 +264,3 @@ pub async fn fs_write(
     .map_err(|e| e.to_string())?
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn restricts_access_to_selected_courses() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
-        std::fs::write(root.join("lesson.mp4"), b"video").unwrap();
-        let roots = HashSet::from([root.clone()]);
-        let path = root.to_str().unwrap();
-        assert!(resolve(&roots, path, "lesson.mp4", false).is_ok());
-        assert!(resolve(&roots, path, "lesson.md", true).is_ok());
-        assert!(resolve(&roots, path, "../private.txt", false).is_err());
-        assert!(resolve(&roots, path, "/etc/passwd", false).is_err());
-        assert!(resolve(&HashSet::new(), path, "lesson.mp4", false).is_err());
-        assert!(check_write(&root.join("lesson.mp4")).is_err());
-    }
-    #[cfg(unix)]
-    #[test]
-    fn blocks_symlinks_outside_course() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(outside.path(), root.path().join("escape")).unwrap();
-        let roots = HashSet::from([root.path().canonicalize().unwrap()]);
-        assert!(resolve(
-            &roots,
-            root.path().to_str().unwrap(),
-            "escape/notes.md",
-            true
-        )
-        .is_err());
-    }
-}

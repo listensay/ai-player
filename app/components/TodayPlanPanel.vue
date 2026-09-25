@@ -52,11 +52,11 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
     <div class="pane p-5">
       <form class="flex flex-wrap items-center gap-3" @submit.prevent="updateMinutes">
         <label class="flex items-center gap-2 text-body-sm">{{ guide.program.value ? '今日看课时间' : '今日可用时间' }}
-          <input v-model.number="minutes" aria-label="今日可用分钟数" type="number" min="5" max="1440" step="1" required
-            class="w-20 rounded-xl border border-linen bg-page-cream px-3 py-2 text-center" :disabled="!!guide.state.busy" @change="updateMinutes" />分钟
+          <VTextField v-model.number="minutes" aria-label="今日可用分钟数" type="number" min="5" max="1440" step="1" required
+            class="w-20 text-center" :disabled="!!guide.state.busy" @change="updateMinutes" />分钟
         </label>
         <UiButton size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday(Math.min(15, guide.state.plan?.dailyMinutes ?? 30))">精简安排（最多 15 分钟）</UiButton>
-        <button type="button" class="text-caption text-stone underline" :disabled="!!guide.state.busy" @click="guide.refreshToday(null)">恢复每日计划</button>
+        <UiButton variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday(null)">恢复每日计划</UiButton>
       </form>
       <p class="mt-3 text-caption text-stone">调整仅对当日生效，次日恢复每日计划。已完成事项及用时计入当日安排。{{ guide.program.value ? '此处仅调整看课时间，实践任务按阶段分配安排。' : '' }}</p>
       <div class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-page-cream p-4">
@@ -66,11 +66,11 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
       <p v-if="totalSeconds > (today?.minutes ?? 30) * 60" class="mt-3 text-caption text-stone">已完成时长超过调整后的可用时间，今日不再新增安排。</p>
       <ol class="mt-3 divide-y divide-linen">
         <li v-for="(item, index) in today?.items" :key="item.id" class="flex items-start gap-3 py-4" :data-today-id="item.id">
-          <input type="checkbox" :checked="item.done" :aria-label="`完成今日第 ${index + 1} 项`" class="mt-1 accent-charcoal-ink"
-            @change="guide.completeTodayItem(item.id, ($event.target as HTMLInputElement).checked)" />
+          <VCheckbox :model-value="item.done" :aria-label="`完成今日第 ${index + 1} 项`" class="shrink-0"
+            @update:model-value="guide.completeTodayItem(item.id, !!$event)" />
           <div class="min-w-0 flex-1">
             <p class="text-caption text-stone">{{ item.kind === 'question' ? '处理疑问' : item.kind === 'review' ? '补学基础' : '学习课节' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
-            <button class="mt-1 max-w-full break-words text-left text-body-sm font-bold hover:underline" :class="item.done ? 'text-stone line-through' : ''" @click="start(item)">
+            <button class="mt-1 max-w-full break-words text-left text-body-sm font-bold hover:text-deep-indigo" :class="item.done ? 'text-stone line-through' : ''" @click="start(item)">
               {{ item.questionId ? guide.state.questions.find(q => q.id === item.questionId)?.text : guide.videoMap.value.get(item.path)?.title }}
             </button>
             <p v-if="item.kind !== 'question'" class="mt-1 text-caption text-stone">{{ formatTime(item.start, true) }} → {{ formatTime(item.end, true) }}</p>
@@ -92,7 +92,7 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
       </section>
       <div class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-linen pt-4">
         <p class="max-w-sm text-caption text-stone">播放到片段终点会显示提醒，可记录笔记或进行课后练习。完成事项需主动勾选，掌握程度单独记录。</p>
-        <button type="button" class="text-caption font-bold underline" :disabled="!!guide.state.busy" @click="guide.refreshToday()">按最新进度更新</button>
+        <UiButton variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday()">按最新进度更新</UiButton>
       </div>
     </div>
   </section>

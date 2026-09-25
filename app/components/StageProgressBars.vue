@@ -13,7 +13,7 @@ const percent = (done: number, total: number) => total ? `${Math.round((done / t
 </script>
 
 <template>
-  <dl class="grid min-w-0 gap-x-4 gap-y-2" :class="inline ? 'grid-cols-3' : 'grid-cols-1'">
+  <dl class="grid min-w-0 gap-x-4 gap-y-2" :class="inline ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1'">
     <div v-for="row in rows" :key="row.label" class="min-w-0">
       <div class="flex items-baseline justify-between gap-2 text-caption">
         <dt class="truncate text-stone">{{ row.label }}</dt>
