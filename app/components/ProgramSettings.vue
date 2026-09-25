@@ -62,7 +62,7 @@ function complete() {
       <UiButton v-if="!editing" variant="text" size="sm" :disabled="!!guide.state.busy" @click="edit">{{ program ? '编辑计划' : '设置计划' }}</UiButton>
     </div>
     <p v-if="!editing" class="mt-2 text-body-sm leading-relaxed" :class="program ? '' : 'text-stone'">
-      {{ program ? summary : '未设置。当前仅按每日看课时间排期；设置总周期与每日分配后，今日任务会加入编码、项目与复习。' }}
+      {{ program ? summary : '当前仅安排视频学习。设置学习周期与时间分配，可加入编码、项目与复习任务。' }}
     </p>
 
     <form v-else class="mt-3 space-y-3 text-body-sm" @submit.prevent="save">
@@ -78,13 +78,13 @@ function complete() {
           <VTextField v-model.number="form.project" type="number" min="0" max="1440" step="5" required  :label="BUDGET_LABELS.project" />
           <VTextField v-model.number="form.recap" type="number" min="0" max="1440" step="5" required  :label="BUDGET_LABELS.recap" />
         </div>
-        <p class="mt-2 text-caption text-stone">合计 {{ formatMinutes(total) }}。各阶段可在实践安排中单独设定分配；看课时间同步为播放器的每日排期。</p>
+        <p class="mt-2 text-caption text-stone">合计 {{ formatMinutes(total) }}。各阶段可单独分配时间，观看时间同步用于视频排期。</p>
       </fieldset>
       <div class="grid grid-cols-2 gap-3">
         <VTextField v-model.number="form.lightEvery" type="number" min="0" max="30" step="1" required  label="复盘日间隔（天）" />
         <VTextField v-model.number="form.lightMinutes" type="number" min="5" max="1440" step="5" required  label="复盘日时长（分钟）" />
       </div>
-      <p class="text-caption text-stone">复盘日不安排新课，间隔为 0 表示不安排。</p>
+      <p class="text-caption text-stone">复盘日不安排新课，间隔设为 0 可关闭。</p>
       <div class="flex flex-wrap gap-2">
         <UiButton type="submit" variant="dark" size="sm">保存计划</UiButton>
         <UiButton variant="text" size="sm" @click="editing = false">取消</UiButton>
@@ -93,16 +93,16 @@ function complete() {
 
     <div class="mt-4 rounded-xl bg-page-cream p-3">
       <p class="text-caption leading-relaxed text-graphite">
-        实践安排：{{ stages ? `已为 ${stages} 个阶段设置实践任务与验收清单。` : '尚未设置。可由 AI 根据学情与对话生成，或导入 JSON 文件。' }}
+        实践安排：{{ stages ? `${stages} 个阶段已设置任务与验收清单。` : '尚未设置，可由 AI 根据学习背景与对话生成，或导入 JSON 文件。' }}
       </p>
       <div class="mt-3 flex flex-wrap items-center gap-3">
-        <UiButton size="sm" :disabled="!!guide.state.busy" @click="complete">{{ stages ? 'AI 重新生成实践安排' : 'AI 补全实践安排' }}</UiButton>
+        <UiButton size="sm" :disabled="!!guide.state.busy" @click="complete">{{ stages ? 'AI 重新生成' : 'AI 补全' }}</UiButton>
         <div class="min-w-0 flex-1 basis-64">
           <VFileInput v-model="importSelection" accept=".json,application/json" label="导入实践安排" aria-label="选择实践安排文件"
             :disabled="!!guide.state.busy || importing" :loading="importing" @update:model-value="importFile" />
         </div>
       </div>
-      <p class="mt-2 text-caption text-stone">导入文件支持导出的学习路线，或包含 program 与 stages 的实践安排。变更前会保存快照，可撤销。</p>
+      <p class="mt-2 text-caption text-stone">支持学习路线文件，或包含 program 与 stages 的实践安排文件。导入后可撤销。</p>
     </div>
   </section>
 </template>

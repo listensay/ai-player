@@ -25,7 +25,7 @@ function setMinutes(entry: WorkEntry, event: Event) {
           <p class="mt-0.5 text-body-sm font-bold leading-relaxed [overflow-wrap:anywhere]" :class="entry.done ? 'text-stone line-through' : 'text-charcoal-ink'">{{ entry.title }}</p>
           <VExpansionPanels class="my-3">
             <VExpansionPanel value="content">
-              <VExpansionPanelTitle>操作要求</VExpansionPanelTitle>
+              <VExpansionPanelTitle>任务要求</VExpansionPanelTitle>
               <VExpansionPanelText>
                 <p class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ entry.instructions }}</p>
               </VExpansionPanelText>
@@ -36,7 +36,7 @@ function setMinutes(entry: WorkEntry, event: Event) {
               <VTextField type="number" min="0" max="1440" step="5" :model-value="entry.minutes" :aria-label="`${entry.title} 已投入分钟数`"
                 class="w-16 text-center" @change="setMinutes(entry, $event)" />分钟
             </label>
-            <VTextField type="text" maxlength="6000" :model-value="entry.evidence" :aria-label="`${entry.title} 成果记录`" placeholder="成果记录：提交链接、完成内容或遇到的问题"
+            <VTextField type="text" maxlength="6000" :model-value="entry.evidence" :aria-label="`${entry.title} 成果记录`" placeholder="记录成果链接、完成内容或问题"
               class="min-w-0 flex-1 basis-48"
               @change="guide.updateWork(entry.id, { evidence: ($event.target as HTMLInputElement).value })" />
           </div>

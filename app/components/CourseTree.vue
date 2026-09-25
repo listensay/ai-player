@@ -183,20 +183,19 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
     <div class="px-4 pb-3">
       <div class="mb-3 flex rounded-full bg-page-cream p-1" aria-label="目录视图">
         <button type="button" :aria-pressed="!routeView" class="flex-1 rounded-full py-1.5 text-caption font-bold" :class="!routeView ? 'bg-pure-white' : 'text-stone'" @click="guide.state.view = 'all'">完整目录</button>
-        <button type="button" :aria-pressed="routeView" class="flex-1 rounded-full py-1.5 text-caption font-bold" :class="routeView ? 'bg-charcoal-ink text-pure-white' : 'text-stone'" @click="guide.state.plan ? guide.state.view = 'route' : emit('guide')">AI 定制路线</button>
+        <button type="button" :aria-pressed="routeView" class="flex-1 rounded-full py-1.5 text-caption font-bold" :class="routeView ? 'bg-charcoal-ink text-pure-white' : 'text-stone'" @click="guide.state.plan ? guide.state.view = 'route' : emit('guide')">定制路线</button>
       </div>
       <div v-if="routeView" class="mb-3 rounded-xl border border-linen p-3">
         <div class="flex items-center justify-between gap-2"><p class="text-caption text-stone">已选 {{ guide.route.value.length }} 节 · {{ guide.program.value && (guide.planDay.value ?? 0) >= 1 ? `计划第 ${guide.planDay.value} / ${guide.program.value.days} 天` : `视频排期约 ${guide.schedule.value.days} 天` }}</p><button type="button" class="text-caption font-bold hover:text-deep-indigo" @click="emit('guide')">调整</button></div>
-        <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><VCheckbox v-model="guide.state.includeOptional" :disabled="!!guide.state.busy" class="shrink-0" />包含选修 / 查漏</label>
-        <button type="button" :disabled="!guide.firstLesson.value" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ !guide.firstLesson.value ? '当前没有待学课节' : guide.schedule.value.completed ? '继续学习' : '开始学习' }}</button>
-        <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error hover:text-deep-indigo" @click="emit('guide')">{{ guide.risks.value.length }} 节前置知识缺失，查看建议</button>
+        <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><VCheckbox v-model="guide.state.includeOptional" :disabled="!!guide.state.busy" class="shrink-0" />包含选修课</label>
+        <button type="button" :disabled="!guide.firstLesson.value" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ !guide.firstLesson.value ? '暂无待学课节' : guide.schedule.value.completed ? '继续学习' : '开始学习' }}</button>
+        <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error hover:text-deep-indigo" @click="emit('guide')">{{ guide.risks.value.length }} 节前置课未加入路线，查看建议</button>
       </div>
       <div>
         <VTextField
           :model-value="store.state.query"
           type="search"
-          label="搜索课时"
-          placeholder="搜索课时"
+          label="搜索课节"
           clearable
           @update:model-value="store.state.query = $event ?? ''"
         >
@@ -247,7 +246,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
           </VExpansionPanels>
         </li>
       </ul>
-      <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">没有符合条件的路线课节</p>
+      <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">未找到匹配的课节</p>
       <ul v-else-if="visibleRoot" role="tree">
         <CourseTreeNode
           v-for="child in visibleRoot.children"
@@ -262,9 +261,9 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         />
       </ul>
       <p v-else class="px-2 py-8 text-center text-body-sm text-stone">
-        {{ isFiltering ? '没有符合条件的课时' : '当前文件夹中未找到视频' }}
+        {{ isFiltering ? '未找到匹配的课节' : '当前文件夹中未找到视频' }}
       </p>
     </div>
-    <button v-if="!guide.state.plan" type="button" class="m-3 mt-0 flex items-center gap-3 rounded-xl bg-page-cream p-3 text-left" @click="emit('guide')"><AppIcon name="sparkles" :size="22" class="text-deep-indigo" /><span><span class="block text-body-sm font-bold">定制课程学习路线</span><span class="mt-1 block text-caption text-stone">设置学习基础与目标 →</span></span></button>
+    <button v-if="!guide.state.plan" type="button" class="m-3 mt-0 flex items-center gap-3 rounded-xl bg-page-cream p-3 text-left" @click="emit('guide')"><AppIcon name="sparkles" :size="22" class="text-deep-indigo" /><span><span class="block text-body-sm font-bold">定制学习路线</span><span class="mt-1 block text-caption text-stone">设置学习基础与目标 →</span></span></button>
   </section>
 </template>

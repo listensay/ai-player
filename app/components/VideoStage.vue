@@ -261,7 +261,7 @@ defineExpose({ toggleFullscreen })
         </div>
       </div>
 
-      <!-- 播放结束：提示下一集 -->
+      <!-- 播放结束：提示下一节 -->
       <div
         v-else-if="ended"
         class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-charcoal-ink/70"
@@ -272,7 +272,7 @@ defineExpose({ toggleFullscreen })
           <UiButton @click="emit('practice')">课后练习</UiButton>
           <UiButton variant="ghost" @click="onStageClick">重新播放</UiButton>
           <UiButton v-if="hasNext" variant="dark" @click="emit('next')">
-            播放下一集
+            播放下一节
             <AppIcon name="skip-next" :size="18" />
           </UiButton>
         </div>
@@ -393,10 +393,10 @@ defineExpose({ toggleFullscreen })
         </h1>
         <span v-if="resumeHint" class="tabular shrink-0 text-caption text-stone">{{ resumeHint }}</span>
         <div class="flex shrink-0 items-center gap-1">
-          <UiButton variant="text" size="sm" icon title="上一集（Shift+P）" :disabled="!hasPrev" @click="emit('prev')">
+          <UiButton variant="text" size="sm" icon title="上一节（Shift+P）" :disabled="!hasPrev" @click="emit('prev')">
             <AppIcon name="skip-prev" :size="18" />
           </UiButton>
-          <UiButton variant="text" size="sm" icon title="下一集（Shift+N）" :disabled="!hasNext" @click="emit('next')">
+          <UiButton variant="text" size="sm" icon title="下一节（Shift+N）" :disabled="!hasNext" @click="emit('next')">
             <AppIcon name="skip-next" :size="18" />
           </UiButton>
         </div>

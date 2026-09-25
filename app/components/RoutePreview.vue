@@ -14,8 +14,8 @@ const LIMIT = 40
 function title(path: string) { const v = guide.videoMap.value.get(path); return v ? conciseLessonTitle(v.title) : path }
 function names(items: Array<GuideLesson | string>) { return items.slice(0, LIMIT).map(i => title(typeof i === 'string' ? i : i.path)) }
 function finishText(day: number | null, days: number) {
-  if (day === null) return '已全部看完'
-  if (day === Infinity) return '未安排看课时间'
+  if (day === null) return '已完成观看'
+  if (day === Infinity) return '未分配观看时间'
   return `第 ${day} 天${day > days ? `（超出计划 ${day - days} 天）` : ''}`
 }
 const rows = computed(() => {
@@ -26,9 +26,9 @@ const rows = computed(() => {
     { label: '剩余视频', before: formatStudyDuration(p.before.remainingSeconds), after: formatStudyDuration(p.after.remainingSeconds) },
   ]
   const program = p.programAfter ?? p.programBefore
-  if (program) list.push({ label: '视频看完', before: finishText(p.finishBefore, p.programBefore?.days ?? program.days), after: finishText(p.finishAfter, program.days) })
+  if (program) list.push({ label: '观看完成时间', before: finishText(p.finishBefore, p.programBefore?.days ?? program.days), after: finishText(p.finishAfter, program.days) })
   else list.push({ label: '视频排期', before: `约 ${p.before.days} 天`, after: `约 ${p.after.days} 天` })
-  if (plan.dailyMinutes !== next.dailyMinutes) list.push({ label: '每日看课', before: `${plan.dailyMinutes} 分钟`, after: `${next.dailyMinutes} 分钟` })
+  if (plan.dailyMinutes !== next.dailyMinutes) list.push({ label: '每日观看', before: `${plan.dailyMinutes} 分钟`, after: `${next.dailyMinutes} 分钟` })
   if ((p.programBefore?.days ?? 0) !== (p.programAfter?.days ?? 0)) list.push({ label: '计划周期', before: p.programBefore ? `${p.programBefore.days} 天` : '未设置', after: p.programAfter ? `${p.programAfter.days} 天` : '未设置' })
   if (p.practiceBefore !== p.practiceAfter) list.push({ label: '实践安排', before: `${p.practiceBefore} 个阶段`, after: `${p.practiceAfter} 个阶段` })
   return list
@@ -39,7 +39,7 @@ const rows = computed(() => {
   <section v-if="pending && preview" class="pane border-2 border-charcoal-ink p-5" aria-label="路线调整预览">
     <p class="text-caption font-bold text-stone">{{ pending.label }} · 待确认</p>
     <h3 class="mt-1 text-subheading">确认路线调整</h3>
-    <p class="mt-2 text-body-sm leading-relaxed text-graphite">应用前请核对课节与时间变化。应用后可在“学习路线”中撤销。</p>
+    <p class="mt-2 text-body-sm leading-relaxed text-graphite">请核对课节与时间变化，应用后可撤销。</p>
     <p class="mt-2 whitespace-pre-wrap break-words text-caption leading-relaxed text-stone">{{ pending.plan.summary }}</p>
 
     <div class="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-page-cream p-4 text-center">
@@ -88,7 +88,7 @@ const rows = computed(() => {
           </VExpansionPanelText>
         </VExpansionPanel>
       </VExpansionPanels>
-      <p v-if="!preview.added.length && !preview.removed.length && !preview.moved.length" class="text-caption text-stone">路线课节与顺序没有变化。</p>
+      <p v-if="!preview.added.length && !preview.removed.length && !preview.moved.length" class="text-caption text-stone">课节与顺序未变。</p>
     </div>
 
     <div class="mt-5 flex flex-wrap gap-2">

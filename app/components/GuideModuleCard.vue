@@ -29,7 +29,7 @@ function title(path: string) { return conciseLessonTitle(guide.videoMap.value.ge
   <article class="pane p-5">
     <div class="flex items-center gap-3"><span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sunbeam-yellow/25 font-bold">{{ String(index + 1).padStart(2, '0') }}</span><h4 class="text-body font-bold">{{ module.title }}</h4><span class="ml-auto shrink-0 text-caption text-stone">{{ lessons.length }} 节</span></div>
     <p class="mt-3 text-body-sm leading-relaxed text-graphite">{{ module.description }}</p>
-    <p class="mt-3 rounded-lg bg-page-cream p-3 text-caption text-deep-indigo">{{ dependencies.length ? `先修板块：${dependencies.join('、')}` : '起点板块 · 无跨板块前置依赖' }}</p>
+    <p class="mt-3 rounded-lg bg-page-cream p-3 text-caption text-deep-indigo">{{ dependencies.length ? `前置板块：${dependencies.join('、')}` : '无前置板块' }}</p>
     <StageProgressBars v-if="module.practice && guide.stageProgressMap.value.get(module.id)" class="mt-4" inline :progress="guide.stageProgressMap.value.get(module.id)!" />
     <VExpansionPanels v-if="module.practice" :model-value="practiceOpen ? 'content' : undefined" @update:model-value="practiceOpen = $event === 'content'" class="my-3">
       <VExpansionPanel value="content">

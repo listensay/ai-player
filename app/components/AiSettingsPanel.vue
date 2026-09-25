@@ -41,7 +41,7 @@ async function remove() {
   try {
     await ai.deleteProfile(editingId.value)
     edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id)
-    message.value = ai.state.collection.activeId ? '配置已删除。' : '配置已删除，请选择或新增要使用的 AI。'
+    message.value = ai.state.collection.activeId ? '配置已删除。' : '配置已删除，请选择或新增 AI 配置。'
   } catch (err) { error.value = (err as Error).message }
 }
 </script>
@@ -49,9 +49,8 @@ async function remove() {
 <template>
   <section class="mx-auto max-w-2xl" aria-label="AI 配置管理">
     <h3 class="text-heading-sm">AI 服务配置</h3>
-    <p class="mt-2 text-body-sm leading-relaxed text-graphite">保存多组服务与模型配置，按需选择用于学习路线、疑问回溯和课后练习的 AI。</p>
     <div v-if="ai.state.error" role="alert" class="pane mt-4 p-4 text-body-sm text-error">
-      {{ ai.state.error }}<UiButton variant="text" size="sm" class="ml-2" :disabled="ai.state.loading" @click="ai.load">重新读取</UiButton>
+      {{ ai.state.error }}<UiButton variant="text" size="sm" class="ml-2" :disabled="ai.state.loading" @click="ai.load">重新加载</UiButton>
     </div>
     <div class="pane mt-5 space-y-4 p-5">
       <AiProfileSelector :disabled="!!guide.state.busy" @selected="edit" />
@@ -68,7 +67,7 @@ async function remove() {
           </button>
         </li>
       </ul>
-      <p v-else class="text-caption text-stone">添加首组配置后即可使用 AI 功能。</p>
+      <p v-else class="text-caption text-stone">添加配置以启用 AI 功能。</p>
     </div>
 
     <form class="pane mt-5 space-y-4 p-5" @submit.prevent="save">
@@ -78,25 +77,25 @@ async function remove() {
         <VTextField v-model="draft.baseUrl" type="url" required autocomplete="off" placeholder="https://api.example.com/v1"  label="服务地址" />
         <p class="text-caption text-stone">支持 OpenAI 兼容服务；本机 Ollama 可使用 http://localhost:11434/v1。</p>
         <VTextField v-model="draft.model" required autocomplete="off" placeholder="填写服务支持的模型名称"  label="模型名称" />
-        <VTextField v-model="draft.apiKey" type="password" autocomplete="off" placeholder="本机无鉴权服务可留空"  label="API 密钥" />
-        <VTextField v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required  label="响应超时时长（分钟）" />
+        <VTextField v-model="draft.apiKey" type="password" autocomplete="off" placeholder="无需密钥的本地服务可留空"  label="API 密钥" />
+        <VTextField v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required  label="响应时限（分钟）" />
         <VTextField v-model.number="draft.maxTokens" type="number" min="256" max="1000000" step="1" placeholder="留空则使用服务默认值"  label="最大输出长度（token）" />
-        <p class="text-caption text-stone">课程较多时学习路线较长，若提示输出被截断，请调高此值（例如 32000），且不超过所选模型的输出上限。</p>
-        <p class="text-caption text-stone">各组配置独立保存，切换后新请求使用所选 AI。服务配置与密钥保存在本地。</p>
+        <p class="text-caption text-stone">输出被截断时可调高此值，但不能超过模型的输出上限。</p>
+        <p class="text-caption text-stone">配置与密钥保存在本地，切换配置仅影响新请求。</p>
         <div class="flex flex-wrap gap-2">
           <UiButton type="submit" variant="primary">{{ ai.state.saving ? '保存中…' : '保存并使用' }}</UiButton>
           <UiButton v-if="editingId" variant="text" @click="confirmingDelete = !confirmingDelete">删除配置</UiButton>
           <UiButton v-if="!editingId && ai.state.collection.profiles.length" variant="text" @click="edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id)">取消新增</UiButton>
         </div>
         <div v-if="confirmingDelete" class="rounded-xl border border-error/30 p-4 text-body-sm">
-          <p>确认删除“{{ draft.name }}”？{{ editingId === ai.state.collection.activeId ? '删除后需重新选择要使用的 AI。' : '' }}</p>
-          <div class="mt-3 flex gap-2"><UiButton size="sm" @click="remove">确认删除</UiButton><UiButton size="sm" variant="text" @click="confirmingDelete = false">取消删除</UiButton></div>
+          <p>确认删除“{{ draft.name }}”？{{ editingId === ai.state.collection.activeId ? '删除后需选择其他 AI 配置。' : '' }}</p>
+          <div class="mt-3 flex gap-2"><UiButton size="sm" @click="remove">确认删除</UiButton><UiButton size="sm" variant="text" @click="confirmingDelete = false">取消</UiButton></div>
         </div>
       </fieldset>
       <p v-if="error" role="alert" class="text-body-sm text-error">{{ error }}</p>
       <p v-if="message" role="status" class="text-body-sm text-graphite">{{ message }}</p>
     </form>
-    <p class="mt-4 text-caption leading-relaxed text-stone">AI 功能会将相关课程信息、疑问、字幕、笔记或作答发送至所选服务。视频与截图不会上传。</p>
+    <p class="mt-4 text-caption leading-relaxed text-stone">使用 AI 时，相关课程信息、疑问、字幕、笔记或作答会发送至所选服务，视频与截图不会上传。</p>
     <UiButton v-if="ai.configured.value" class="mt-4" @click="emit('done')">返回定制路线</UiButton>
   </section>
 </template>

@@ -4,7 +4,7 @@ import type {
 import type { VideoProgress } from '../types/course'
 
 export const WORK_LABELS: Record<WorkKind, string> = { code: '独立编码', project: '项目实践', recap: '复习与面试' }
-export const BUDGET_LABELS: Record<keyof StudyBudget, string> = { video: '看课 / 回看', ...WORK_LABELS }
+export const BUDGET_LABELS: Record<keyof StudyBudget, string> = { video: '视频学习', ...WORK_LABELS }
 export const CHECK_LABELS = { exercise: '练习验收', project: '项目验收' } as const
 export const WORK_KINDS = Object.keys(WORK_LABELS) as WorkKind[]
 export const LIGHT_TASK_ID = 'light-review'

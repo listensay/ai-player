@@ -139,7 +139,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
 
       <div class="min-w-0 rounded-2xl border border-linen p-3 text-center sm:p-4" :class="checkIn?.isAchieved.value ? 'bg-emerald-50 border-emerald-300' : 'bg-page-cream'">
         <p class="text-caption font-medium" :class="checkIn?.isAchieved.value ? 'text-emerald-700 font-bold' : 'text-stone'">
-          今日打卡状态
+          今日打卡
         </p>
         <div class="mt-1 flex items-center justify-center gap-1">
           <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 text-body-sm font-bold text-emerald-700">
@@ -149,7 +149,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             已打卡
           </span>
           <span v-else class="text-body-sm font-bold text-charcoal-ink">
-            已学 {{ checkIn?.percent.value ?? 0 }}%
+            目标完成 {{ checkIn?.percent.value ?? 0 }}%
           </span>
         </div>
       </div>
@@ -159,7 +159,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
     <div v-if="compact">
       <p class="flex flex-wrap items-baseline justify-between gap-2 text-caption text-stone">
         <span>今日 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} / {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}</span>
-        <strong class="text-deep-indigo">{{ checkIn?.isAchieved.value ? '已打卡' : `已学 ${checkIn?.percent.value ?? 0}%` }}</strong>
+        <strong class="text-deep-indigo">{{ checkIn?.isAchieved.value ? '已打卡' : `目标完成 ${checkIn?.percent.value ?? 0}%` }}</strong>
       </p>
       <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-linen"><div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${checkIn?.percent.value ?? 0}%` }" /></div>
     </div>
@@ -173,7 +173,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
         </div>
         <div>
           <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-caption font-bold text-emerald-800">
-            <AppIcon name="check" :size="12" /> 今日学习目标已完成
+            <AppIcon name="check" :size="12" /> 今日目标已完成
           </span>
           <span v-else class="text-caption text-stone">
             距打卡目标还需 {{ formatStudyHours(checkIn?.remainingSeconds.value ?? 0) }}
@@ -282,7 +282,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
               <span v-if="selectedDetail.checkedTimeStr">({{ selectedDetail.checkedTimeStr }})</span>
             </span>
             <span v-else-if="selectedDetail.seconds > 0" class="rounded-full bg-stone/15 px-2 py-0.5 text-caption text-stone">
-              学习中 · 未达标
+              未达标
             </span>
             <span v-else class="text-caption text-stone">未学习</span>
           </div>
@@ -290,19 +290,19 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
         </div>
 
         <div class="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-caption text-graphite">
-          <span>{{ checkIn?.includesWork.value ? '学习时长（看课 + 实践）' : '有效学习时长' }}：<strong class="text-charcoal-ink">{{ formatStudyClock(selectedDetail.seconds) }}</strong> ({{ formatStudyHours(selectedDetail.seconds) }})</span>
+          <span>{{ checkIn?.includesWork.value ? '学习时长（视频与实践）' : '有效学习时长' }}：<strong class="text-charcoal-ink">{{ formatStudyClock(selectedDetail.seconds) }}</strong></span>
           <span v-if="!selectedDetail.isChecked && selectedDetail.remainingSeconds > 0" class="text-stone">
             距学习目标还需 {{ formatStudyHours(selectedDetail.remainingSeconds) }}
           </span>
           <span v-else-if="selectedDetail.isChecked" class="text-emerald-700 font-medium">
-            当日学习目标已完成
+            当日目标已完成
           </span>
         </div>
       </div>
 
       <!-- 规则说明 -->
       <p v-if="!compact" class="mt-4 text-caption leading-relaxed text-stone">
-        <strong>打卡规则</strong>：{{ checkIn?.includesWork.value ? '当日有效看课时长与记录的实践时间合计达到每日总投入后自动打卡。' : '当日有效学习时长达到每日目标后自动打卡，并在日历中记录。' }}倍速播放按实际经过的时间计时；暂停、缓冲和跳转不计入学习时长。
+        <strong>打卡规则</strong>：{{ checkIn?.includesWork.value ? '当日有效观看时长与记录的实践时长合计达标后自动打卡。' : '当日有效学习时长达标后自动打卡。' }}倍速按实际播放时间计时，暂停、缓冲和跳转不计时。
       </p>
     </div>
   </div>

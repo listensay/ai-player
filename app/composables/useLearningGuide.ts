@@ -180,7 +180,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     }
     state.plan = plan; state.view = revision.view; state.includeOptional = revision.includeOptional
     state.records.undo = null; state.pending = null
-    state.notice = `已撤销“${revision.label}”，路线恢复到调整前的状态。`
+    state.notice = `已撤销“${revision.label}”。`
     persist()
     return true
   }
@@ -200,7 +200,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   function discardPending() {
     if (!state.pending) return
     state.pending = null
-    state.notice = '已放弃本次调整，当前路线未改变。'
+    state.notice = '已放弃调整。'
   }
 
   function setActiveModule(id: string) {
@@ -215,7 +215,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     const module = activeModule.value
     const light = lightDay.value ? {
       title: current.lightTask?.title ?? '轻量复盘日',
-      instructions: current.lightTask?.instructions ?? '不学习新课。回顾本周内容，检查阶段验收进度，整理未解决的问题并安排下周任务。',
+      instructions: current.lightTask?.instructions ?? '回顾本周内容，检查验收进度，整理疑问并安排下周任务；今日不学习新课。',
       minutes: current.lightMinutes,
     } : undefined
     const entries = arrangeWork({ date: todayDate.value, moduleId: module?.id ?? '', stage: module?.practice, budget: todayBudget.value, light }, state.records)
@@ -271,7 +271,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   async function generatePractice() {
     const current = course.value
     if (!current || !state.plan || state.busy) return false
-    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return false }
+    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return false }
     const controller = new AbortController()
     request = controller; state.busy = 'practice'; state.error = ''; state.notice = ''
     try {
@@ -327,7 +327,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   async function generate(text: string, dailyMinutes: number) {
     const current = course.value
     if (!current || state.busy) return false
-    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return false }
+    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return false }
     if (!text.trim()) { state.error = '请填写已有基础与学习目标。'; return false }
     if (text.length > 6000) { state.error = '学习要求请控制在 6000 字以内。'; return false }
     if (!Number.isFinite(dailyMinutes) || dailyMinutes < 5 || dailyMinutes > 1440) {
@@ -346,7 +346,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
       const promoted = retainPrerequisites(plan.lessons, false, masteredPaths.value)
       applyMastery(plan.lessons, state.mastery)
       plan.messages = [...(previous?.messages ?? []).slice(-18), { role: 'user', content: text.trim() }, { role: 'assistant', content: plan.summary }]
-      const notice = promoted.length ? `已自动保留 ${promoted.length} 节关键前置课，避免跳过后影响后续学习。` : '学习路线已生成，可根据掌握程度调整课节。'
+      const notice = promoted.length ? `已保留 ${promoted.length} 节必要的前置课。` : '学习路线已生成，可根据掌握程度调整课节。'
       if (previous) {
         // 已有路线时先预览变化，由用户确认后再替换。
         state.pending = { plan, label: 'AI 调整路线', notice: `路线已更新。${promoted.length ? notice : ''}` }
@@ -471,7 +471,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     state.activeQuestionId = id
     state.recommendations = question.recommendations
     state.fallbackQuestion = question.text; state.fallbackSource = question.path
-    state.fallbackMessage = question.recommendations.length ? '此疑问的历史基础课推荐。' : ''
+    state.fallbackMessage = question.recommendations.length ? '此前推荐的基础课' : ''
   }
 
   function markQuestionReview(id: string, path: string) {
@@ -491,7 +491,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
         }
       }
       applyMastery(state.plan.lessons, state.mastery)
-      state.notice = question.reviewedPaths.length ? '已将仍需巩固的基础课加入补学路线。' : '疑问已保留，可补充需要理解的知识点。'
+      state.notice = question.reviewedPaths.length ? '相关基础课已加入补学路线。' : '疑问已保留，可补充描述。'
     }
     if (status === 'resolved' && state.today) {
       for (const item of state.today.items) if (item.questionId === id) item.done = true
@@ -521,8 +521,8 @@ export function useLearningGuide(course: Ref<Course | null>) {
   async function findFallback(question: string, currentVideo: VideoEntry, seconds = 0, questionId?: string) {
     const current = course.value
     if (!current || state.busy) return
-    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return }
-    if (!state.plan) { state.error = '请先生成学习路线，再从已跳过的课节中查找相关基础课程。'; return }
+    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return }
+    if (!state.plan) { state.error = '请先生成学习路线，再查找基础课。'; return }
     if (!question.trim()) { state.error = '请描述需要理解的知识点，或在笔记中选中疑问内容。'; return }
     if (question.length > 3000) { state.error = '请将疑问精简到 3000 字以内。'; return }
     const entry = saveQuestion(question, currentVideo.path, seconds, questionId)
@@ -531,7 +531,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     const candidates = state.plan.lessons.filter(l => (l.status === 'skipped' || entry.reviewedPaths.includes(l.path)) && (videoMap.value.get(l.path)?.index ?? Infinity) < currentVideo.index)
     state.error = ''; state.recommendations = []; state.fallbackMessage = ''
     state.fallbackQuestion = question.trim(); state.fallbackSource = currentVideo.path
-    if (!candidates.length) { entry.recommendations = []; state.fallbackMessage = '当前课节之前无已跳过的基础课。可查看完整目录，或补充学习目标后重新规划。'; return }
+    if (!candidates.length) { entry.recommendations = []; state.fallbackMessage = '此前无已跳过的基础课，可查看完整目录或调整学习目标。'; return }
     const controller = new AbortController()
     request = controller; state.busy = 'fallback'
     const requestSettings = { ...state.settings }
@@ -581,13 +581,13 @@ export function useLearningGuide(course: Ref<Course | null>) {
           for (const rec of result) rec.cue = verified.get(rec.path)
         } catch (err) {
           if (controller.signal.aborted) throw err
-          segmentWarning = '已找到相关基础课，字幕定位不可用，可从课节起点回看。'
+          segmentWarning = '已找到基础课，暂无法定位字幕，可从头观看。'
         }
       }
       if (controller.signal.aborted || current.id !== activeId) return
       state.recommendations = result
       entry.recommendations = result
-      state.fallbackMessage = segmentWarning || (result.length ? '已找到相关基础课，回看后可返回当前课程。' : '未找到相关的已跳过课节，请补充具体术语或问题描述。')
+      state.fallbackMessage = segmentWarning || (result.length ? '已找到基础课，回看后可返回提问位置。' : '已跳过的课节中无匹配结果，请补充术语或疑问描述。')
     } catch (err) {
       if (!controller.signal.aborted) state.error = (err as Error).message
     } finally { if (request === controller) { request = null; state.busy = '' } }
@@ -632,7 +632,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
           state.plan = restorePlan(stored.plan); state.view = stored.view === 'route' ? 'route' : 'all'; state.includeOptional = stored.includeOptional === true
         }
       }
-    } catch { state.notice = '原路线数据读取异常，可重新生成；观看进度仍可使用。' }
+    } catch { state.notice = '学习路线读取失败，可重新生成。观看进度已保留。' }
     const loaded = await records
     if (stale) return
     if (loaded.ok) {

@@ -67,17 +67,17 @@ function help() {
         <p v-if="state.storageError" role="alert" class="rounded-xl bg-sunbeam-yellow/20 p-3 text-body-sm">{{ state.storageError }}</p>
           <VExpansionPanels v-model="materialPanel" class="my-3">
             <VExpansionPanel value="content">
-              <VExpansionPanelTitle>出题材料 · {{ sources.filter(s => s.kind === 'subtitle').length }} 段字幕 / {{ sources.some(s => s.kind === 'note') ? '有笔记' : '无笔记' }}{{ sources.some(s => s.kind === 'supplement') ? ' / 有补充' : '' }}</VExpansionPanelTitle>
+              <VExpansionPanelTitle>出题材料 · {{ sources.filter(s => s.kind === 'subtitle').length }} 段字幕 / {{ sources.some(s => s.kind === 'note') ? '含笔记' : '无笔记' }}{{ sources.some(s => s.kind === 'supplement') ? ' / 含补充材料' : '' }}</VExpansionPanelTitle>
               <VExpansionPanelText>
                 <div class="mt-3 space-y-3">
-                  <p class="text-caption leading-relaxed text-stone">生成练习时，将选取的字幕、本课笔记文字和补充材料发送至所配置的 AI 服务；简答、填空和应用类作答会另发送题目和答案，选择与判断题在本地核对。最多选取 12000 字，不发送视频和图片。笔记含当前尚未保存的文字。</p>
+                  <p class="text-caption leading-relaxed text-stone">字幕、笔记与补充材料最多选取 12000 字发送至所选 AI，包含未保存的笔记文字，不含视频和图片。选择与判断题在本地核对，其他题型需发送题目与作答进行评估。</p>
                   <p v-if="state.materialNotice" class="text-body-sm text-stone">{{ state.materialNotice }}</p>
-                  <p v-if="!hasMaterial && state.busy !== 'loading'" class="text-body-sm font-medium">学习材料不足。请添加同名 SRT/VTT 字幕、记录笔记，或补充本课概念与示例。</p>
+                  <p v-if="!hasMaterial && state.busy !== 'loading'" class="text-body-sm font-medium">材料不足，请添加同名 SRT / VTT 字幕、笔记或补充内容。</p>
                   <VTextarea v-model="state.supplement" label="补充学习内容" aria-label="补充学习内容" maxlength="4000" rows="4" :disabled="!!state.busy"
                     placeholder="填写本课涉及的概念、示例或代码。" />
                   <VExpansionPanels v-if="sources.length" class="my-3">
                     <VExpansionPanel value="content">
-                      <VExpansionPanelTitle>查看将发送的材料（{{ sources.reduce((n, s) => n + s.text.length, 0) }} 字）</VExpansionPanelTitle>
+                      <VExpansionPanelTitle>预览发送内容（{{ sources.reduce((n, s) => n + s.text.length, 0) }} 字）</VExpansionPanelTitle>
                       <VExpansionPanelText>
                         <div v-for="source in sources" :key="source.id" class="mt-3 border-t border-linen pt-3">
                           <p class="font-bold">{{ sourceLabels[source.kind] }} {{ source.start !== undefined ? formatTime(source.start, true) : '' }}</p>
@@ -93,12 +93,12 @@ function help() {
         <div class="flex flex-wrap items-center gap-3">
           <UiButton :disabled="!!state.busy || !configured" @click="practice.generate()">{{ current ? '生成新题' : '生成练习' }}</UiButton>
           <span v-if="!configured" class="text-caption text-stone">请先配置 AI 服务与模型。</span>
-          <span v-if="state.busy" role="status" class="text-body-sm">{{ state.busy === 'loading' ? '正在读取本地材料…' : state.busy === 'generate' ? '正在准备练习…' : '正在评估作答…' }}</span>
+          <span v-if="state.busy" role="status" class="text-body-sm">{{ state.busy === 'loading' ? '正在读取本地材料…' : state.busy === 'generate' ? '正在生成练习…' : '正在评估作答…' }}</span>
           <UiButton v-if="state.busy" variant="text" size="sm" @click="practice.cancel()">取消请求</UiButton>
         </div>
         <p v-if="state.error" role="alert" class="rounded-xl border border-error/20 bg-error/5 p-3 text-body-sm text-error">{{ state.error }}</p>
         <VSelect v-if="history.length" :model-value="state.selectedId" label="本课练习记录" aria-label="本课练习记录" :disabled="!!state.busy"
-          :items="[{ title: '准备新练习', value: '' }, ...history.map(record => ({ title: `${new Date(record.createdAt).toLocaleString()} · ${record.question.prompt.slice(0, 45)}`, value: record.id }))]"
+          :items="[{ title: '新建练习', value: '' }, ...history.map(record => ({ title: `${new Date(record.createdAt).toLocaleString()} · ${record.question.prompt.slice(0, 45)}`, value: record.id }))]"
           @update:model-value="practice.select($event)" />
         <section v-if="current" ref="questionEl" :key="current.id" class="space-y-4 rounded-2xl border border-linen bg-pure-white p-4 sm:p-5" aria-label="当前练习">
           <div class="flex flex-wrap items-center gap-2">
@@ -113,7 +113,7 @@ function help() {
           <PracticeText :text="current.question.prompt" role="heading" aria-level="3" class="text-body" />
           <ul class="list-outside list-disc space-y-1 pl-5 text-body-sm text-graphite"><li v-for="criterion in current.question.criteria" :key="criterion"><PracticeText :text="criterion" /></li></ul>
           <fieldset v-if="choice" class="min-w-0" :disabled="!!state.busy">
-            <legend class="text-body-sm font-bold">{{ choice.kind === 'multiple-choice' ? '选择所有正确项（可多选）' : choice.kind === 'true-false' ? '判断正误' : '选择一个答案' }}</legend>
+            <legend class="text-body-sm font-bold">{{ choice.kind === 'multiple-choice' ? '选择所有正确项' : choice.kind === 'true-false' ? '判断正误' : '选择一个答案' }}</legend>
             <div v-if="choice.kind === 'multiple-choice'" role="group" aria-label="选择所有正确项">
               <VCheckbox v-for="option in choice.options" :key="option.id" :model-value="selected.includes(option.id)" :aria-label="`${option.id}. ${option.text}`"
                 :disabled="!!state.busy" class="practice-option" @update:model-value="choose(option.id, !!$event)">
@@ -127,15 +127,15 @@ function help() {
             </VRadioGroup>
           </fieldset>
           <VTextField v-else-if="current.question.kind === 'fill-blank'" :model-value="current.draft" label="填空答案" aria-label="填空答案" maxlength="8000" :disabled="!!state.busy"
-            placeholder="填写空缺的关键内容，可使用等价表达。" @update:model-value="practice.updateDraft($event ?? '')" />
+            placeholder="填写答案，可使用等价表达。" @update:model-value="practice.updateDraft($event ?? '')" />
           <VTextarea v-else :model-value="current.draft" label="作答内容" aria-label="作答内容" maxlength="8000" rows="6" :disabled="!!state.busy"
             :class="{ 'practice-answer-code': current.question.kind === 'code' }"
-            :placeholder="current.question.kind === 'code' ? '在此编写代码，仅作书面评阅，不会执行。' : '用自己的话说明思路，表达清楚即可。'" @update:model-value="practice.updateDraft($event ?? '')" />
+            :placeholder="current.question.kind === 'code' ? '输入代码，仅评阅，不执行。' : '简述思路与依据。'" @update:model-value="practice.updateDraft($event ?? '')" />
           <div class="flex flex-wrap items-center gap-3">
             <UiButton variant="dark" :disabled="!!state.busy || current.attempts.length >= 3 || (!choice && !configured)" @click="practice.review()">提交作答</UiButton>
-            <p class="text-caption text-stone">本题已反馈 {{ current.attempts.length }}/3 次 · 作答草稿自动保存</p>
+            <p class="text-caption text-stone">反馈次数 {{ current.attempts.length }}/3 次 · 作答草稿自动保存</p>
           </div>
-          <p v-if="current.attempts.length >= 3" class="text-caption text-stone">已达到本题反馈次数上限，可继续修改草稿或生成新题。</p>
+          <p v-if="current.attempts.length >= 3" class="text-caption text-stone">反馈次数已达上限，可修改草稿或生成新题。</p>
           <section v-if="attempt" ref="feedbackEl" aria-label="答题反馈" class="space-y-3 rounded-xl bg-page-cream p-4">
             <VSelect v-model="attemptIndex" label="查看反馈" aria-label="查看第几次反馈" :items="current.attempts.map((_, index) => ({ title: `第 ${index + 1} 次`, value: index }))" />
             <p class="text-body font-bold">{{ results[attempt.feedback.result] }}</p>
@@ -144,13 +144,13 @@ function help() {
             <div class="text-body-sm"><strong>下一步：</strong><PracticeText :text="attempt.feedback.nextStep" /></div>
               <VExpansionPanels class="my-3">
                 <VExpansionPanel value="content">
-                  <VExpansionPanelTitle>本次提交的答案</VExpansionPanelTitle>
+                  <VExpansionPanelTitle>本次作答</VExpansionPanelTitle>
                   <VExpansionPanelText>
                     <pre class="mt-2 whitespace-pre-wrap break-words">{{ attempt.answer }}</pre>
                   </VExpansionPanelText>
                 </VExpansionPanel>
               </VExpansionPanels>
-            <p class="text-caption text-stone">反馈仅针对本次作答。请根据实际理解程度标记知识点：</p>
+            <p class="text-caption text-stone">反馈仅针对本次作答，请单独标记知识掌握程度。</p>
             <div v-for="concept in current.question.concepts" :key="concept" class="flex flex-wrap items-center justify-between gap-3 text-body-sm">
               <span>{{ concept }}</span>
               <VSelect :model-value="guide.state.mastery[masteryKey(current.path, concept)]?.level ?? ''" :aria-label="`练习知识点 ${concept} 掌握程度`"
@@ -168,7 +168,7 @@ function help() {
             </VExpansionPanels>
             <VExpansionPanels class="my-3">
               <VExpansionPanel value="content">
-                <VExpansionPanelTitle>题目与反馈的依据</VExpansionPanelTitle>
+                <VExpansionPanelTitle>参考材料</VExpansionPanelTitle>
                 <VExpansionPanelText>
                   <div v-for="source in current.sources.filter(s => current!.question.sourceIds.includes(s.id) || attempt?.feedback.sourceIds.includes(s.id))" :key="source.id" class="mt-3 border-t border-linen pt-3">
                     <p class="text-caption font-bold">{{ sourceLabels[source.kind] }}<button v-if="source.start !== undefined" type="button" class="ml-2 hover:text-deep-indigo" @click="practice.close(); emit('seek', current.path, source.start)">回看 {{ formatTime(source.start, true) }}–{{ formatTime(source.end!, true) }}</button></p>

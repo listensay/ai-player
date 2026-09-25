@@ -41,7 +41,7 @@ const activeIndex = computed(() => activeSegmentIndex(state.value.segments, play
 
 const serviceHint = computed(() => {
   const s = asr.state
-  if (s.status === 'offline') return '本机转写已停止'
+  if (s.status === 'offline') return '本地转写已停止'
   if (s.status === 'error') return `服务异常：${s.lastError}`
   if (s.status === 'preparing') {
     const d = s.health?.download
@@ -163,14 +163,13 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="flex min-h-0 flex-1 flex-col" aria-label="逐字稿">
-    <div class="shrink-0 border-b border-linen px-4 py-2 text-caption" aria-label="本机转写管理">
+    <div class="shrink-0 border-b border-linen px-4 py-2 text-caption" aria-label="本地转写管理">
       <div class="flex items-center justify-between gap-2">
-        <span role="status" class="min-w-0 text-graphite">{{ asr.state.status === 'ready' ? '本机转写已就绪 · 支持离线使用' : serviceHint || '正在启动本机转写…' }}</span>
+        <span role="status" class="min-w-0 text-graphite">{{ asr.state.status === 'ready' ? '本地转写已就绪' : serviceHint || '正在启动本地转写…' }}</span>
         <button v-if="asr.state.status === 'offline'" class="shrink-0 font-bold" type="button" @click="asr.startService()">启动</button>
-        <button v-else-if="asr.state.status === 'error'" class="shrink-0 font-bold" type="button" :disabled="transcripts.activeJobs.value > 0" @click="asr.retryService()">重新准备</button>
+        <button v-else-if="asr.state.status === 'error'" class="shrink-0 font-bold" type="button" :disabled="transcripts.activeJobs.value > 0" @click="asr.retryService()">重试</button>
         <button v-else class="shrink-0 text-stone disabled:opacity-40" type="button" :disabled="transcripts.activeJobs.value > 0" @click="asr.stopService()">停止服务</button>
       </div>
-      <p v-if="asr.state.status === 'preparing'" class="mt-1 text-stone">首次使用需下载语音模型，完成后可离线转写；准备期间可切换页面。</p>
     </div>
     <!-- 有逐字稿：搜索 + 列表 -->
     <template v-if="state.status === 'ready' || state.status === 'transcribing'">
@@ -180,7 +179,6 @@ onBeforeUnmount(() => {
             :model-value="query"
             type="search"
             label="搜索逐字稿"
-            placeholder="搜索本节逐字稿"
             clearable
             @update:model-value="query = $event ?? ''"
             @keydown.enter.prevent="jumpMatch($event.shiftKey ? -1 : 1)"
@@ -256,7 +254,7 @@ onBeforeUnmount(() => {
           </li>
         </ol>
         <p v-if="state.status === 'transcribing' && !state.segments.length" class="px-2 py-8 text-center text-body-sm text-stone">
-          正在处理音频，识别结果将陆续显示…
+          正在识别音频，逐字稿将陆续显示…
         </p>
       </div>
 
@@ -298,9 +296,6 @@ onBeforeUnmount(() => {
           <AppIcon name="note" :size="26" />
         </span>
         <h3 class="mt-4 text-body font-bold">本节暂无逐字稿</h3>
-        <p class="mt-1 max-w-xs text-body-sm text-graphite">
-          转写结果支持逐句跳转、本节全文搜索，并可用于基础课回溯与课后练习。结果保存为视频同名 .srt 文件。
-        </p>
 
         <p v-if="state.status === 'error'" role="alert" class="mt-4 max-w-xs rounded-xl border border-linen bg-pure-white px-3 py-2 text-body-sm text-error">
           {{ state.error }}
@@ -310,7 +305,7 @@ onBeforeUnmount(() => {
           <UiButton variant="primary" :disabled="asr.state.status !== 'ready' || !player.state.ready" @click="startTranscribe">
             转写本节
           </UiButton>
-          <p v-if="asr.state.status === 'ready' && estimate" class="text-caption text-stone">{{ estimate }}，在本机完成识别</p>
+          <p v-if="asr.state.status === 'ready' && estimate" class="text-caption text-stone">{{ estimate }}</p>
         </div>
 
       </template>

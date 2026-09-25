@@ -38,8 +38,8 @@ const budgetText = computed(() => {
     </p>
     <dl class="grid gap-3 sm:grid-cols-3">
       <div class="min-w-0 rounded-xl bg-page-cream p-3"><dt class="text-caption font-bold text-stone">阶段目标</dt><dd class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ practice.goal }}</dd></div>
-      <div class="min-w-0 rounded-xl bg-page-cream p-3"><dt class="text-caption font-bold text-stone">阶段交付</dt><dd class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ practice.project }}</dd></div>
-      <div class="min-w-0 rounded-xl bg-page-cream p-3"><dt class="text-caption font-bold text-stone">可跳过课程的条件</dt><dd class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ practice.skipWhen }}</dd></div>
+      <div class="min-w-0 rounded-xl bg-page-cream p-3"><dt class="text-caption font-bold text-stone">阶段成果</dt><dd class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ practice.project }}</dd></div>
+      <div class="min-w-0 rounded-xl bg-page-cream p-3"><dt class="text-caption font-bold text-stone">跳过条件</dt><dd class="mt-1 leading-relaxed [overflow-wrap:anywhere]">{{ practice.skipWhen }}</dd></div>
     </dl>
 
     <VExpansionPanels v-if="practice.tasks.length" class="my-3">
@@ -62,13 +62,13 @@ const budgetText = computed(() => {
 
     <section v-if="practice.checks.length" aria-label="验收清单">
       <h5 class="font-bold">验收清单</h5>
-      <p class="mt-1 text-caption text-stone">填写可核对的证据（仓库链接、测试结果、演示说明等）后才能标记通过。</p>
+      <p class="mt-1 text-caption text-stone">填写仓库链接、测试结果或演示说明后，可标记通过。</p>
       <ul class="mt-2 space-y-2">
         <li v-for="check in practice.checks" :key="check.id" :data-check-id="check.id" class="rounded-xl border border-linen bg-pure-white p-3">
           <div class="flex flex-wrap items-start gap-2">
             <span class="shrink-0 rounded-full px-2 py-0.5 text-caption font-bold" :class="check.kind === 'project' ? 'bg-deep-indigo/10 text-deep-indigo' : 'bg-page-cream text-graphite'">{{ CHECK_LABELS[check.kind] }}</span>
             <p class="min-w-0 flex-1 leading-relaxed [overflow-wrap:anywhere]">{{ check.text }}</p>
-            <span class="shrink-0 text-caption font-bold" :class="passed(check) ? 'text-charcoal-ink' : 'text-stone'">{{ passed(check) ? '已通过' : stale(check) ? '要求已变化，需重新确认' : '待验收' }}</span>
+            <span class="shrink-0 text-caption font-bold" :class="passed(check) ? 'text-charcoal-ink' : 'text-stone'">{{ passed(check) ? '已通过' : stale(check) ? '要求已更新，需重新确认' : '待验收' }}</span>
           </div>
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <VTextField v-model="drafts[check.id]" type="text" maxlength="6000" :aria-label="`验收证据：${check.text}`" placeholder="仓库链接、测试结果或演示说明"
@@ -83,5 +83,5 @@ const budgetText = computed(() => {
       </ul>
     </section>
   </div>
-  <p v-else class="text-caption leading-relaxed text-stone">该阶段尚未设置实践任务与验收清单。可在导学的“定制路线”中使用 AI 补全，或导入实践安排。</p>
+  <p v-else class="text-caption leading-relaxed text-stone">暂无实践任务与验收清单，可在“定制路线”中补全或导入。</p>
 </template>

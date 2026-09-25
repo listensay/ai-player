@@ -2,10 +2,10 @@
 import { computed } from 'vue'
 import type { StageProgress } from '~/utils/studyProgram'
 
-/** 阶段进度分三项展示：视频已看、练习验收、项目验收。 */
+/** 阶段进度分三项展示：视频观看、练习验收、项目验收。 */
 const props = defineProps<{ progress: StageProgress; inline?: boolean }>()
 const rows = computed(() => [
-  { label: '视频已看', item: props.progress.video },
+  { label: '视频观看', item: props.progress.video },
   { label: '练习验收', item: props.progress.exercise },
   { label: '项目验收', item: props.progress.project },
 ])

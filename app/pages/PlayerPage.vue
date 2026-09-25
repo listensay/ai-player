@@ -54,9 +54,9 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
         <button type="button" class="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-linen bg-pure-white p-3 text-left transition-colors hover:border-charcoal-ink/30" @click="openGuide(undefined, 'today')">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="text-body-sm font-bold">今日学习与打卡</span>
+              <span class="text-body-sm font-bold">今日学习</span>
               <span v-if="checkIn.isAchieved.value" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-caption font-bold text-emerald-800">
-                <AppIcon name="check" :size="12" /> 今日打卡已达标
+                <AppIcon name="check" :size="12" /> 今日已打卡
               </span>
               <span v-else class="text-caption font-bold text-stone">
                 打卡进度 {{ checkIn.percent.value }}%
@@ -65,18 +65,18 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
             <div class="mt-1 flex flex-wrap items-center gap-2 text-caption text-stone">
               <span>{{ guide.state.today?.items.filter(i => i.done).length ?? 0 }}/{{ guide.state.today?.items.length ?? 0 }} 项完成</span>
               <span>·</span>
-              <span>已学 {{ formatStudyClock(checkIn.seconds.value) }} / 规划 {{ formatStudyHours(checkIn.targetSeconds.value) }}</span>
+              <span>已学 {{ formatStudyClock(checkIn.seconds.value) }} / 目标 {{ formatStudyHours(checkIn.targetSeconds.value) }}</span>
               <span v-if="checkIn.streak.value > 0" class="font-medium text-deep-indigo">· 连续打卡 {{ checkIn.streak.value }} 天</span>
             </div>
           </div>
-          <span class="shrink-0 text-caption font-bold text-charcoal-ink">查看日历与安排 →</span>
+          <span class="shrink-0 text-caption font-bold text-charcoal-ink">查看学习计划 →</span>
         </button>
         <div v-if="returnPoint" class="mb-3 flex items-center justify-between gap-3 rounded-xl border border-linen bg-sunbeam-yellow/15 p-3 text-body-sm">
-          <span class="min-w-0 truncate">基础课回溯 · 可返回原课程位置</span>
-          <UiButton variant="ghost" size="sm" @click="returnToLesson">返回原课 {{ formatTime(returnPoint.seconds, true) }}</UiButton>
+          <span class="min-w-0 truncate">基础课回溯</span>
+          <UiButton variant="ghost" size="sm" @click="returnToLesson">返回提问位置 {{ formatTime(returnPoint.seconds, true) }}</UiButton>
         </div>
         <div v-if="feedbackQuestionId" class="mb-3 shrink-0 rounded-xl border border-linen bg-page-cream p-3" aria-label="回看反馈">
-          <p class="text-body-sm font-bold">请确认疑问解决状态</p>
+          <p class="text-body-sm font-bold">疑问是否已解决</p>
           <p class="mt-1 truncate text-caption text-stone">{{ guide.state.questions.find(q => q.id === feedbackQuestionId)?.text }}</p>
           <div class="mt-2 flex flex-wrap gap-2"><UiButton size="sm" :disabled="!!guide.state.busy" @click="answerQuestion(true)">标记已解决</UiButton><UiButton size="sm" :disabled="!!guide.state.busy" @click="answerQuestion(false)">仍不理解</UiButton><UiButton variant="text" size="sm" @click="feedbackQuestionId = ''">稍后反馈</UiButton></div>
         </div>
@@ -95,8 +95,8 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
         >
           <template #reminder>
             <section v-if="segment.reminder.value" role="status" aria-label="学习片段结束提醒" class="shrink-0 rounded-2xl border border-linen p-4 text-charcoal-ink" :class="player.state.fullscreen ? 'bg-page-cream' : 'bg-sunbeam-yellow/20'">
-              <p class="text-body-sm font-bold">已到达计划片段终点</p>
-              <p class="mt-1 text-caption text-stone">已到 {{ formatTime(segment.reminder.value.end, true) }} · 可继续播放，请手动确认完成状态。</p>
+              <p class="text-body-sm font-bold">本次学习片段已结束</p>
+              <p class="mt-1 text-caption text-stone">结束时间 {{ formatTime(segment.reminder.value.end, true) }}</p>
               <div class="mt-3 flex flex-wrap gap-2">
                 <UiButton size="sm" @click="practiceSegment">开始练习</UiButton>
                 <UiButton variant="ghost" size="sm" @click="noteAfterSegment">记录笔记</UiButton>
@@ -108,8 +108,8 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           </template>
         </VideoStage>
         <div v-if="video" class="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <p class="text-caption text-stone">{{ segment.active.value ? `本次片段 ${formatTime(segment.active.value.start, true)}–${formatTime(player.state.duration > 0 ? Math.min(segment.active.value.end, player.state.duration) : segment.active.value.end, true)} · 片段结束提醒` : '根据课程材料生成练习，检验知识理解程度。' }}</p>
-          <UiButton variant="ghost" size="sm" @click="openPractice()">课后练习</UiButton>
+          <p v-if="segment.active.value" class="text-caption text-stone">本次片段 {{ formatTime(segment.active.value.start, true) }}–{{ formatTime(player.state.duration > 0 ? Math.min(segment.active.value.end, player.state.duration) : segment.active.value.end, true) }}</p>
+          <UiButton variant="ghost" size="sm" class="ml-auto" @click="openPractice()">课后练习</UiButton>
         </div>
       </div>
 

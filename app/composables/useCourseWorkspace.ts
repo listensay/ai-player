@@ -54,7 +54,7 @@ export function provideCourseWorkspace() {
     nextTick(() => {
       // 笔记页签刚切回来时编辑器没有焦点，insertInline 会把引用追加为文末新段落
       noteEditor.value?.insertInline(text)
-      showToast('已引用到笔记')
+      showToast('已插入笔记')
     })
   }
   const currentView = computed(() => route.path.endsWith('/player') ? 'player' as const : 'dashboard' as const)
@@ -80,7 +80,7 @@ export function provideCourseWorkspace() {
       const hours = Math.floor(day.targetSeconds / 3600)
       const minutes = Math.floor((day.targetSeconds % 3600) / 60)
       const timeStr = hours > 0 ? `${hours} 小时${minutes > 0 ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`
-      showToast(`今日有效学习已达 ${timeStr}，已完成打卡。`)
+      showToast(`今日学习 ${timeStr}，已打卡。`)
     }
   })
   const hasPrev = computed(() => !!video.value && !!guide.adjacent(video.value.path, -1))
@@ -102,7 +102,7 @@ export function provideCourseWorkspace() {
   function recordQuestion(question: string) {
     if (!video.value) return
     const entry = guide.saveQuestion(question, video.value.path, player.state.currentTime)
-    showToast(entry ? '疑问已记录，可在导学清单中继续处理' : '请在笔记中选中或输入疑问内容')
+    showToast(entry ? '疑问已记录，可在疑问清单中查看' : '请在笔记中选中或输入疑问内容')
     return entry
   }
 
@@ -146,7 +146,7 @@ export function provideCourseWorkspace() {
     const item = segment.reminder.value?.item
     if (item) guide.completeTodayItem(item.id, true)
     segment.dismiss()
-    showToast('本次片段已完成，掌握程度可在练习后单独标记')
+    showToast('片段已标记完成，掌握程度需单独记录')
   }
 
   async function noteAfterSegment() {
@@ -190,7 +190,7 @@ export function provideCourseWorkspace() {
   function answerQuestion(resolved: boolean) {
     guide.setQuestionStatus(feedbackQuestionId.value, resolved ? 'resolved' : 'still-confused')
     feedbackQuestionId.value = ''
-    showToast(resolved ? '已记为解决，掌握程度可在知识地图中单独标记' : '已记录反馈，回看过的基础课已加入补学')
+    showToast(resolved ? '疑问已解决，掌握程度需在知识地图中单独标记' : '反馈已记录，已回看的基础课已加入补学')
   }
 
   watch(() => player.state.ready, ready => {
@@ -233,7 +233,7 @@ export function provideCourseWorkspace() {
     if (!noteEditor.value || !player.state.ready) return
     const frame = await player.captureFrame()
     if (!frame) {
-      showToast('视频画面尚未加载，请稍后截图')
+      showToast('视频尚未加载，请稍后截图')
       return
     }
     try {
@@ -338,7 +338,7 @@ export function provideCourseWorkspace() {
         await flushDatabaseWrites()
         await desktopInvoke('finish_close')
       } catch {
-        showToast('保存未完成，请重试后关闭窗口。')
+        showToast('笔记未保存，请重试后关闭窗口。')
       } finally { closing = false }
     }
     unlistenClose = await appWindow.onCloseRequested(event => { event.preventDefault(); void closeSafely() })

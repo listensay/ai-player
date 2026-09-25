@@ -3,7 +3,7 @@ import type { VideoProgress } from '../types/course'
 import { parseProgram, parseStage } from './studyProgram.ts'
 
 export const LESSON_STATUS_LABELS: Record<LessonStatus, string> = {
-  required: '必修', optional: '选修 / 查漏', skipped: '已跳过',
+  required: '必修', optional: '选修', skipped: '已跳过',
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,7 +76,7 @@ export function validateLearningPlan(value: unknown, paths: string[], allowEmpty
   if (program) for (const m of modules) if (m.practice && m.practice.endDay > program.days) delete m.practice
   return {
     version: 1, createdAt: Date.now(), summary: requiredText(value.summary, '路线说明'),
-    profile: requiredText(value.profile, '学情画像'), dailyMinutes: Math.round(value.dailyMinutes),
+    profile: requiredText(value.profile, '学习背景'), dailyMinutes: Math.round(value.dailyMinutes),
     modules, lessons, messages: [], ...(program ? { program } : {}),
   }
 }

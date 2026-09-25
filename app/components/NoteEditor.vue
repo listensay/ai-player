@@ -85,7 +85,7 @@ const statusText = computed(() => {
     case 'loading':
       return '读取笔记…'
     case 'new':
-      return '笔记内容自动保存'
+      return '笔记自动保存'
     case 'dirty':
       return '修改尚未保存'
     case 'saving':
@@ -324,7 +324,7 @@ onMounted(async () => {
     defaultValue: existing ?? '',
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
-        text: '记录课程笔记。按 ⌥T 插入时间戳，⌥S 截取画面，输入 / 打开插入菜单。',
+        text: '记录笔记…',
         mode: 'doc',
       },
       [Crepe.Feature.ImageBlock]: {
@@ -468,10 +468,10 @@ defineExpose({ hasUnsavedChanges: () => status.value === 'error' || version !== 
     </header>
 
     <div ref="rootEl" class="scroll-soft note-editor min-h-0 flex-1 overflow-y-auto" />
-    <footer class="flex shrink-0 items-center gap-3 border-t border-linen px-4 py-3">
-      <p class="min-w-0 flex-1 truncate text-caption text-stone" :title="detectedQuestion">{{ detectedQuestion || '选中疑问内容，查找相关基础课程' }}</p>
-      <UiButton variant="text" size="sm" title="记录选中文字或最近的疑问及当前时间" :disabled="status === 'loading'" @click="askGuide(true)">记录疑问</UiButton>
-      <UiButton variant="ghost" size="sm" title="将选中文字或最近的疑问带入导学" :disabled="status === 'loading'" @click="askGuide(false)"><AppIcon name="sparkles" :size="15" />查找基础课</UiButton>
+    <footer class="flex shrink-0 items-center justify-end gap-3 border-t border-linen px-4 py-3">
+      <p v-if="detectedQuestion" class="min-w-0 flex-1 truncate text-caption text-stone" :title="detectedQuestion">{{ detectedQuestion }}</p>
+      <UiButton variant="text" size="sm" title="记录所选或最近的疑问及时间" :disabled="status === 'loading'" @click="askGuide(true)">记录疑问</UiButton>
+      <UiButton variant="ghost" size="sm" title="根据所选或最近的疑问查找基础课" :disabled="status === 'loading'" @click="askGuide(false)"><AppIcon name="sparkles" :size="15" />查找基础课</UiButton>
     </footer>
   </section>
 </template>

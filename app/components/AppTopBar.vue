@@ -56,7 +56,7 @@ const emit = defineEmits<{
         <RouterLink
           class="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1 transition-all"
           :class="currentView === 'player' ? 'bg-pure-white text-charcoal-ink font-bold shadow-xs' : 'text-stone hover:text-charcoal-ink'"
-          title="切换至视频播放与笔记"
+          title="播放与笔记"
           aria-label="播放器"
           :to="{ path: `/courses/${courseId}/player`, query: { lesson: videoPath } }"
           :aria-current="currentView === 'player' ? 'page' : undefined"
@@ -71,7 +71,7 @@ const emit = defineEmits<{
 
     <!-- 右侧工具栏 -->
     <div class="flex shrink-0 items-center gap-1.5">
-      <UiButton v-if="courseName" variant="ghost" size="sm" title="AI 智能导学与定制路线" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('guide')">
+      <UiButton v-if="courseName" variant="ghost" size="sm" title="AI 导学" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('guide')">
         <AppIcon name="sparkles" :size="17" class="text-deep-indigo" />
         <span class="hidden sm:inline">AI 导学</span>
       </UiButton>

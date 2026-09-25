@@ -47,10 +47,10 @@ function doneCount(recent: RecentCourse) {
     </div>
 
     <h1 class="mt-10 max-w-2xl text-center text-heading-lg font-bold text-charcoal-ink md:text-display">
-      本地课程与个性化学习规划
+      本地课程学习与规划
     </h1>
     <p class="mt-5 max-w-xl text-center text-body text-graphite">
-      集成视频播放、笔记记录与 AI 导学，支持时间戳定位、视频截图和学习进度管理。
+      播放课程、记录笔记，通过 AI 规划学习路线。
     </p>
 
     <div class="mt-8 flex flex-col items-center gap-3">
@@ -92,7 +92,7 @@ function doneCount(recent: RecentCourse) {
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body font-bold">{{ recent.name }}</span>
               <span class="tabular block text-caption text-stone">
-                共 {{ recent.videoCount }} 节 · 已完成 {{ doneCount(recent) }} 节 · 最近访问：{{ formatRelative(recent.lastOpenedAt) }}
+                共 {{ recent.videoCount }} 节 · 已完成 {{ doneCount(recent) }} 节 · 上次打开：{{ formatRelative(recent.lastOpenedAt) }}
               </span>
             </span>
             <AppIcon name="chevron-right" :size="18" class="shrink-0 text-stone" />
@@ -107,7 +107,6 @@ function doneCount(recent: RecentCourse) {
           </button>
         </li>
       </ul>
-      <p class="mt-3 text-caption text-stone">自动保存课程位置与学习进度；文件夹移动后可重新关联。</p>
     </section>
   </div>
 </template>

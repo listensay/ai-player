@@ -119,9 +119,9 @@ export function reviewPracticeChoice(question: PracticeQuestion, draft: string):
   const describe = (ids: string[], prefix: string) => question.options.filter(o => ids.includes(o.id)).map(o => `${prefix}：${o.text}`.slice(0, 1000))
   return {
     result: !wrong.length && !missing.length ? 'solid' : correct.length ? 'partial' : 'retry',
-    strengths: describe(correct, '已选对'),
-    gaps: [...describe(wrong, '需要辨析'), ...describe(missing, '还应选择')],
-    nextStep: !wrong.length && !missing.length ? '本题回答正确。可以继续下一题，或查看参考解析巩固理解。' : '对照参考解析理解选项差异，再尝试一次。',
+    strengths: describe(correct, '选择正确'),
+    gaps: [...describe(wrong, '需要辨析'), ...describe(missing, '遗漏选项')],
+    nextStep: !wrong.length && !missing.length ? '回答正确，可继续练习或查看参考解析。' : '请对照参考解析区分选项后重新作答。',
     sourceIds: question.sourceIds,
   }
 }
@@ -129,7 +129,7 @@ export function validatePracticeFeedback(raw: unknown, sources: PracticeSource[]
   if (!isRecord(raw) || !['solid', 'partial', 'retry'].includes(String(raw.result))) throw new Error('AI 未返回有效反馈，请重试。')
   const feedback = { result: raw.result as PracticeFeedback['result'], strengths: strings(raw.strengths, 6, 1000, true),
     gaps: strings(raw.gaps, 6, 1000, true), nextStep: string(raw.nextStep, 2000), sourceIds: references(raw.sourceIds, sources) }
-  if (!feedback.strengths.length && !feedback.gaps.length) throw new Error('AI 没有给出具体答题反馈，请重试。')
+  if (!feedback.strengths.length && !feedback.gaps.length) throw new Error('AI 未返回具体作答反馈，请重试。')
   return feedback
 }
 

@@ -92,7 +92,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     if (isChoiceQuestion(record.question)) {
       record.attempts.push({ answer, feedback: reviewPracticeChoice(record.question, record.draft), at: Date.now() }); persist(); return
     }
-    if (!configured.value) { state.error = '请先选择并配置要使用的 AI。'; return }
+    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return }
     const controller = new AbortController(); request = controller; state.busy = 'review'
     try {
       const raw = await requestGuideJson({ ...settings }, practiceReviewPrompt(record, answer), controller.signal)

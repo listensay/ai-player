@@ -16,8 +16,8 @@ async function select(id: string | null) {
 
 <template>
   <div class="min-w-0">
-    <VSelect :model-value="ai.state.collection.activeId || null" label="当前使用的 AI" aria-label="当前使用的 AI"
-      :items="items" :placeholder="ai.state.loading ? '正在读取配置…' : items.length ? '请选择 AI' : '尚未配置 AI'"
+    <VSelect :model-value="ai.state.collection.activeId || null" label="当前 AI 配置" aria-label="当前 AI 配置"
+      :items="items" :placeholder="ai.state.loading ? '正在读取配置…' : items.length ? '选择 AI 配置' : '暂无 AI 配置'"
       :disabled="disabled || !ai.state.ready || ai.state.saving || !items.length" class="min-w-0"
       @update:model-value="select" />
     <p v-if="error" role="alert" class="mt-2 text-caption text-error">{{ error }}</p>

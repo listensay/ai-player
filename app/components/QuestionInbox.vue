@@ -18,7 +18,7 @@ const questions = computed(() => guide.state.questions.filter(q => filter.value 
       <VSelect v-model="filter" aria-label="筛选疑问状态" class="w-40 max-w-48 flex-none"
         :items="[{ title: '待解决', value: 'open' }, { title: '已解决', value: 'resolved' }, { title: '全部疑问', value: 'all' }]" />
     </div>
-    <p class="mt-2 text-caption leading-relaxed text-stone">记录课节与提问位置。回看后选择“仍不理解”，会将回看过的基础课加入补学；解决疑问不会自动标记知识已掌握。</p>
+    <p class="mt-2 text-caption leading-relaxed text-stone">选择“仍不理解”会将已回看的基础课加入补学；标记“已解决”不影响知识掌握记录。</p>
     <ul class="mt-3 divide-y divide-linen">
       <li v-for="q in questions" :key="q.id" class="py-4" :data-question-id="q.id">
         <div class="flex items-start justify-between gap-3">
@@ -32,10 +32,10 @@ const questions = computed(() => guide.state.questions.filter(q => filter.value 
           <UiButton size="sm" :disabled="!!guide.state.busy" @click="$emit('select', q.id)">继续处理</UiButton>
           <UiButton v-if="q.status !== 'resolved'" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'resolved')">标记已解决</UiButton>
           <UiButton v-if="q.status !== 'resolved'" variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'still-confused')">仍不理解</UiButton>
-          <UiButton v-else variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'open')">重新打开</UiButton>
+          <UiButton v-else variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.setQuestionStatus(q.id, 'open')">标记待解决</UiButton>
         </div>
       </li>
     </ul>
-    <p v-if="!questions.length" class="py-6 text-center text-body-sm text-stone">{{ filter === 'resolved' ? '暂无已解决的疑问' : filter === 'all' ? '暂无疑问记录。可在笔记中选中问题并记录。' : '暂无待解决的疑问' }}</p>
+    <p v-if="!questions.length" class="py-6 text-center text-body-sm text-stone">{{ filter === 'resolved' ? '暂无已解决的疑问' : filter === 'all' ? '暂无疑问，可在笔记中选中文字记录。' : '暂无待解决的疑问' }}</p>
   </section>
 </template>
