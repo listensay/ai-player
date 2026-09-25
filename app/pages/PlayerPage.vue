@@ -7,6 +7,8 @@ import AppIcon from '~/components/AppIcon.vue'
 import CourseTree from '~/components/CourseTree.vue'
 import NoteEditor from '~/components/NoteEditor.vue'
 import TranscriptPanel from '~/components/TranscriptPanel.vue'
+import LessonKnowledgePanel from '~/components/LessonKnowledgePanel.vue'
+import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import UiButton from '~/components/UiButton.vue'
 import VideoStage from '~/components/VideoStage.vue'
 import { formatStudyClock, formatStudyHours } from '~/utils/checkIn'
@@ -71,6 +73,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           </div>
           <span class="shrink-0 text-caption font-bold text-charcoal-ink">查看学习计划 →</span>
         </button>
+        <DailyPracticeCard class="mb-3 shrink-0" />
         <div v-if="returnPoint" class="mb-3 flex items-center justify-between gap-3 rounded-xl border border-linen bg-sunbeam-yellow/15 p-3 text-body-sm">
           <span class="min-w-0 truncate">基础课回溯</span>
           <UiButton variant="ghost" size="sm" @click="returnToLesson">返回提问位置 {{ formatTime(returnPoint.seconds, true) }}</UiButton>
@@ -116,6 +119,10 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
       <!-- 笔记 / 逐字稿 -->
       <div class="pane flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0">
         <div v-if="video" class="flex shrink-0 items-center gap-1 border-b border-linen px-3 pt-3 pb-2" role="tablist" aria-label="右侧面板">
+          <button type="button" role="tab" :aria-selected="rightTab === 'knowledge'"
+            class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors"
+            :class="rightTab === 'knowledge' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'"
+            @click="rightTab = 'knowledge'">知识点</button>
           <button
             type="button"
             role="tab"
@@ -152,6 +159,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           </button>
         </div>
 
+        <LessonKnowledgePanel v-if="video" v-show="rightTab === 'knowledge'" />
         <NoteEditor
           v-if="video"
           v-show="rightTab === 'notes'"

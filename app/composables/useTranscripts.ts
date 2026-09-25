@@ -23,6 +23,8 @@ interface Job {
 
 const states = reactive(new Map<string, TranscriptState>())
 const jobs = new Map<string, Job>()
+const loads = new Map<string, Promise<void>>()
+const runs = new Map<string, Promise<void>>()
 const jobCount = ref(0)
 
 function key(courseId: string, path: string) {
@@ -61,6 +63,14 @@ export function useTranscripts() {
   /** 读取同名 .srt / .vtt；没有则标记为 none */
   async function load(courseId: string, video: VideoEntry) {
     const k = key(courseId, video.path)
+    if (loads.has(k)) return loads.get(k)
+    const loading = read(courseId, video).finally(() => loads.delete(k))
+    loads.set(k, loading)
+    return loading
+  }
+
+  async function read(courseId: string, video: VideoEntry) {
+    const k = key(courseId, video.path)
     const s = ensure(k)
     if (s.status === 'transcribing' || s.status === 'ready') return
     s.status = 'loading'
@@ -88,6 +98,14 @@ export function useTranscripts() {
   }
 
   async function transcribe(courseId: string, video: VideoEntry, duration: number) {
+    const k = key(courseId, video.path)
+    if (runs.has(k)) return runs.get(k)
+    const running = run(courseId, video, duration).finally(() => runs.delete(k))
+    runs.set(k, running)
+    return running
+  }
+
+  async function run(courseId: string, video: VideoEntry, duration: number) {
     const k = key(courseId, video.path)
     const s = ensure(k)
     if (s.status === 'transcribing') return
@@ -138,6 +156,15 @@ export function useTranscripts() {
     }
   }
 
+  async function prepare(courseId: string, video: VideoEntry, duration = 0) {
+    await load(courseId, video)
+    const s = get(courseId, video.path)
+    if (s.status !== 'ready') await transcribe(courseId, video, duration)
+    if (s.status !== 'ready') throw new Error(s.error || '转写已取消，可点击重试。')
+    if (!s.segments.length) throw new Error('未识别到可用语音，请检查字幕或音轨。')
+    return s.segments
+  }
+
   function cancel(courseId: string, path: string) {
     jobs.get(key(courseId, path))?.controller.abort()
   }
@@ -155,5 +182,5 @@ export function useTranscripts() {
   })
   const activeJobs = computed(() => jobCount.value)
 
-  return { get, load, transcribe, cancel, reset, activeJobs, tasks, asr }
+  return { get, load, prepare, transcribe, cancel, reset, activeJobs, tasks, asr }
 }

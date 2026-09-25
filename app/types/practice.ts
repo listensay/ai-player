@@ -1,7 +1,8 @@
 export interface PracticeScope { start: number; end: number }
 export interface PracticeSource {
   id: string
-  kind: 'note' | 'subtitle' | 'supplement'
+  kind: 'note' | 'subtitle' | 'supplement' | 'summary'
+  path?: string
   text: string
   start?: number
   end?: number

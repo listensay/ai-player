@@ -1,6 +1,6 @@
 use crate::{db, AppState};
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     io::Write,
@@ -163,6 +163,53 @@ pub fn save_course_location(
 pub fn fs_stat(state: State<AppState>, root: String, relative: String) -> db::Result<Entry> {
     entry(&authorized(&state, &root, &relative, false)?, relative)
 }
+
+#[derive(Deserialize)]
+pub struct DurationCache {
+    size: u64,
+    modified: u64,
+    duration: Option<f64>,
+}
+#[derive(Deserialize)]
+pub struct VideoMetadataRequest {
+    relative: String,
+    cached: Option<DurationCache>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoMetadata {
+    relative: String,
+    size: u64,
+    modified: u64,
+    duration: Option<f64>,
+    readable: bool,
+}
+
+/// Each small batch runs off the UI thread and only accesses authorized course files.
+#[tauri::command]
+pub async fn fs_video_metadata(
+    app: tauri::AppHandle,
+    root: String,
+    videos: Vec<VideoMetadataRequest>,
+) -> db::Result<Vec<VideoMetadata>> {
+    if videos.len() > 64 { return Err("每批最多读取 64 个视频".into()); }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        Ok(videos.into_iter().map(|video| {
+            let mut result = VideoMetadata { relative: video.relative.clone(), size: 0, modified: 0, duration: None, readable: false };
+            if let Ok(path) = authorized(&state, &root, &video.relative, false) {
+                if let Ok(info) = entry(&path, video.relative) {
+                    if info.kind != "file" { return result; }
+                    result.size = info.size; result.modified = info.modified; result.readable = true;
+                    result.duration = video.cached.filter(|old| old.size == info.size && old.modified == info.modified)
+                        .and_then(|old| old.duration.filter(|d| d.is_finite() && *d > 0.0))
+                        .or_else(|| crate::media_duration::read_duration(&path));
+                }
+            }
+            result
+        }).collect())
+    }).await.map_err(|e| e.to_string())?
+}
 #[tauri::command]
 pub fn fs_entries(
     state: State<AppState>,
@@ -263,4 +310,3 @@ pub async fn fs_write(
     .await
     .map_err(|e| e.to_string())?
 }
-

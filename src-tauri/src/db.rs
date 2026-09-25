@@ -204,6 +204,15 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                 "SELECT * FROM learning_guides WHERE course_id=?",
                 vec![course()?],
             )?;
+            // 损坏的数据与“没有记录”必须区分，避免前端用空值覆盖可恢复内容。
+            if let Some(row) = list.first() {
+                for key in ["plan_json", "metadata_json", "mastery_json", "questions_json", "today_json"] {
+                    if let Some(value) = row[key].as_str() {
+                        serde_json::from_str::<Value>(value)
+                            .map_err(|_| "导学记录格式异常，原始数据已保留".to_string())?;
+                    }
+                }
+            }
             Ok(list.first().map(|r| json!({"plan":decoded(r,"plan_json",Value::Null),"metadata":decoded(r,"metadata_json",json!({})),"view":r["view"],"includeOptional":r["include_optional"]==1,"mastery":decoded(r,"mastery_json",json!({})),"questions":decoded(r,"questions_json",json!([])),"today":decoded(r,"today_json",Value::Null),"updatedAt":r["updated_at"]})).unwrap_or(Value::Null))
         }
         "practice" => {
@@ -274,7 +283,9 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
         }
         "check-in" => {
             for day in b["days"].as_array().ok_or("打卡数据无效")? {
-                upsert(db,"check_ins","course_id,date,seconds,target_seconds,checked_at,created_at,updated_at","course_id,date",vec![course()?,json!(text(day,"date")?),day["seconds"].clone(),day["targetSeconds"].clone(),day["checkedAt"].clone(),time.clone(),time.clone()])?;
+                // 学习时长只累计；另一窗口较旧的快照不能倒退时长或撤销打卡。
+                db.execute("INSERT INTO check_ins (course_id,date,seconds,target_seconds,checked_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(course_id,date) DO UPDATE SET seconds=MAX(check_ins.seconds,excluded.seconds),target_seconds=excluded.target_seconds,checked_at=COALESCE(check_ins.checked_at,excluded.checked_at),updated_at=excluded.updated_at",
+                    params_from_iter([course()?,json!(text(day,"date")?),day["seconds"].clone(),day["targetSeconds"].clone(),day["checkedAt"].clone(),time.clone(),time.clone()].iter().map(sql))).map_err(|e| e.to_string())?;
             }
         }
         "guide" => upsert(db,"learning_guides","course_id,plan_json,metadata_json,view,include_optional,mastery_json,questions_json,today_json,updated_at","course_id",vec![course()?,b["plan"].clone(),b["metadata"].clone(),default("view",json!("all")),json!(b["includeOptional"]==true),b["mastery"].clone(),b["questions"].clone(),b["today"].clone(),time.clone()])?,
@@ -288,3 +299,62 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
     Ok(json!({"success":true,"updatedAt":time}))
 }
 
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    fn database() -> Connection {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("PRAGMA trusted_schema=OFF;").unwrap();
+        db.execute_batch(include_str!("schema.sql")).unwrap();
+        db
+    }
+    fn save_guide(db: &mut Connection, plan: Value) -> Result<Value> {
+        request(db, "guide", "POST", json!({}), json!({"courseId":"one", "plan":plan,
+            "metadata":{}, "view":"route", "includeOptional":false, "mastery":{}, "questions":[], "today":null}))
+    }
+
+    #[test]
+    fn empty_state_cannot_overwrite_existing_guide() {
+        let mut db = database();
+        save_guide(&mut db, Value::Null).unwrap();
+        save_guide(&mut db, json!({"summary":"保留的学习路线"})).unwrap();
+        assert!(save_guide(&mut db, Value::Null).is_err());
+        let restored = request(&mut db, "guide", "GET", json!({"courseId":"one"}), Value::Null).unwrap();
+        assert_eq!(restored["plan"]["summary"], "保留的学习路线");
+    }
+
+    #[test]
+    fn guide_history_keeps_twenty_versions_without_metadata_churn() {
+        let mut db = database();
+        for revision in 0..25 { save_guide(&mut db, json!({"revision":revision})).unwrap(); }
+        let before: i64 = db.query_row("SELECT COUNT(*) FROM learning_guide_history", [], |r|r.get(0)).unwrap();
+        assert_eq!(before, 20);
+        db.execute("UPDATE learning_guides SET metadata_json='{}', today_json='{}'", []).unwrap();
+        let after: i64 = db.query_row("SELECT COUNT(*) FROM learning_guide_history", [], |r|r.get(0)).unwrap();
+        assert_eq!(after, before);
+        let newest: String = db.query_row("SELECT plan_json FROM learning_guide_history ORDER BY id DESC LIMIT 1", [], |r|r.get(0)).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&newest).unwrap()["revision"], 23);
+    }
+
+    #[test]
+    fn corrupt_guide_is_a_read_error_not_an_empty_plan() {
+        let mut db = database();
+        db.execute("INSERT INTO learning_guides(course_id,plan_json,updated_at) VALUES ('one','{broken',1)", []).unwrap();
+        assert!(request(&mut db, "guide", "GET", json!({"courseId":"one"}), Value::Null).is_err());
+        let original: String = db.query_row("SELECT plan_json FROM learning_guides", [], |r|r.get(0)).unwrap();
+        assert_eq!(original, "{broken");
+    }
+
+    #[test]
+    fn stale_window_cannot_reduce_study_time_or_remove_check_in() {
+        let mut db = database();
+        for (seconds, checked) in [(3600, json!(123)), (0, Value::Null)] {
+            request(&mut db, "check-in", "POST", json!({}), json!({"courseId":"one","days":[{
+                "date":"2026-09-25","seconds":seconds,"targetSeconds":3600,"checkedAt":checked}]})).unwrap();
+        }
+        let saved = request(&mut db, "check-in", "GET", json!({"courseId":"one"}), Value::Null).unwrap();
+        assert_eq!(saved["2026-09-25"]["seconds"], 3600.0);
+        assert_eq!(saved["2026-09-25"]["checkedAt"], 123);
+    }
+}

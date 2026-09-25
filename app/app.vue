@@ -10,13 +10,13 @@ import { RouterView } from 'vue-router'
 const router = useRouter()
 const {
   stats, transcripts, helpOpen, guideOpen, guideQuestion, guideTab, treeOpen,
-  currentView, toast, course, video, practice, openGuide, startSegment, selectGuideVideo,
+  currentView, toast, course, video, practice, daily, openDailyPractice, openPractice, openGuide, startSegment, selectGuideVideo,
 } = provideCourseWorkspace()
 </script>
 
 <template>
   <VApp>
-  <div :inert="helpOpen || guideOpen || practice.state.open" class="flex h-dvh flex-col overflow-hidden bg-page-cream text-charcoal-ink">
+  <div :inert="helpOpen || guideOpen || practice.state.open || daily.practice.state.open" class="flex h-dvh flex-col overflow-hidden bg-page-cream text-charcoal-ink">
     <AppTopBar
       :course-name="course?.name"
       :course-id="course?.id"
@@ -59,7 +59,8 @@ const {
     <ShortcutsDialog :open="helpOpen" @close="helpOpen = false" />
     <GuideDialog v-if="course" :key="course.id" :open="guideOpen" :current-video="video" :initial-question="guideQuestion" :initial-tab="guideTab"
       @close="guideOpen = false" @select="selectGuideVideo" @segment="startSegment" />
-    <PracticeDialog v-if="course" :practice="practice" @settings="openGuide(undefined, 'settings')" @seek="selectGuideVideo" @help="openGuide($event, 'help')" />
+    <PracticeDialog v-if="course" :practice="practice" @retry="openPractice(practice.state.scope)" @settings="openGuide(undefined, 'settings')" @seek="selectGuideVideo" @help="openGuide($event, 'help')" />
+    <PracticeDialog v-if="course" :practice="daily.practice" @retry="openDailyPractice" @settings="openGuide(undefined, 'settings')" @seek="selectGuideVideo" @help="openGuide($event, 'help')" />
   </div>
   </VApp>
 </template>

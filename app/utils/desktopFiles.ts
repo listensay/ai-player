@@ -1,5 +1,6 @@
 import type { CourseDirectoryHandle, CourseFileHandle, CourseHandle } from '../types/storage'
 import { desktopInvoke } from './platform.ts'
+import type { LessonMetadata } from '../types/guide'
 
 interface NativeEntry { name: string; kind: 'directory' | 'file'; relative: string; size: number; modified: number; path: string }
 
@@ -98,4 +99,12 @@ export async function mediaSource(handle: CourseFileHandle): Promise<{ url: stri
 export function nativeFileLocation(handle: CourseFileHandle): { root: string; relative: string } {
   if (!(handle instanceof NativeFile)) throw new Error('无效的本地视频')
   return { root: handle.root, relative: handle.relative }
+}
+
+export async function videoMetadataBatch(files: Array<{ handle: CourseFileHandle; cached?: LessonMetadata }>): Promise<Array<LessonMetadata & { relative: string; readable: boolean }>> {
+  if (!files.length) return []
+  const locations = files.map(file => nativeFileLocation(file.handle))
+  const root = locations[0]!.root
+  if (locations.some(location => location.root !== root)) throw new Error('同一批视频必须属于同一课程目录')
+  return desktopInvoke('fs_video_metadata', { root, videos: locations.map((location, i) => ({ relative: location.relative, cached: files[i]!.cached ?? null })) })
 }

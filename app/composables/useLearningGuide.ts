@@ -16,7 +16,7 @@ import {
 import { dbFetchGuide, dbSaveGuide, dbSaveSetting } from '~/utils/dbClient'
 import { databaseRequest } from '~/utils/database'
 
-const GUIDE_KEY = Symbol('learning-guide')
+const GUIDE_KEY = Symbol.for('ai-player.learning-guide')
 const recordsKey = (courseId: string) => `study-records:${courseId}`
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -50,6 +50,9 @@ export function useLearningGuide(course: Ref<Course | null>) {
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   let recordsTimer: ReturnType<typeof setTimeout> | null = null
   const recordsReady = ref(false)
+  const guideReady = ref(false)
+  let loadRevision = 0
+  let lastSaved = ''
   const todayDate = ref(localDayKey())
   let dayTimer: ReturnType<typeof setInterval> | undefined
 
@@ -57,8 +60,8 @@ export function useLearningGuide(course: Ref<Course | null>) {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = null
     persistRecords()
-    if (!activeId) return
-    void dbSaveGuide({
+    if (!activeId || !guideReady.value) return
+    const data = plain({
       courseId: activeId,
       plan: state.plan,
       metadata: state.metadata,
@@ -67,6 +70,17 @@ export function useLearningGuide(course: Ref<Course | null>) {
       mastery: state.mastery,
       questions: state.questions,
       today: state.today,
+    })
+    const serialized = JSON.stringify(data)
+    if (serialized === lastSaved) return
+    lastSaved = serialized
+    const revision = loadRevision
+    void dbSaveGuide(data).then(saved => {
+      if (revision !== loadRevision) return
+      if (!saved) {
+        lastSaved = ''
+        state.storageError = '导学数据保存失败，原有记录已保留。请重新打开课程后重试。'
+      }
     })
   }
 
@@ -269,6 +283,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   }
 
   async function generatePractice() {
+    if (!guideReady.value) return false
     const current = course.value
     if (!current || !state.plan || state.busy) return false
     if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return false }
@@ -293,6 +308,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
 
   /** 导入导出的学习路线（先预览再应用），或只包含 program / stages 的实践安排。 */
   function importFile(content: string) {
+    if (!guideReady.value) return false
     if (!course.value || state.busy) return false
     let raw: unknown
     try { raw = JSON.parse(content) } catch { state.error = '文件不是有效的 JSON。'; return false }
@@ -325,6 +341,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   }
 
   async function generate(text: string, dailyMinutes: number) {
+    if (!guideReady.value) { state.error = '导学数据尚未读取成功，请重新打开课程后重试。'; return false }
     const current = course.value
     if (!current || state.busy) return false
     if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return false }
@@ -500,7 +517,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   }
 
   function refreshToday(override: number | null | undefined = undefined) {
-    if (!course.value) return
+    if (!course.value || !guideReady.value) return
     todayDate.value = localDayKey()
     const previous = state.today?.date === todayDate.value ? state.today : null
     const selected = override === undefined ? previous?.override ?? null : override
@@ -605,6 +622,9 @@ export function useLearningGuide(course: Ref<Course | null>) {
     let stale = false
     onCleanup(() => { stale = true })
     persist(); cancel(); scanner?.abort()
+    loadRevision++
+    guideReady.value = false
+    lastSaved = ''
     const current = course.value
     activeId = current?.id ?? ''; activePaths = current?.videos.map(v => v.path) ?? []
     recordsReady.value = false
@@ -615,7 +635,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     const records = databaseRequest<unknown>('settings', { query: { key: recordsKey(current.id) } })
       .then(value => ({ ok: true as const, value }), () => ({ ok: false as const, value: null }))
     try {
-      let stored = await dbFetchGuide(current.id) as any
+      const stored = await dbFetchGuide(current.id)
       if (stale) return
       if (isRecord(stored)) {
         Object.assign(state, restoreFeedback(stored, activePaths))
@@ -632,7 +652,11 @@ export function useLearningGuide(course: Ref<Course | null>) {
           state.plan = restorePlan(stored.plan); state.view = stored.view === 'route' ? 'route' : 'all'; state.includeOptional = stored.includeOptional === true
         }
       }
-    } catch { state.notice = '学习路线读取失败，可重新生成。观看进度已保留。' }
+      guideReady.value = true
+    } catch {
+      if (stale) return
+      state.storageError = '导学数据读取失败，已暂停保存并保留原有记录。请重新打开课程后重试。'
+    }
     const loaded = await records
     if (stale) return
     if (loaded.ok) {
@@ -647,12 +671,14 @@ export function useLearningGuide(course: Ref<Course | null>) {
     scanner = controller; state.scanning = true
     void collectGuideMetadata(current.videos, state.metadata, controller.signal, (path, metadata) => {
       state.metadata[path] = metadata; state.scanned++
+      if (state.scanned % 256 === 0) persist()
     }).finally(() => {
       if (!controller.signal.aborted) { state.scanning = false; persist() }
     })
   }, { immediate: true })
 
   watch(() => [state.plan, state.view, state.includeOptional, state.mastery, state.questions, state.today], () => {
+    if (!guideReady.value) return
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(persist, 200)
   }, { deep: true })
@@ -677,7 +703,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     generate, cancel, previewStatus, setStatus, setDailyMinutes, repairDependencies, adjacent, findFallback, exportPlan,
     masteredPaths, unresolvedQuestions, activeQuestion, setMastery, setPracticeMastery, saveQuestion, selectQuestion, markQuestionReview, setQuestionStatus, refreshToday, completeTodayItem,
     todayDate, program, moduleMap, planDay, practiceModules, scheduledModule, progressModule, activeModule, lightDay, todayBudget, todayTotalMinutes, todayWork,
-    workSecondsByDate, courseProgressMap, stageProgressMap, videoFinish, pendingPreview, recordsReady,
+    workSecondsByDate, courseProgressMap, stageProgressMap, videoFinish, pendingPreview, recordsReady, guideReady,
     undo, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, generatePractice, importFile }
   provide(GUIDE_KEY, guide)
   return guide

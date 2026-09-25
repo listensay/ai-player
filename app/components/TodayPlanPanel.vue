@@ -4,6 +4,7 @@ import { useGuide } from '~/composables/useLearningGuide'
 import { formatTime } from '~/utils/time'
 import CheckInCalendar from '~/components/CheckInCalendar.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
+import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import UiButton from '~/components/UiButton.vue'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
@@ -49,6 +50,7 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
 
     <!-- 学习打卡日历 -->
     <CheckInCalendar @plan="emit('plan')" />
+    <DailyPracticeCard />
     <div class="pane p-5">
       <form class="flex flex-wrap items-center gap-3" @submit.prevent="updateMinutes">
         <label class="flex items-center gap-2 text-body-sm">{{ guide.program.value ? '今日观看时间' : '今日可用时间' }}

@@ -18,6 +18,7 @@ let desktopStarted = false
 let checking: Promise<AsrServiceStatus> | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let pollers = 0
+let starting: Promise<void> | null = null
 
 export interface TranscribeHandlers {
   onSegment: (segment: TranscriptSegment) => void
@@ -41,11 +42,35 @@ export function useAsrService() {
   }
 
   async function startService() {
+    if (starting) return starting
+    starting = start().finally(() => { starting = null })
+    return starting
+  }
+  async function start() {
     desktopStarted = true
     state.status = 'preparing'
     state.lastError = ''
     try { await desktopInvoke('asr_start'); await checkHealth() }
     catch (err) { state.status = 'error'; state.lastError = (err as Error).message }
+  }
+
+  async function waitUntilReady(signal: AbortSignal) {
+    const abort = () => { throw new DOMException('已取消', 'AbortError') }
+    if (signal.aborted) abort()
+    if (await checkHealth() === 'offline') await startService()
+    const deadline = Date.now() + 30 * 60_000
+    while (!signal.aborted) {
+      const status = await checkHealth()
+      if (status === 'ready') return
+      if (status === 'error' || status === 'offline') throw new Error(state.lastError || '本地转写服务不可用，请重试。')
+      if (Date.now() > deadline) throw new Error('转写模型准备超时，请检查网络后重试。')
+      await new Promise<void>(resolve => {
+        const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve() }
+        const timer = setTimeout(finish, 1000)
+        signal.addEventListener('abort', finish, { once: true })
+      })
+    }
+    abort()
   }
   async function stopService() {
     try { await desktopInvoke('asr_stop'); state.status = 'offline'; state.health = null; state.lastError = '' }
@@ -100,6 +125,7 @@ export function useAsrService() {
     const cancel = () => { void desktopInvoke('asr_cancel', { jobId }).catch(() => {}) }
     handlers.signal?.addEventListener('abort', cancel, { once: true })
     try {
+      await waitUntilReady(handlers.signal ?? new AbortController().signal)
       if (handlers.signal?.aborted) throw new DOMException('已取消', 'AbortError')
       return await desktopInvoke<TranscribeResult>('asr_transcribe', { ...nativeFileLocation(handle), duration: Number.isFinite(duration) ? duration : 0, jobId, onEvent: channel })
     } finally { handlers.signal?.removeEventListener('abort', cancel) }

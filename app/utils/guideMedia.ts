@@ -1,4 +1,4 @@
-import { fileMetadata, mediaSource } from './desktopFiles.ts'
+import { fileMetadata, mediaSource, videoMetadataBatch } from './desktopFiles.ts'
 import type { CourseFileHandle } from '../types/storage'
 import type { VideoEntry } from '../types/course'
 import type { LessonMetadata, SubtitleCue } from '../types/guide'
@@ -10,7 +10,10 @@ export async function readVideoDuration(file: File | CourseFileHandle, signal: A
   return new Promise((resolve) => {
     const video = document.createElement('video')
     const url = source.url
+    let finished = false
     const finish = (duration: number | null) => {
+      if (finished) return
+      finished = true
       clearTimeout(timer)
       signal.removeEventListener('abort', abort)
       video.onloadedmetadata = null
@@ -31,18 +34,37 @@ export async function readVideoDuration(file: File | CourseFileHandle, signal: A
   })
 }
 
-/** 只读取媒体元数据，三路并发；取消与超时均释放临时播放器和 Blob URL。 */
+/** 批量读取容器头；少数无法直接读取的文件才使用三路播放器回退。 */
 export async function collectGuideMetadata(
   videos: VideoEntry[], cache: Record<string, LessonMetadata>, signal: AbortSignal,
   onEntry: (path: string, metadata: LessonMetadata) => void,
 ): Promise<void> {
+  const fallback: Array<{ video: VideoEntry; metadata?: LessonMetadata }> = []
+  for (let offset = 0; offset < videos.length && !signal.aborted; offset += 64) {
+    const batch = videos.slice(offset, offset + 64)
+    try {
+      const entries = await videoMetadataBatch(batch.map(video => ({ handle: video.handle, cached: cache[video.path] })))
+      if (signal.aborted) return
+      const byPath = new Map(entries.map(entry => [entry.relative, entry]))
+      for (const video of batch) {
+        const entry = byPath.get(video.path)
+        if (!entry) { fallback.push({ video }); continue }
+        const metadata = { size: entry.size, modified: entry.modified, duration: entry.duration }
+        if (entry.duration !== null || !entry.readable) onEntry(video.path, metadata)
+        else fallback.push({ video, metadata })
+      }
+    } catch {
+      // 旧桌面运行时或不支持的句柄仍可读取；单批失败不终止整个课程。
+      fallback.push(...batch.map(video => ({ video })))
+    }
+  }
   let cursor = 0
   async function worker() {
-    while (!signal.aborted && cursor < videos.length) {
-      const video = videos[cursor++]!
-      let metadata: LessonMetadata = { duration: null, size: 0, modified: 0 }
+    while (!signal.aborted && cursor < fallback.length) {
+      const item = fallback[cursor++]!, video = item.video
+      let metadata: LessonMetadata = item.metadata ?? { duration: null, size: 0, modified: 0 }
       try {
-        const file = await fileMetadata(video.handle)
+        const file = item.metadata ? { size: item.metadata.size, lastModified: item.metadata.modified } : await fileMetadata(video.handle)
         if (signal.aborted) return
         const old = cache[video.path]
         metadata = old?.size === file.size && old.modified === file.lastModified && old.duration !== null
@@ -51,7 +73,7 @@ export async function collectGuideMetadata(
       if (!signal.aborted) onEntry(video.path, metadata)
     }
   }
-  await Promise.all(Array.from({ length: Math.min(3, videos.length) }, worker))
+  await Promise.all(Array.from({ length: Math.min(3, fallback.length) }, worker))
 }
 
 function cueTime(raw: string): number | null {

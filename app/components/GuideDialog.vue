@@ -200,7 +200,7 @@ function jumpBack(path: string, seconds?: number) {
               <label class="flex items-center justify-between gap-3 text-body-sm">{{ state.plan?.program ? '每日观看时间' : '每日学习时间' }}
                 <span class="flex items-center gap-2"><VTextField v-model.number="dailyMinutes" aria-label="每日学习分钟数" type="number" min="5" max="1440" step="1" required :disabled="!!state.busy" class="text-center" style="width: 5rem" @change="updateDailyMinutes" />分钟</span>
               </label>
-              <UiButton type="submit" variant="primary" class="w-full" :disabled="!!state.busy"><AppIcon name="sparkles" :size="18" />{{ state.plan ? '调整学习路线' : '生成学习路线' }}</UiButton>
+              <UiButton type="submit" variant="primary" class="w-full" :disabled="!!state.busy || !guide.guideReady.value"><AppIcon name="sparkles" :size="18" />{{ state.plan ? '调整学习路线' : '生成学习路线' }}</UiButton>
             </form>
             <p class="mt-3 text-caption leading-relaxed text-stone">仅依据标题与时长规划，不上传视频。{{ state.scanning ? `时长读取中 ${state.scanned}/${guide.videoMap.value.size}，可先生成路线。` : '路线与学习背景自动保存。' }}</p>
             <UiButton v-if="!guide.configured.value" variant="text" size="sm" class="mt-3" @click="tab = 'settings'">配置 AI 服务 →</UiButton>

@@ -76,13 +76,8 @@ export async function dbSaveProgress(item: {
 }
 
 export async function dbFetchCheckIns(courseId: string): Promise<Record<string, StudyDay>> {
-  try {
-    const data = await databaseRequest<Record<string, StudyDay>>('check-in', { query: { courseId } })
-    return data ?? {}
-  } catch (err) {
-    console.warn('读取本地打卡记录失败', err)
-    return {}
-  }
+  const data = await databaseRequest<Record<string, StudyDay>>('check-in', { query: { courseId } })
+  return data ?? {}
 }
 
 export async function dbSaveCheckIns(courseId: string, days: StudyDay[]): Promise<boolean> {
@@ -164,13 +159,8 @@ export async function dbFetchGuide(courseId: string): Promise<{
   today: TodayPlan | null
   updatedAt: number
 } | null> {
-  try {
-    const data = await databaseRequest<any>('guide', { query: { courseId } })
-    return data
-  } catch (err) {
-    console.warn('读取本地导学数据失败', err)
-    return null
-  }
+  // null 只表示尚未创建记录；读取失败必须交给调用方处理，不能当作空路线保存。
+  return databaseRequest('guide', { query: { courseId } })
 }
 
 export async function dbSaveGuide(data: {
@@ -196,13 +186,8 @@ export async function dbSaveGuide(data: {
 }
 
 export async function dbFetchPractice(courseId: string): Promise<Record<string, PracticeRecord[]>> {
-  try {
-    const data = await databaseRequest<Record<string, PracticeRecord[]>>('practice', { query: { courseId } })
-    return data ?? {}
-  } catch (err) {
-    console.warn('读取本地练习记录失败', err)
-    return {}
-  }
+  const data = await databaseRequest<Record<string, PracticeRecord[]>>('practice', { query: { courseId } })
+  return data ?? {}
 }
 
 export async function dbSavePractice(courseId: string, videoPath: string, records: PracticeRecord[]): Promise<boolean> {

@@ -84,3 +84,38 @@
   
 CREATE TABLE IF NOT EXISTS course_aliases (alias_id TEXT PRIMARY KEY, course_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS course_locations (course_id TEXT PRIMARY KEY, path TEXT NOT NULL);
+
+-- 导学变更保留最近 20 个版本；元数据扫描不会挤掉路线快照。
+CREATE TABLE IF NOT EXISTS learning_guide_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id TEXT NOT NULL,
+  plan_json TEXT,
+  metadata_json TEXT,
+  view TEXT,
+  include_optional INTEGER,
+  mastery_json TEXT,
+  questions_json TEXT,
+  today_json TEXT,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS learning_guide_history_course ON learning_guide_history(course_id, id);
+
+CREATE TRIGGER IF NOT EXISTS preserve_learning_guide_plan
+BEFORE UPDATE ON learning_guides
+WHEN OLD.plan_json IS NOT NULL AND OLD.plan_json != 'null'
+  AND (NEW.plan_json IS NULL OR NEW.plan_json = 'null')
+BEGIN
+  SELECT RAISE(ABORT, '已有学习路线不能被空状态覆盖，请重新打开课程');
+END;
+
+CREATE TRIGGER IF NOT EXISTS backup_learning_guide
+BEFORE UPDATE ON learning_guides
+WHEN OLD.plan_json IS NOT NULL AND OLD.plan_json != 'null'
+  AND (OLD.plan_json IS NOT NEW.plan_json OR OLD.mastery_json IS NOT NEW.mastery_json
+    OR OLD.questions_json IS NOT NEW.questions_json)
+BEGIN
+  INSERT INTO learning_guide_history (course_id, plan_json, metadata_json, view, include_optional, mastery_json, questions_json, today_json, updated_at)
+  VALUES (OLD.course_id, OLD.plan_json, OLD.metadata_json, OLD.view, OLD.include_optional, OLD.mastery_json, OLD.questions_json, OLD.today_json, OLD.updated_at);
+  DELETE FROM learning_guide_history WHERE course_id = OLD.course_id AND id NOT IN
+    (SELECT id FROM learning_guide_history WHERE course_id = OLD.course_id ORDER BY id DESC LIMIT 20);
+END;

@@ -1,6 +1,7 @@
 mod asr;
 mod db;
 mod files;
+mod media_duration;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::{
@@ -82,7 +83,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
+            // 调试窗口不能与已安装的正式版互相覆盖学习数据。
             let directory = app.path().app_data_dir()?;
+            let directory = if cfg!(debug_assertions) {
+                directory.join("development")
+            } else {
+                directory
+            };
             std::fs::create_dir_all(&directory)?;
             let conn = db::open(&directory.join("ai-player.db")).map_err(std::io::Error::other)?;
             let roots = files::saved_roots(&conn).map_err(std::io::Error::other)?;
@@ -111,6 +118,7 @@ pub fn run() {
             files::course_locations,
             files::save_course_location,
             files::fs_stat,
+            files::fs_video_metadata,
             files::fs_entries,
             files::fs_child,
             files::fs_read,
@@ -135,4 +143,3 @@ pub fn run() {
             }
         });
 }
-

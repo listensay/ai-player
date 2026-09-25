@@ -25,6 +25,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   const state = reactive({ days: {} as Record<string, StudyDay>, date: localDayKey(), storageError: '' })
   const justCheckedIn = ref<StudyDay | null>(null)
   let activeId = ''
+  let ready = false
   let previous: { sample: PlaybackSample; wall: number; path: string } | null = null
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let dayTimer: ReturnType<typeof setInterval> | undefined
@@ -58,7 +59,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
 
   function persist() {
     clearTimeout(saveTimer); saveTimer = undefined
-    if (!activeId) return
+    if (!activeId || !ready) return
     void dbSaveCheckIns(activeId, Object.values(state.days))
   }
 
@@ -66,7 +67,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
 
   function syncDay() {
     state.date = localDayKey()
-    if (!activeId || activeId !== course.value?.id) return
+    if (!activeId || !ready || activeId !== course.value?.id) return
     const day = ensureDay(state.date)
     const wasChecked = day.checkedAt !== null
     setStudyTarget(day, minutesFor(state.date), Date.now(), workFor(state.date))
@@ -76,7 +77,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   }
 
   function sample(path: string, sample: PlaybackSample) {
-    if (!activeId || course.value?.id !== activeId || !course.value.videos.some(v => v.path === path)) { previous = null; return }
+    if (!activeId || !ready || course.value?.id !== activeId || !course.value.videos.some(v => v.path === path)) { previous = null; return }
     syncDay()
     const now = Date.now()
     const elapsed = previous && previous.path === path ? effectivePlaybackSeconds(previous.sample, sample) : 0
@@ -105,6 +106,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     let stale = false
     onCleanup(() => { stale = true })
     persist(); resetPlayback(); activeId = course.value?.id ?? ''
+    ready = false
     state.days = {}; state.storageError = ''; state.date = localDayKey()
     justCheckedIn.value = null
     if (!activeId) return
@@ -114,8 +116,11 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
       const dbDays = await dbFetchCheckIns(activeId)
       if (stale) return
       state.days = dbDays
+      ready = true
+      syncDay()
     } catch {
-      state.storageError = '打卡记录读取失败，本次学习时长将重新记录。'
+      if (stale) return
+      state.storageError = '打卡记录读取失败，已暂停保存并保留原有记录。请重新打开课程后重试。'
     }
   }, { immediate: true, flush: 'sync' })
 

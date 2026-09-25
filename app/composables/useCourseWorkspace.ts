@@ -2,6 +2,8 @@ import { onBeforeUnmount, onMounted, computed, ref, watch, inject, nextTick, pro
 import { useCourseStore } from '~/composables/useCourseStore'
 import { useLearningGuide } from '~/composables/useLearningGuide'
 import { useLessonPractice } from '~/composables/useLessonPractice'
+import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
+import { useDailyPractice } from '~/composables/useDailyPractice'
 import { usePlayer } from '~/composables/usePlayer'
 import { useProgress } from '~/composables/useProgress'
 import { useSegmentReminder } from '~/composables/useSegmentReminder'
@@ -45,8 +47,8 @@ export function provideCourseWorkspace() {
   const feedbackQuestionId = ref('')
   const pendingSeek = ref<{ path: string; seconds: number } | null>(null)
   const treeOpen = ref(false)
-  /** 右栏页签：笔记 / 逐字稿。两个面板都常驻，切页签不打断转写与编辑 */
-  const rightTab = ref<'notes' | 'transcript'>('notes')
+  /** 知识点优先展示；切页签不打断转写与笔记编辑。 */
+  const rightTab = ref<'knowledge' | 'notes' | 'transcript'>('knowledge')
   const transcripts = useTranscripts()
 
   function quoteToNote(text: string) {
@@ -64,7 +66,22 @@ export function provideCourseWorkspace() {
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
   const guide = useLearningGuide(course)
-  const practice = useLessonPractice(course, guide.state.settings, guide.configured)
+  const knowledge = useLessonKnowledge(course, guide.state.settings, guide.configured)
+  const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
+    sources: (target, scope) => knowledge.sourcesFor(course.value!.id, target, scope ? [scope] : undefined),
+  })
+  const daily = useDailyPractice(course, computed(() => guide.state.today), guide.todayDate, guide.state.settings, guide.configured, knowledge)
+  watch(() => [course.value?.id, video.value?.path, currentView.value, guide.configured.value,
+    guide.state.settings.baseUrl, guide.state.settings.model, guide.state.settings.apiKey] as const, (value, previous) => {
+    if (currentView.value !== 'player' || !course.value || !video.value) return
+    if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2]) rightTab.value = 'knowledge'
+    void knowledge.ensure(course.value.id, video.value).catch(() => {})
+  }, { immediate: true })
+  watch(() => course.value && video.value ? transcripts.get(course.value.id, video.value.path).status : '', (status, previous) => {
+    if (status === 'ready' && previous === 'transcribing' && course.value && video.value) {
+      void knowledge.ensure(course.value.id, video.value).catch(() => {})
+    }
+  })
   const segment = useSegmentReminder(computed(() => course.value?.id), computed(() => video.value?.path), computed(() => guide.state.today))
   const checkInPlan = computed(() => ({
     today: guide.state.today,
@@ -88,6 +105,8 @@ export function provideCourseWorkspace() {
 
   function onVideoSample(sample: import('~/types/practice').PlaybackSample) {
     segment.sample(sample)
+    const completed = segment.reminder.value?.item
+    if (completed && !guide.state.today?.items.find(i => i.id === completed.id)?.done) guide.completeTodayItem(completed.id, true)
     if (video.value) {
       checkIn.sample(video.value.path, sample)
     }
@@ -129,10 +148,24 @@ export function provideCourseWorkspace() {
     const target = video.value, courseId = course.value?.id
     if (!target) return
     const snapshot = noteEditor.value?.getMarkdown()
+    daily.practice.close()
     player.pause()
     await leaveFullscreen()
     if (video.value?.path === target.path && course.value?.id === courseId) void practice.open(target, scope, snapshot)
   }
+
+  async function openDailyPractice() {
+    if (!daily.complete.value) return
+    const courseId = course.value?.id, day = guide.todayDate.value
+    player.pause()
+    await leaveFullscreen()
+    if (course.value?.id !== courseId || guide.todayDate.value !== day || !daily.complete.value) return
+    guideOpen.value = false; helpOpen.value = false; practice.close(); segment.dismiss()
+    void daily.open()
+  }
+  watch(() => daily.shouldPrompt.value && !practice.state.open && !helpOpen.value && !daily.practice.state.open, ready => {
+    if (ready) void openDailyPractice()
+  }, { immediate: true })
 
   function practiceSegment() {
     const reminder = segment.reminder.value
@@ -274,6 +307,7 @@ export function provideCourseWorkspace() {
       helpOpen.value = false
       guideOpen.value = false
       practice.close()
+      daily.practice.close()
       treeOpen.value = false
     },
   })
@@ -313,6 +347,7 @@ export function provideCourseWorkspace() {
     treeOpen.value = false
     guideOpen.value = false
     practice.close()
+    daily.practice.close()
   })
   onBeforeUnmount(() => { if (toastTimer) clearTimeout(toastTimer) })
   let unlistenClose: (() => void) | undefined
@@ -335,6 +370,7 @@ export function provideCourseWorkspace() {
         if (noteEditor.value?.hasUnsavedChanges()) throw new Error('笔记尚未保存')
         useProgress().flush()
         guide.persist(); practice.persist(); checkIn.persist()
+        await daily.flush()
         await flushDatabaseWrites()
         await desktopInvoke('finish_close')
       } catch {
@@ -346,13 +382,13 @@ export function provideCourseWorkspace() {
     await desktopInvoke('frontend_ready')
   })
   onBeforeUnmount(() => { unlistenClose?.(); unlistenQuit?.() })
-  const workspace = { store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideQuestion, guideTab, returnPoint, feedbackQuestionId, pendingSeek, treeOpen, rightTab, transcripts, currentView, toast, course, video, guide, practice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, recordQuestion, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment, selectGuideVideo, returnToLesson, answerQuestion, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
+  const workspace = { store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideQuestion, guideTab, returnPoint, feedbackQuestionId, pendingSeek, treeOpen, rightTab, transcripts, currentView, toast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, recordQuestion, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment, selectGuideVideo, returnToLesson, answerQuestion, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
   provide(COURSE_WORKSPACE, workspace)
   return workspace
 }
 
 type CourseWorkspace = ReturnType<typeof provideCourseWorkspace>
-const COURSE_WORKSPACE: InjectionKey<CourseWorkspace> = Symbol('course-workspace')
+const COURSE_WORKSPACE: InjectionKey<CourseWorkspace> = Symbol.for('ai-player.course-workspace')
 export function useCourseWorkspace() {
   const workspace = inject(COURSE_WORKSPACE)
   if (!workspace) throw new Error('Course workspace provider is missing')

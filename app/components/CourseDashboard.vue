@@ -5,6 +5,7 @@ import { useProgress } from '~/composables/useProgress'
 import { useCheckIn } from '~/composables/useStudyCheckIn'
 import AppIcon from '~/components/AppIcon.vue'
 import CheckInCalendar from '~/components/CheckInCalendar.vue'
+import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import StagePanel from '~/components/StagePanel.vue'
 import StageProgressBars from '~/components/StageProgressBars.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
@@ -242,6 +243,7 @@ async function revealStage() {
           </div>
         </section>
 
+        <DailyPracticeCard />
         <section class="overview-summary pane min-w-0 p-5" aria-label="阶段进度">
           <div class="mb-4 flex items-center justify-between gap-2"><h2 class="text-body font-bold">当前阶段</h2><UiButton v-if="activeModule" size="sm" variant="text" @click="revealStage">查看阶段验收</UiButton></div>
           <template v-if="guide.state.plan && activeModule">
