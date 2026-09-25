@@ -83,9 +83,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
-            // 调试窗口不能与已安装的正式版互相覆盖学习数据。
             let directory = app.path().app_data_dir()?;
-            let directory = if cfg!(debug_assertions) {
+            let directory = if std::env::var("AI_PLAYER_DEV_ISOLATE").map(|v| v == "1").unwrap_or(false) {
                 directory.join("development")
             } else {
                 directory
