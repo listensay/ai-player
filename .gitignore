@@ -2,8 +2,6 @@
 .data
 .cache
 dist
-test-results
-playwright-report
 
 # Node dependencies
 node_modules

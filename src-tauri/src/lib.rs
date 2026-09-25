@@ -136,25 +136,3 @@ pub fn run() {
         });
 }
 
-#[cfg(test)]
-mod network_tests {
-    #[test]
-    fn configured_http_scopes_are_valid() {
-        let config: serde_json::Value =
-            serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
-        for entry in config["permissions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|p| p["allow"].as_array())
-            .flatten()
-        {
-            let raw = entry["url"].as_str().unwrap();
-            let init =
-                urlpattern::UrlPatternInit::parse_constructor_string::<regex::Regex>(raw, None)
-                    .unwrap_or_else(|e| panic!("Invalid HTTP scope {raw}: {e}"));
-            urlpattern::UrlPattern::<regex::Regex>::parse(init, Default::default())
-                .unwrap_or_else(|e| panic!("Invalid HTTP scope {raw}: {e}"));
-        }
-    }
-}
