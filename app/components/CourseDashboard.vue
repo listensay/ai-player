@@ -10,6 +10,7 @@ import StagePanel from '~/components/StagePanel.vue'
 import StageProgressBars from '~/components/StageProgressBars.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
 import UiButton from '~/components/UiButton.vue'
+import PlanAdjustment from '~/components/PlanAdjustment.vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
@@ -207,6 +208,7 @@ async function revealStage() {
             <div class="flex flex-wrap gap-2">
               <UiButton v-if="resumeVideo" variant="dark" @click="startResume"><AppIcon name="play" :size="16" />{{ viewStats.done === viewStats.total ? '复习第一节' : viewStats.started || viewStats.done ? '继续学习' : '开始学习' }}</UiButton>
               <UiButton @click="emit('guide')"><AppIcon name="sparkles" :size="16" />{{ guide.state.plan ? '学习路线' : '定制路线' }}</UiButton>
+              <PlanAdjustment />
             </div>
           </div>
         </div>

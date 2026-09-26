@@ -89,3 +89,29 @@ test('打卡未读取或读取失败时，不用零时长覆盖已保存记录',
   pending.reject(Error('read failed'));await tick();h.clock.persist()
   assert.equal(h.checkSaves.length,0);assert.match(h.clock.state.storageError,/读取失败/)
 })
+
+test('调整计划与撤销只影响安排，保留调整后新增的实践记录与掌握程度', async t => {
+  const saved = stored()
+  saved.plan.program = { days: 30, startDate: '2026-09-21', budget: { video: 30, code: 15, project: 0, recap: 0 }, lightEvery: 0, lightMinutes: 30 }
+  const h = harness(t, { dbFetchGuide: async () => saved }); await tick()
+  const next = structuredClone(saved.plan)
+  next.program.days = 40
+  assert.equal(h.guide.applySchedule(next, '调整剩余计划'), true)
+  h.guide.state.records.entries.push({ id: 'new', date: h.guide.todayDate.value, moduleId: 'm', taskId: 't', kind: 'code', title: '练习', instructions: '练习', targetMinutes: 15, minutes: 8, done: false, evidence: '代码已保存' })
+  h.guide.setMastery('a.mp4', '变量', 'mastered')
+  assert.equal(h.guide.undo(), true)
+  assert.equal(h.guide.state.plan.program.days, 30)
+  assert.equal(h.guide.state.records.entries.find(e => e.id === 'new').minutes, 8)
+  assert.equal(Object.values(h.guide.state.mastery)[0].level, 'mastered')
+  assert.equal(h.guide.state.plan.lessons[0].status, 'skipped')
+})
+
+test('没有 AI 路线时可直接按本地目录设置学习计划', async t => {
+  const h = harness(t, { dbFetchGuide: async () => null }); await tick()
+  const local = h.guide.planForScheduling()
+  assert.equal(h.guide.state.plan, null)
+  assert.deepEqual(local.lessons.map(l => l.path), ['a.mp4'])
+  assert.equal(h.guide.applySchedule(local, '设置学习计划'), true)
+  h.guide.persist(); await tick()
+  assert.equal(h.saves.at(-1).plan.program.budget.video, 30)
+})

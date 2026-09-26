@@ -31,7 +31,7 @@ export function splitStudySeconds(end: number, seconds: number): Array<{ date: s
 
 /** extraSeconds 为当天记录的实践时间（编码、项目、复习），与有效看课时长合计判断是否达标。 */
 export function setStudyTarget(day: StudyDay, minutes: number, now: number, extraSeconds = 0) {
-  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440) return
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) return
   if (day.checkedAt === null) day.targetSeconds = minutes * 60
   checkStudyDay(day, now, extraSeconds)
 }

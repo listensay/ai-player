@@ -19,6 +19,7 @@ export interface CheckInPlan {
   targetMinutes?: number | null
   /** 各日期记录的实践时间（秒），计入当日学习时长。 */
   workSeconds?: Record<string, number>
+  budgetForDate?: (date: string) => number
 }
 
 export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPlan>) {
@@ -48,7 +49,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   const remainingSeconds = computed(() => Math.max(0, targetSeconds.value - seconds.value))
 
   function minutesFor(date: string) {
-    if (date === state.date && plan.value.targetMinutes) return plan.value.targetMinutes
+    if (date === state.date && plan.value.targetMinutes != null) return plan.value.targetMinutes
+    if (date >= state.date && plan.value.budgetForDate) return plan.value.budgetForDate(date)
     return plan.value.today?.date === date ? plan.value.today.minutes : plan.value.dailyMinutes
   }
 

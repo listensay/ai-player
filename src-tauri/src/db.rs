@@ -119,6 +119,38 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
     let course =
         || -> Result<SqlValue> { Ok(SqlValue::Text(canonical(db, text(q, "courseId")?)?)) };
     match endpoint {
+        "library" => {
+            let (query, args) = if let Some(id) = q["id"].as_str() {
+                ("SELECT * FROM course_library WHERE id=?", vec![SqlValue::Text(canonical(db, id)?)])
+            } else {
+                ("SELECT * FROM course_library ORDER BY pinned DESC,last_opened_at DESC", vec![])
+            };
+            let list: Vec<Value> = rows(db, query, args)?.iter().map(|r| json!({"id":r["id"],"name":r["name"],"videoCount":r["video_count"],"lastOpenedAt":r["last_opened_at"],"lastVideoPath":r["last_video_path"],"status":r["status"],"pinned":r["pinned"]==1})).collect();
+            Ok(if q["id"].is_string() { list.into_iter().next().unwrap_or(Value::Null) } else { json!(list) })
+        }
+        "day-snapshots" => {
+            let mut result = json!({});
+            for row in rows(db, "SELECT date,snapshot_json FROM daily_plan_snapshots WHERE course_id=? ORDER BY date DESC LIMIT 366", vec![course()?])? {
+                let snapshot: Value = serde_json::from_str(row["snapshot_json"].as_str().unwrap_or("")).map_err(|_| "每日计划记录格式异常".to_string())?;
+                result[row["date"].as_str().unwrap_or_default()] = snapshot;
+            }
+            Ok(result)
+        }
+        "dashboard" => {
+            let library = read(db, "library", &json!({}))?;
+            let mut result = Vec::new();
+            for entry in library.as_array().ok_or("课程库格式异常")? {
+                let id = entry["id"].as_str().ok_or("课程编号无效")?;
+                let data = (|| -> Result<Value> {
+                    let query = json!({"courseId":id});
+                    Ok(json!({"guide":read(db,"guide",&query)?,"progress":read(db,"progress",&query)?,
+                        "days":read(db,"check-in",&query)?,"snapshots":read(db,"day-snapshots",&query)?,
+                        "records":read(db,"settings",&json!({"key":format!("study-records:{id}")}))?}))
+                })();
+                result.push(match data { Ok(data) => json!({"course":entry,"data":data}), Err(error) => json!({"course":entry,"error":error}) });
+            }
+            Ok(json!(result))
+        }
         "recent-courses" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
                 (
@@ -229,14 +261,15 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
         }
         "settings" => {
             if let Some(key) = q["key"].as_str() {
-                return Ok(rows(
+                let values = rows(
                     db,
                     "SELECT value_json FROM app_settings WHERE key=?",
                     vec![sql(&json!(key))],
-                )?
-                .first()
-                .map(|r| decoded(r, "value_json", Value::Null))
-                .unwrap_or(Value::Null));
+                )?;
+                return match values.first() {
+                    Some(row) => serde_json::from_str(row["value_json"].as_str().unwrap_or("null")).map_err(|_| "设置记录格式异常，原始数据已保留".to_string()),
+                    None => Ok(Value::Null),
+                };
             }
             let mut result = json!({});
             for r in rows(db, "SELECT key,value_json FROM app_settings", vec![])? {
@@ -270,6 +303,32 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
         }
     };
     match endpoint {
+        "library" => {
+            let id = canonical(db, text(b, "id")?)?;
+            if let Some(status) = b["status"].as_str() {
+                if !["active","paused","archived"].contains(&status) { return Err("课程状态无效".into()); }
+                db.execute("UPDATE course_library SET status=? WHERE id=?", params![status,id]).map_err(|e| e.to_string())?;
+            }
+            if let Some(pinned) = b["pinned"].as_bool() {
+                db.execute("UPDATE course_library SET pinned=? WHERE id=?", params![pinned,id]).map_err(|e| e.to_string())?;
+            }
+        }
+        "day-snapshots" => {
+            let snapshot = &b["snapshot"];
+            let date = text(snapshot,"date")?;
+            let valid_date = date.len() == 10 && date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-'
+                && date.bytes().enumerate().all(|(i,c)| i == 4 || i == 7 || c.is_ascii_digit());
+            if !valid_date || !snapshot["tasks"].is_array() || !snapshot["capturedAt"].is_u64()
+                || !snapshot["plannedMinutes"].as_u64().is_some_and(|n| n <= 1440) { return Err("每日计划快照无效".into()); }
+            let previous = rows(db,"SELECT snapshot_json FROM daily_plan_snapshots WHERE course_id=? AND date=?",vec![sql(&course()?),sql(&json!(date))])?;
+            let mut next = snapshot.clone();
+            if let Some(row) = previous.first() {
+                let old: Value = serde_json::from_str(row["snapshot_json"].as_str().unwrap_or("")).map_err(|_| "原每日计划记录损坏，已暂停保存".to_string())?;
+                if old["capturedAt"].as_u64() > snapshot["capturedAt"].as_u64() { return Ok(json!({"success":true})); }
+                next["initialMinutes"] = old["initialMinutes"].clone();
+            } else { next["initialMinutes"] = snapshot["plannedMinutes"].clone(); }
+            upsert(db,"daily_plan_snapshots","course_id,date,snapshot_json","course_id,date",vec![course()?,json!(date),next])?;
+        }
         "recent-courses" => upsert(db,"recent_courses","id,name,video_count,last_opened_at,last_video_path,created_at,updated_at","id",vec![json!(canonical(db,text(b,"id")?)?),json!(text(b,"name")?),default("videoCount",json!(0)),default("lastOpenedAt",time.clone()),b["lastVideoPath"].clone(),time.clone(),time.clone()])?,
         "progress" => upsert(db,"video_progress","course_id,video_path,time,duration,ratio,done,updated_at","course_id,video_path",vec![course()?,json!(text(b,"path")?),default("time",json!(0)),default("duration",json!(0)),default("ratio",json!(0)),json!(b["done"]==true),time.clone()])?,
         "notes" => {
@@ -312,6 +371,47 @@ mod persistence_tests {
     fn save_guide(db: &mut Connection, plan: Value) -> Result<Value> {
         request(db, "guide", "POST", json!({}), json!({"courseId":"one", "plan":plan,
             "metadata":{}, "view":"route", "includeOptional":false, "mastery":{}, "questions":[], "today":null}))
+    }
+
+    #[test]
+    fn library_survives_recent_removal_and_metadata_refresh() {
+        let mut db = database();
+        for index in 0..24 {
+            request(&mut db,"recent-courses","POST",json!({}),json!({"id":format!("course-{index}"),"name":"课程","videoCount":3})).unwrap();
+        }
+        request(&mut db,"library","POST",json!({}),json!({"id":"course-0","status":"archived","pinned":true})).unwrap();
+        request(&mut db,"recent-courses","DELETE",json!({"id":"course-0"}),Value::Null).unwrap();
+        assert_eq!(request(&mut db,"library","GET",json!({}),Value::Null).unwrap().as_array().unwrap().len(),24);
+        assert_eq!(request(&mut db,"recent-courses","GET",json!({}),Value::Null).unwrap().as_array().unwrap().len(),20);
+        request(&mut db,"recent-courses","POST",json!({}),json!({"id":"course-0","name":"新名称","videoCount":4})).unwrap();
+        let entry = request(&mut db,"library","GET",json!({"id":"course-0"}),Value::Null).unwrap();
+        assert_eq!(entry["status"],"archived"); assert_eq!(entry["pinned"],true); assert_eq!(entry["videoCount"],4);
+        assert!(request(&mut db,"library","POST",json!({}),json!({"id":"course-0","status":"invalid"})).is_err());
+    }
+
+    #[test]
+    fn snapshots_preserve_initial_budget_and_reject_older_writes() {
+        let mut db = database();
+        for (time, minutes) in [(10,60),(20,30),(15,90)] {
+            request(&mut db,"day-snapshots","POST",json!({}),json!({"courseId":"one","snapshot":{"date":"2026-09-26","plannedMinutes":minutes,"capturedAt":time,"tasks":[]}})).unwrap();
+        }
+        let data = request(&mut db,"day-snapshots","GET",json!({"courseId":"one"}),Value::Null).unwrap();
+        assert_eq!(data["2026-09-26"]["plannedMinutes"],30);
+        assert_eq!(data["2026-09-26"]["initialMinutes"],60);
+        assert!(request(&mut db,"day-snapshots","POST",json!({}),json!({"courseId":"one","snapshot":{"date":"bad","plannedMinutes":30,"capturedAt":30,"tasks":[]}})).is_err());
+    }
+
+    #[test]
+    fn dashboard_isolates_corrupt_course_and_omits_credentials() {
+        let mut db = database();
+        for id in ["one","two"] { request(&mut db,"recent-courses","POST",json!({}),json!({"id":id,"name":id})).unwrap(); }
+        db.execute("INSERT INTO learning_guides(course_id,plan_json,updated_at) VALUES ('one','{broken',1)", []).unwrap();
+        request(&mut db,"settings","POST",json!({}),json!({"key":"ai-settings","value":{"apiKey":"private-test-key"}})).unwrap();
+        let data = request(&mut db,"dashboard","GET",json!({}),Value::Null).unwrap();
+        let entries = data.as_array().unwrap();
+        assert!(entries.iter().find(|e|e["course"]["id"]=="one").unwrap()["error"].is_string());
+        assert!(entries.iter().find(|e|e["course"]["id"]=="two").unwrap()["data"].is_object());
+        assert!(!data.to_string().contains("private-test-key"));
     }
 
     #[test]

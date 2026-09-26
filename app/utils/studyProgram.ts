@@ -8,6 +8,7 @@ export const BUDGET_LABELS: Record<keyof StudyBudget, string> = { video: '视频
 export const CHECK_LABELS = { exercise: '练习验收', project: '项目验收' } as const
 export const WORK_KINDS = Object.keys(WORK_LABELS) as WorkKind[]
 export const LIGHT_TASK_ID = 'light-review'
+export const emptyBudget = (): StudyBudget => ({ video: 0, code: 0, project: 0, recap: 0 })
 const DAY = 86_400_000
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -39,7 +40,39 @@ export function parseProgram(v: unknown): StudyProgram {
     if (!object(v.lightTask) || !text(v.lightTask.title, 200) || !text(v.lightTask.instructions)) throw new Error('复盘日安排需包含标题和操作要求。')
     program.lightTask = { title: v.lightTask.title.trim(), instructions: v.lightTask.instructions.trim() }
   }
+  if (v.calendar !== undefined) {
+    const c = v.calendar
+    if (!object(c) || !Array.isArray(c.weekdays) || c.weekdays.length > 7 || c.weekdays.some((d: unknown) => !integer(d, 1, 7))
+      || new Set(c.weekdays).size !== c.weekdays.length || !object(c.overrides) || Object.keys(c.overrides).length > 3650) throw new Error('每周学习日或日期安排无效。')
+    const overrides: Record<string, StudyBudget> = {}
+    for (const [date, budget] of Object.entries(c.overrides)) {
+      if (!validDate(date)) throw new Error('临时安排日期无效。')
+      overrides[date] = parseDayBudget(budget)
+    }
+    program.calendar = { weekdays: [...c.weekdays].sort((a, b) => a - b), overrides }
+    if (c.weekendBudget !== undefined) program.calendar.weekendBudget = parseDayBudget(c.weekendBudget)
+    if (c.pause !== undefined) {
+      if (!object(c.pause) || !validDate(c.pause.from) || (c.pause.until !== null && (!validDate(c.pause.until) || c.pause.until <= c.pause.from))) throw new Error('恢复日期须晚于暂停开始日期。')
+      program.calendar.pause = { from: c.pause.from, until: c.pause.until }
+    }
+  }
   return program
+}
+
+/** 单日允许休息，也允许少于五分钟的临时安排。 */
+export function parseDayBudget(v: unknown): StudyBudget {
+  if (!object(v) || !['video', 'code', 'project', 'recap'].every(k => integer(v[k], 0, 1440))) throw new Error('各项时间需为 0–1440 的整数分钟。')
+  const budget = { video: v.video, code: v.code, project: v.project, recap: v.recap }
+  if (budgetTotal(budget) > 1440) throw new Error('每日总投入不能超过 1440 分钟。')
+  return budget
+}
+
+export function addDays(date: string, days: number) {
+  return new Date(Date.parse(date) + days * DAY).toISOString().slice(0, 10)
+}
+export function isPaused(program: StudyProgram | undefined, date: string) {
+  const pause = program?.calendar?.pause
+  return !!pause && date >= pause.from && (pause.until === null || date < pause.until)
 }
 
 export function parseStage(v: unknown): StagePractice {
@@ -79,8 +112,14 @@ export function stageForDay(modules: KnowledgeModule[], day: number) {
 }
 
 export function budgetForDay(program: StudyProgram, stage: StagePractice | undefined, day: number): StudyBudget {
-  if (day < 1) return { video: 0, code: 0, project: 0, recap: 0 }
+  if (day < 1) return emptyBudget()
+  const date = programDate(program, day), calendar = program.calendar
+  if (isPaused(program, date)) return emptyBudget()
+  if (calendar?.overrides[date]) return { ...calendar.overrides[date] }
+  const weekday = new Date(date).getUTCDay() || 7
+  if (calendar && !calendar.weekdays.includes(weekday)) return emptyBudget()
   if (isLightDay(program, day)) return { video: 0, code: 0, project: 0, recap: program.lightMinutes }
+  if (weekday >= 6 && calendar?.weekendBudget) return { ...calendar.weekendBudget }
   return stage?.budget ?? program.budget
 }
 export function dailyBudget(program: StudyProgram, stage: StagePractice | undefined, date: string): StudyBudget {
@@ -91,13 +130,13 @@ export function dailyBudget(program: StudyProgram, stage: StagePractice | undefi
  * 按各阶段每日看课额度推算剩余视频在计划第几天看完；超出计划后按基础分配继续推算。
  * 返回 null 表示没有剩余视频，Infinity 表示看课额度为 0 无法完成。
  */
-export function videoFinishDay(program: StudyProgram, modules: KnowledgeModule[], date: string, remainingSeconds: number): number | null {
+export function videoFinishDay(program: StudyProgram, modules: KnowledgeModule[], date: string, remainingSeconds: number, consumedToday = 0): number | null {
   if (remainingSeconds <= 0) return null
   let left = remainingSeconds
   const start = Math.max(1, programDay(program, date))
   for (let day = start; day < start + 3650; day++) {
     const stage = day <= program.days ? stageForDay(modules, day)?.practice : undefined
-    left -= budgetForDay(program, stage, day).video * 60
+    left -= Math.max(0, budgetForDay(program, stage, day).video * 60 - (day === programDay(program, date) ? consumedToday : 0))
     if (left <= 0) return day
   }
   return Infinity
@@ -125,7 +164,18 @@ export function arrangeWork(ctx: WorkContext, records: StudyRecords): WorkEntry[
   const { date, moduleId, stage, budget } = ctx
   const owner = moduleId || 'program'
   const result = records.entries.filter(e => e.date === date && (e.moduleId === owner || e.minutes > 0 || e.done || !!e.evidence.trim()))
+    .filter(e => e.done || e.minutes > 0 || !!e.evidence.trim() || (budget[e.kind] > 0 && (!ctx.light || e.taskId === LIGHT_TASK_ID)))
     .map(e => ({ ...e }))
+  // 减量后保留已有投入，只缩减尚未投入的目标；休息日不再新增实践。
+  for (const kind of WORK_KINDS) {
+    let available = Math.max(0, budget[kind] - result.filter(e => e.kind === kind).reduce((n, e) => n + e.minutes, 0))
+    for (const entry of result.filter(e => e.kind === kind && !e.done)) {
+      const remaining = available
+      entry.targetMinutes = entry.minutes + remaining
+      available -= remaining
+    }
+  }
+  if (budgetTotal(budget) === 0) return result
   if (ctx.light) {
     if (!result.some(e => e.taskId === LIGHT_TASK_ID)) {
       result.push({ id: `${date}:${owner}:${LIGHT_TASK_ID}`, date, moduleId: owner, taskId: LIGHT_TASK_ID, kind: 'recap', title: ctx.light.title,
@@ -170,7 +220,9 @@ export function restoreStudyRecords(raw: unknown): StudyRecords {
   // 路线快照在撤销时按当前课程目录再次校验。
   if (object(raw.undo) && object(raw.undo.plan) && ['all', 'route'].includes(raw.undo.view) && typeof raw.undo.label === 'string') {
     result.undo = { plan: raw.undo.plan as LearningPlan, includeOptional: raw.undo.includeOptional === true, view: raw.undo.view,
-      label: raw.undo.label.slice(0, 100), at: Number.isFinite(raw.undo.at) ? raw.undo.at : 0 }
+      label: raw.undo.label.slice(0, 100), at: Number.isFinite(raw.undo.at) ? raw.undo.at : 0, scheduleOnly: raw.undo.scheduleOnly === true }
+    const previous = raw.undo.todayOverride
+    if (object(previous) && validDate(previous.date) && (previous.minutes === null || integer(previous.minutes, 0, 1440))) result.undo.todayOverride = { date: previous.date, minutes: previous.minutes }
   }
   return result
 }

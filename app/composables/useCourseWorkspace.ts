@@ -14,6 +14,8 @@ import { formatTime } from '~/utils/time'
 import { useRoute, useRouter } from 'vue-router'
 import { desktopInvoke } from '~/utils/platform'
 import { flushDatabaseWrites } from '~/utils/database'
+import { calculateDay } from '~/utils/dailyPlan'
+import { budgetTotal } from '~/utils/studyProgram'
 import type { VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 import type { PracticeScope } from '~/types/practice'
@@ -65,7 +67,7 @@ export function provideCourseWorkspace() {
 
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
-  const guide = useLearningGuide(course)
+  const guide = useLearningGuide(course, computed(() => !store.state.library.some(c => c.id === course.value?.id && c.status !== 'active')))
   const knowledge = useLessonKnowledge(course, guide.state.settings, guide.configured)
   const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
     sources: (target, scope) => knowledge.sourcesFor(course.value!.id, target, scope ? [scope] : undefined),
@@ -89,6 +91,7 @@ export function provideCourseWorkspace() {
     // 完整学习计划的每日总投入（看课 + 实践）作为打卡目标。
     targetMinutes: guide.todayTotalMinutes.value,
     workSeconds: guide.workSecondsByDate.value,
+    budgetForDate: (date: string) => budgetTotal(calculateDay(guide.dayContext.value, date).budget),
   }))
   const checkIn = useStudyCheckIn(course, checkInPlan)
 
@@ -232,6 +235,11 @@ export function provideCourseWorkspace() {
       seekTo(target.seconds)
       pendingSeek.value = null
     }
+    if (ready && route.query.autoplay === '1' && video.value?.path === route.query.lesson) {
+      void player.play()
+      const { autoplay: _autoplay, at: _at, ...query } = route.query
+      void router.replace({ path: route.path, query })
+    }
   })
   watch(() => course.value?.id, () => {
     guideOpen.value = false
@@ -331,14 +339,28 @@ export function provideCourseWorkspace() {
     }
   }, { immediate: true })
 
-  watch(() => [course.value?.id, route.params.id, route.query.lesson, currentView.value] as const, () => {
+  watch(() => [course.value?.id, route.params.id, route.query.lesson, route.query.at, currentView.value] as const, () => {
     if (!course.value || course.value.id !== route.params.id || currentView.value !== 'player') return
     const path = typeof route.query.lesson === 'string' ? route.query.lesson : ''
     const selected = course.value.videos.find(v => v.path === path) ?? video.value ?? course.value.videos[0]
     if (!selected) return
     if (pendingSeek.value?.path !== selected.path) pendingSeek.value = null
     store.selectVideo(selected)
+    if (typeof route.query.at === 'string') {
+      const seconds = Number(route.query.at)
+      if (Number.isFinite(seconds) && seconds >= 0) pendingSeek.value = { path: selected.path, seconds }
+    }
     if (path !== selected.path) void router.replace({ path: route.path, query: { ...route.query, lesson: selected.path } })
+  })
+
+  watch(() => [route.query.panel, course.value?.id, guide.guideReady.value, guide.recordsReady.value, store.state.loading], async () => {
+    const panel = route.query.panel, id = course.value?.id
+    if (!id || route.params.id !== id || !guide.guideReady.value || !guide.recordsReady.value || store.state.loading || !['today', 'practice'].includes(String(panel))) return
+    const { panel: _panel, ...query } = route.query
+    await router.replace({ path: route.path, query })
+    if (course.value?.id !== id) return
+    if (panel === 'practice' && daily.complete.value) await openDailyPractice()
+    else openGuide(undefined, 'today')
   })
 
   watch(currentView, () => {

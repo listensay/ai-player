@@ -30,7 +30,8 @@ function save() {
   const n = (v: unknown) => Math.round(Number(v))
   const ok = guide.setProgram({ days: n(form.days), startDate: form.startDate,
     budget: { video: n(form.video), code: n(form.code), project: n(form.project), recap: n(form.recap) },
-    lightEvery: n(form.lightEvery), lightMinutes: n(form.lightMinutes), ...(program.value?.lightTask ? { lightTask: program.value.lightTask } : {}) })
+    lightEvery: n(form.lightEvery), lightMinutes: n(form.lightMinutes), ...(program.value?.lightTask ? { lightTask: program.value.lightTask } : {}),
+    ...(program.value?.calendar ? { calendar: program.value.calendar } : {}) })
   if (ok) editing.value = false
 }
 async function importFile(selection: File | File[] | null) {

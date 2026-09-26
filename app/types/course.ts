@@ -59,4 +59,9 @@ export interface RecentCourse {
   lastVideoPath?: string
 }
 
+export interface LibraryCourse extends RecentCourse {
+  status: 'active' | 'paused' | 'archived'
+  pinned: boolean
+}
+
 export type TreeFilter = 'all' | 'unfinished' | 'done'

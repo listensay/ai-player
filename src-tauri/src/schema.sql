@@ -85,6 +85,30 @@
 CREATE TABLE IF NOT EXISTS course_aliases (alias_id TEXT PRIMARY KEY, course_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS course_locations (course_id TEXT PRIMARY KEY, path TEXT NOT NULL);
 
+-- 课程库独立于最近打开列表；归档与移出最近列表均保留学习记录。
+CREATE TABLE IF NOT EXISTS course_library (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, video_count INTEGER NOT NULL DEFAULT 0,
+  last_opened_at INTEGER NOT NULL, last_video_path TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','archived')),
+  pinned INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO course_library (id,name,video_count,last_opened_at,last_video_path)
+  SELECT id,name,video_count,last_opened_at,last_video_path FROM recent_courses;
+CREATE TRIGGER IF NOT EXISTS library_recent_insert AFTER INSERT ON recent_courses BEGIN
+  INSERT INTO course_library (id,name,video_count,last_opened_at,last_video_path)
+  VALUES (NEW.id,NEW.name,NEW.video_count,NEW.last_opened_at,NEW.last_video_path)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name,video_count=excluded.video_count,last_opened_at=excluded.last_opened_at,last_video_path=excluded.last_video_path;
+END;
+CREATE TRIGGER IF NOT EXISTS library_recent_update AFTER UPDATE ON recent_courses BEGIN
+  INSERT INTO course_library (id,name,video_count,last_opened_at,last_video_path)
+  VALUES (NEW.id,NEW.name,NEW.video_count,NEW.last_opened_at,NEW.last_video_path)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name,video_count=excluded.video_count,last_opened_at=excluded.last_opened_at,last_video_path=excluded.last_video_path;
+END;
+CREATE TABLE IF NOT EXISTS daily_plan_snapshots (
+  course_id TEXT NOT NULL, date TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+  PRIMARY KEY(course_id,date)
+);
+
 -- 导学变更保留最近 20 个版本；元数据扫描不会挤掉路线快照。
 CREATE TABLE IF NOT EXISTS learning_guide_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

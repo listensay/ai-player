@@ -1,6 +1,6 @@
 import { desktopInvoke } from './platform'
 
-export type DatabaseCollection = 'recent-courses' | 'progress' | 'check-in' | 'notes' | 'note-images' | 'guide' | 'practice' | 'settings'
+export type DatabaseCollection = 'recent-courses' | 'progress' | 'check-in' | 'notes' | 'note-images' | 'guide' | 'practice' | 'settings' | 'library' | 'dashboard' | 'day-snapshots'
 export interface DatabaseOptions {
   method?: 'GET' | 'POST' | 'DELETE'
   body?: unknown

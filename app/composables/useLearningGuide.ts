@@ -8,19 +8,20 @@ import type { ConceptMastery, FallbackRecommendation, LearningPlan, LearningQues
 import { adjacentRoutePath, buildSchedule, dependencyRisks, isRecord, orderedRoute, retainPrerequisites, validateLearningPlan } from '~/utils/guide'
 import { planPrompt, practicePrompt, requestGuideJson } from '~/utils/guideAi'
 import { collectGuideMetadata, loadLessonSubtitles, relevantCues } from '~/utils/guideMedia'
-import { applyMastery, buildTodayPlan, lessonConcepts, lessonMastery, localDayKey, masteryKey, restoreFeedback } from '~/utils/learningFeedback'
+import { applyMastery, lessonConcepts, lessonMastery, localDayKey, masteryKey, restoreFeedback } from '~/utils/learningFeedback'
 import {
-  applyPractice, arrangeWork, budgetForDay, budgetTotal, checkKey, compareRoutes, conciseLessonTitle, emptyStudyRecords, inheritProgram, isLightDay,
+  applyPractice, budgetTotal, checkKey, compareRoutes, conciseLessonTitle, emptyStudyRecords, inheritProgram, isLightDay,
   parsePracticeImport, parseProgram, programDay, restoreStudyRecords, stageForDay, stageProgress, videoFinishDay,
 } from '~/utils/studyProgram'
 import { dbFetchGuide, dbSaveGuide, dbSaveSetting } from '~/utils/dbClient'
 import { databaseRequest } from '~/utils/database'
+import { calculateDay, daySnapshot } from '~/utils/dailyPlan'
 
 const GUIDE_KEY = Symbol.for('ai-player.learning-guide')
 const recordsKey = (courseId: string) => `study-records:${courseId}`
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
-export function useLearningGuide(course: Ref<Course | null>) {
+export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: Ref<boolean> = ref(true)) {
   const progress = useProgress()
   const ai = useAiSettings()
   const state = reactive({
@@ -89,7 +90,24 @@ export function useLearningGuide(course: Ref<Course | null>) {
     recordsTimer = null
     // 读取失败时不写入，避免空记录覆盖已保存的实践与验收数据。
     if (!activeId || !recordsReady.value) return
-    void dbSaveSetting(recordsKey(activeId), plain(state.records))
+    const revision = loadRevision
+    void dbSaveSetting(recordsKey(activeId), plain(state.records)).then(saved => {
+      if (!saved && revision === loadRevision) state.storageError = '实践与计划调整记录保存失败，请重试。'
+    })
+    captureDay()
+  }
+
+  let lastSnapshot = ''
+  function captureDay() {
+    if (!activeId || course.value?.id !== activeId || !guideReady.value || !recordsReady.value || !state.plan) return
+    const snapshot = daySnapshot(dayContext.value, todayDate.value)
+    const content = JSON.stringify({ ...snapshot, capturedAt: 0 })
+    if (content === lastSnapshot) return
+    lastSnapshot = content
+    const revision = loadRevision
+    void databaseRequest('day-snapshots', { method: 'POST', body: { courseId: activeId, snapshot } }).catch(() => {
+      if (revision === loadRevision) { lastSnapshot = ''; state.storageError = '每日计划记录保存失败，请重试。' }
+    })
   }
 
   function cancel() {
@@ -139,7 +157,10 @@ export function useLearningGuide(course: Ref<Course | null>) {
   const activeModule = computed(() => moduleMap.value.get(state.records.activeModuleId)
     ?? scheduledModule.value ?? progressModule.value ?? practiceModules.value[0] ?? state.plan?.modules[0])
   const lightDay = computed(() => !!program.value && planDay.value !== null && planDay.value <= program.value.days && isLightDay(program.value, planDay.value))
-  const todayBudget = computed(() => program.value && planDay.value !== null ? budgetForDay(program.value, activeModule.value?.practice, planDay.value) : null)
+  const dayContext = computed(() => ({ plan: state.plan, includeOptional: state.includeOptional, metadata: state.metadata,
+    progress: course.value ? progress.courseProgress(course.value.id) : {}, mastery: state.mastery, questions: state.questions,
+    records: state.records, today: state.today, enabled: schedulingEnabled.value }))
+  const todayBudget = computed(() => program.value ? calculateDay(dayContext.value, todayDate.value).budget : null)
   const todayTotalMinutes = computed(() => todayBudget.value ? budgetTotal(todayBudget.value) : null)
   const todayWork = computed(() => state.records.entries.filter(e => e.date === todayDate.value))
   const workSecondsByDate = computed(() => {
@@ -151,7 +172,8 @@ export function useLearningGuide(course: Ref<Course | null>) {
   const stageProgressMap = computed(() => new Map((state.plan?.modules ?? []).map(m => [m.id, stageProgress(m, route.value, courseProgressMap.value, state.records)])))
   /** 按各阶段看课额度推算视频看完的计划日。 */
   const videoFinish = computed(() => program.value && state.plan
-    ? videoFinishDay(program.value, state.plan.modules, todayDate.value, schedule.value.remainingSeconds) : null)
+    ? videoFinishDay(program.value, state.plan.modules, todayDate.value, schedule.value.remainingSeconds,
+      state.today?.date === todayDate.value ? state.today.items.filter(i => i.done && i.kind !== 'question').reduce((n, i) => n + i.seconds, 0) : 0) : null)
 
   const pendingPreview = computed(() => {
     const pending = state.pending
@@ -180,7 +202,8 @@ export function useLearningGuide(course: Ref<Course | null>) {
 
   function snapshot(label: string) {
     if (!state.plan) return
-    state.records.undo = { plan: plain(state.plan), includeOptional: state.includeOptional, view: state.view, label, at: Date.now() }
+    state.records.undo = { plan: plain(state.plan), includeOptional: state.includeOptional, view: state.view, label, at: Date.now(),
+      todayOverride: { date: todayDate.value, minutes: state.today?.override ?? null } }
   }
 
   function undo() {
@@ -192,10 +215,38 @@ export function useLearningGuide(course: Ref<Course | null>) {
       state.error = '撤销记录与当前课程目录不一致，无法恢复。'
       return false
     }
-    state.plan = plan; state.view = revision.view; state.includeOptional = revision.includeOptional
+    if (revision.scheduleOnly && state.plan) {
+      state.plan.program = plan.program; state.plan.dailyMinutes = plan.dailyMinutes
+      for (const module of state.plan.modules) {
+        const previous = plan.modules.find(m => m.id === module.id)?.practice
+        if (module.practice && previous) { module.practice.startDay = previous.startDay; module.practice.endDay = previous.endDay }
+      }
+    } else { state.plan = plan; state.view = revision.view; state.includeOptional = revision.includeOptional }
+    if (state.today && revision.todayOverride?.date === todayDate.value) state.today.override = revision.todayOverride.minutes
     state.records.undo = null; state.pending = null
     state.notice = `已撤销“${revision.label}”。`
-    persist()
+    refreshWork(); refreshToday(); persist()
+    return true
+  }
+
+  function applySchedule(plan: LearningPlan, label: string) {
+    if (!guideReady.value || !recordsReady.value || state.busy || !plan.program) return false
+    try { parseProgram(plan.program) } catch (error) { state.error = (error as Error).message; return false }
+    if (!state.plan) {
+      state.plan = plain(plan); state.view = 'route'; state.includeOptional = false
+      state.notice = '已设置学习计划。'; refreshWork(); refreshToday(); persist(); return true
+    }
+    snapshot(label)
+    state.records.undo!.scheduleOnly = true
+    state.plan.program = plain(plan.program)
+    state.plan.dailyMinutes = plan.dailyMinutes
+    for (const module of state.plan.modules) {
+      const next = plan.modules.find(m => m.id === module.id)?.practice
+      if (module.practice && next) { module.practice.startDay = next.startDay; module.practice.endDay = next.endDay }
+    }
+    if (state.today) state.today.override = null
+    state.error = ''; state.notice = `已${label}，可撤销。`
+    refreshWork(); refreshToday(); persist()
     return true
   }
 
@@ -226,13 +277,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
   function refreshWork() {
     const current = program.value
     if (!state.plan || !current || !recordsReady.value || planDay.value === null || planDay.value < 1 || !todayBudget.value) return
-    const module = activeModule.value
-    const light = lightDay.value ? {
-      title: current.lightTask?.title ?? '轻量复盘日',
-      instructions: current.lightTask?.instructions ?? '回顾本周内容，检查验收进度，整理疑问并安排下周任务；今日不学习新课。',
-      minutes: current.lightMinutes,
-    } : undefined
-    const entries = arrangeWork({ date: todayDate.value, moduleId: module?.id ?? '', stage: module?.practice, budget: todayBudget.value, light }, state.records)
+    const entries = calculateDay(dayContext.value, todayDate.value).work
     if (JSON.stringify(entries) === JSON.stringify(todayWork.value)) return
     state.records.entries = [...state.records.entries.filter(e => e.date !== todayDate.value), ...entries]
   }
@@ -268,6 +313,8 @@ export function useLearningGuide(course: Ref<Course | null>) {
     try { next = parseProgram(plain(value)) } catch (err) { state.error = (err as Error).message; return false }
     const overflow = state.plan.modules.find(m => m.practice && m.practice.endDay > next.days)
     if (overflow) { state.error = `阶段“${overflow.title}”安排到第 ${overflow.practice!.endDay} 天，总天数不能少于该值。`; return false }
+    snapshot('编辑学习计划')
+    state.records.undo!.scheduleOnly = true
     state.plan.program = next
     if (next.budget.video >= 5) state.plan.dailyMinutes = next.budget.video
     state.error = ''
@@ -280,6 +327,15 @@ export function useLearningGuide(course: Ref<Course | null>) {
     const video = state.plan?.dailyMinutes ?? 60
     return { days: Math.min(1095, Math.max(7, schedule.value.days || 30)), startDate: todayDate.value,
       budget: { video, code: 0, project: 0, recap: 0 }, lightEvery: 0, lightMinutes: 60 }
+  }
+
+  function planForScheduling(): LearningPlan {
+    if (state.plan) return { ...plain(state.plan), program: plain(state.plan.program ?? defaultProgram()) }
+    return { version: 1, createdAt: Date.now(), summary: '按课程顺序学习', profile: '按原课程目录安排学习', dailyMinutes: 30,
+      modules: [{ id: 'course', title: '课程学习', description: '按原课程顺序安排视频学习。' }], messages: [],
+      lessons: (course.value?.videos ?? []).map((video, index, videos) => ({ path: video.path, moduleId: 'course', concepts: [],
+        prerequisites: index ? [videos[index - 1]!.path] : [], status: 'required', reason: '按课程顺序学习' })),
+      program: { ...defaultProgram(), budget: { video: 30, code: 0, project: 0, recap: 0 } } }
   }
 
   async function generatePractice() {
@@ -519,13 +575,10 @@ export function useLearningGuide(course: Ref<Course | null>) {
   function refreshToday(override: number | null | undefined = undefined) {
     if (!course.value || !guideReady.value) return
     todayDate.value = localDayKey()
-    const previous = state.today?.date === todayDate.value ? state.today : null
-    const selected = override === undefined ? previous?.override ?? null : override
-    // 设置了完整计划时，今日看课时间取当日阶段的看课额度（复盘日为 0）。
-    const minutes = selected ?? todayBudget.value?.video ?? state.plan?.dailyMinutes ?? 30
-    if (!Number.isInteger(minutes) || minutes < (selected === null ? 0 : 5) || minutes > 1440) { state.error = '今日时间应为 5–1440 的整数分钟。'; return }
-    state.today = buildTodayPlan(route.value, durations.value, progress.courseProgress(course.value.id), state.mastery,
-      state.questions, minutes, todayDate.value, previous, selected)
+    if (override !== null && override !== undefined && (!Number.isInteger(override) || override < 0 || override > 1440)) { state.error = '今日时间应为 0–1440 的整数分钟。'; return }
+    const next = calculateDay(dayContext.value, todayDate.value, override)
+    if (budgetTotal(next.budget) > 1440) { state.error = '今日总投入不能超过 1440 分钟。'; return }
+    if (JSON.stringify(state.today) !== JSON.stringify(next.today)) state.today = next.today
   }
 
   function completeTodayItem(id: string, done: boolean) {
@@ -625,6 +678,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     loadRevision++
     guideReady.value = false
     lastSaved = ''
+    lastSnapshot = ''
     const current = course.value
     activeId = current?.id ?? ''; activePaths = current?.videos.map(v => v.path) ?? []
     recordsReady.value = false
@@ -686,12 +740,12 @@ export function useLearningGuide(course: Ref<Course | null>) {
     if (recordsTimer) clearTimeout(recordsTimer)
     recordsTimer = setTimeout(persistRecords, 300)
   }, { deep: true })
-  watch(() => [course.value?.id, todayDate.value, state.plan?.createdAt, state.plan?.dailyMinutes, state.includeOptional, todayBudget.value?.video,
+  watch(() => [course.value?.id, todayDate.value, state.plan?.createdAt, state.plan?.dailyMinutes, state.includeOptional, todayBudget.value?.video, schedulingEnabled.value,
     state.plan?.lessons.map(l => [l.path, l.status]), Object.values(state.mastery).map(m => [m.path, m.concept, m.level]),
     state.questions.map(q => [q.id, q.status]), state.scanning], () => refreshToday(), { deep: true })
-  watch(() => [todayDate.value, activeModule.value?.id, JSON.stringify(program.value), JSON.stringify(activeModule.value?.practice ?? null), recordsReady.value],
+  watch(() => [todayDate.value, activeModule.value?.id, JSON.stringify(program.value), JSON.stringify(activeModule.value?.practice ?? null), recordsReady.value, schedulingEnabled.value],
     () => refreshWork())
-  const checkDay = () => { todayDate.value = localDayKey() }
+  const checkDay = () => { const day = localDayKey(); if (day !== todayDate.value) { persist(); todayDate.value = day } }
   onMounted(() => {
     window.addEventListener('beforeunload', persist)
     window.addEventListener('focus', checkDay)
@@ -704,7 +758,7 @@ export function useLearningGuide(course: Ref<Course | null>) {
     masteredPaths, unresolvedQuestions, activeQuestion, setMastery, setPracticeMastery, saveQuestion, selectQuestion, markQuestionReview, setQuestionStatus, refreshToday, completeTodayItem,
     todayDate, program, moduleMap, planDay, practiceModules, scheduledModule, progressModule, activeModule, lightDay, todayBudget, todayTotalMinutes, todayWork,
     workSecondsByDate, courseProgressMap, stageProgressMap, videoFinish, pendingPreview, recordsReady, guideReady,
-    undo, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, generatePractice, importFile }
+    undo, applyPending, discardPending, applySchedule, planForScheduling, dayContext, schedulingEnabled, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, generatePractice, importFile }
   provide(GUIDE_KEY, guide)
   return guide
 }

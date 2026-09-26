@@ -10,6 +10,14 @@ export interface KnowledgeModule {
 export type WorkKind = 'code' | 'project' | 'recap'
 /** 每日时间分配（分钟）。video 为看课 / 回看额度，其余为实践时间。 */
 export interface StudyBudget { video: number; code: number; project: number; recap: number }
+export interface StudyCalendar {
+  /** 周一为 1，周日为 7。 */
+  weekdays: number[]
+  weekendBudget?: StudyBudget
+  overrides: Record<string, StudyBudget>
+  /** until 为恢复日期（不包含在暂停区间内）；null 表示手动恢复。 */
+  pause?: { from: string; until: string | null }
+}
 /** 完整学习计划：总周期与每日总投入，独立于视频排期。 */
 export interface StudyProgram {
   days: number
@@ -19,6 +27,7 @@ export interface StudyProgram {
   lightEvery: number
   lightMinutes: number
   lightTask?: { title: string; instructions: string }
+  calendar?: StudyCalendar
 }
 /** repeat 为每日重复任务（如复盘），完成状态只对当天有效。 */
 export interface StageTask { id: string; kind: WorkKind; title: string; instructions: string; repeat?: boolean }
@@ -47,7 +56,7 @@ export interface WorkEntry {
   done: boolean
 }
 export interface CheckEvidence { text: string; evidence: string; passed: boolean; updatedAt: number }
-export interface RouteRevision { plan: LearningPlan; includeOptional: boolean; view: 'all' | 'route'; label: string; at: number }
+export interface RouteRevision { plan: LearningPlan; includeOptional: boolean; view: 'all' | 'route'; label: string; at: number; scheduleOnly?: boolean; todayOverride?: { date: string; minutes: number | null } }
 export interface StudyRecords {
   entries: WorkEntry[]
   checks: Record<string, CheckEvidence>

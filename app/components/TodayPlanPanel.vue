@@ -6,6 +6,7 @@ import CheckInCalendar from '~/components/CheckInCalendar.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
 import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import UiButton from '~/components/UiButton.vue'
+import PlanAdjustment from '~/components/PlanAdjustment.vue'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
 import { BUDGET_LABELS, formatMinutes } from '~/utils/studyProgram'
@@ -49,6 +50,7 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
     <div>
       <p class="text-caption font-bold text-stone">{{ today?.date }}</p>
       <h3 class="mt-2 text-heading-sm">今日学习</h3>
+      <div class="mt-3"><PlanAdjustment /></div>
       <p class="mt-2 text-body-sm leading-relaxed text-graphite">{{ intro }}</p>
     </div>
 
@@ -59,7 +61,7 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
       <form class="flex flex-wrap items-center gap-3" @submit.prevent="updateMinutes">
         <label class="flex items-center gap-2 text-body-sm font-medium">
           {{ guide.program.value ? '今日视频看课：' : '今日学习时长：' }}
-          <VTextField v-model.number="minutes" aria-label="今日看课分钟数" type="number" min="5" max="1440" step="1" required
+          <VTextField v-model.number="minutes" aria-label="今日看课分钟数" type="number" min="0" max="1440" step="1" required
             class="w-20 text-center" :disabled="!!guide.state.busy" @change="updateMinutes" />分钟
           <span v-if="guide.program.value && practiceMinutes > 0" class="text-caption font-normal text-stone">
             （总目标 {{ formatMinutes(guide.todayTotalMinutes.value ?? 0) }}，另含实践 {{ formatMinutes(practiceMinutes) }}）
