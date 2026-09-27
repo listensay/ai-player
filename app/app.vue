@@ -3,13 +3,15 @@
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { useRouter } from 'vue-router'
 import AppTopBar from '~/components/AppTopBar.vue'
+import UiButton from '~/components/UiButton.vue'
+import StudyReminderNotice from '~/components/StudyReminderNotice.vue'
 import GuideDialog from '~/components/GuideDialog.vue'
 import PracticeDialog from '~/components/PracticeDialog.vue'
 import ShortcutsDialog from '~/components/ShortcutsDialog.vue'
 import { RouterView } from 'vue-router'
 const router = useRouter()
 const {
-  stats, transcripts, helpOpen, guideOpen, guideQuestion, guideTab, treeOpen,
+  stats, transcripts, helpOpen, guideOpen, guideQuestion, guideTab, treeOpen, reminderLinks,
   currentView, toast, course, video, practice, daily, openDailyPractice, openPractice, openGuide, startSegment, selectGuideVideo,
 } = provideCourseWorkspace()
 </script>
@@ -38,6 +40,10 @@ const {
         <button type="button" class="text-stone" @click="transcripts.cancel(task.courseId, task.path)">取消任务</button>
       </div>
     </aside>
+    <aside v-if="reminderLinks.error.value" role="alert" class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm">
+      <p>{{ reminderLinks.error.value }}</p><UiButton size="sm" @click="reminderLinks.retry()">重试打开</UiButton>
+    </aside>
+    <StudyReminderNotice />
     <RouterView />
 
     <!-- 轻提示 -->

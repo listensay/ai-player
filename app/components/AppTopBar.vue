@@ -32,7 +32,7 @@ const emit = defineEmits<{
     </RouterLink>
 
     <!-- 课程名称与集数进度 -->
-    <div v-if="courseName" class="hidden min-w-0 items-center gap-3 border-l border-linen pl-4 md:flex">
+    <div v-if="courseName && currentView === 'player'" class="hidden min-w-0 items-center gap-3 border-l border-linen pl-4 md:flex">
       <span class="truncate text-body-sm font-medium text-charcoal-ink" :title="courseName">{{ courseName }}</span>
       <span v-if="total" class="tabular hidden shrink-0 text-caption text-stone lg:inline">
         共 {{ total }} 节 · 已完成 {{ done }} 节
@@ -71,6 +71,9 @@ const emit = defineEmits<{
 
     <!-- 右侧工具栏 -->
     <div class="flex shrink-0 items-center gap-1.5">
+      <RouterLink to="/study" class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream" active-class="bg-page-cream text-deep-indigo" aria-label="学习管理" title="学习管理">
+        <AppIcon name="bell" :size="18" /><span class="hidden sm:inline">学习管理</span>
+      </RouterLink>
       <UiButton v-if="courseName" variant="ghost" size="sm" title="AI 导学" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('guide')">
         <AppIcon name="sparkles" :size="17" class="text-deep-indigo" />
         <span class="hidden sm:inline">AI 导学</span>

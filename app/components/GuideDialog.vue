@@ -25,7 +25,7 @@ const guide = useGuide()
 const { state, schedule, counts, risks } = guide
 const tab = ref<'plan' | 'map' | 'help' | 'settings' | 'today'>('plan')
 const draft = ref('')
-const dailyMinutes = ref(120)
+const dailyMinutes = ref(state.plan?.dailyMinutes ?? 120)
 const question = ref('')
 const editingQuestionId = ref('')
 const questionSource = ref({ path: '', seconds: 0 })
@@ -34,6 +34,10 @@ const questionForm = ref<HTMLElement>()
 const pending = ref<{ path: string; status: LessonStatus; risks: DependencyRisk[] } | null>(null)
 const pendingAlert = ref<HTMLElement>()
 const lessonQuery = ref('')
+const planView = ref<'overview' | 'lessons' | 'settings'>('overview')
+const expandedLesson = ref<string>()
+const planTop = ref<HTMLElement>()
+const planHeading = ref<HTMLElement>()
 const tabs = [{ id: 'today', label: '今日学习' }, { id: 'plan', label: '定制路线' }, { id: 'map', label: '知识地图' }, { id: 'help', label: '疑问回溯' }, { id: 'settings', label: 'AI 设置' }] as const
 const examples = [
   '已掌握 Java 基础，目标是完成 Spring Boot 项目开发，每日可学习 2 小时。',
@@ -45,7 +49,7 @@ const visibleLessons = computed(() => guide.arrangedLessons.value.filter(l => {
   return !q || `${l.path} ${l.concepts.join(' ')}`.toLowerCase().includes(q)
 }))
 const lessonPage = ref(1)
-const pageSize = 20
+const pageSize = 12
 const pageCount = computed(() => Math.max(1, Math.ceil(visibleLessons.value.length / pageSize)))
 const currentPage = computed(() => Math.min(lessonPage.value, pageCount.value))
 const pageLessons = computed(() => visibleLessons.value.slice((currentPage.value - 1) * pageSize, currentPage.value * pageSize))
@@ -62,6 +66,7 @@ const lessonsByModule = computed(() => {
   return groups
 })
 watch(lessonQuery, () => { lessonPage.value = 1 })
+watch([currentPage, lessonQuery], () => { expandedLesson.value = undefined })
 const moduleMap = computed(() => new Map(state.plan?.modules.map(m => [m.id, m]) ?? []))
 const first = computed(() => guide.firstLesson.value)
 
@@ -73,6 +78,8 @@ function revisionTime(at: number) { const d = new Date(at); return at ? `${d.get
 watch(() => props.open, async open => {
   if (open) {
     tab.value = props.initialTab ?? 'plan'
+    planView.value = 'overview'
+    expandedLesson.value = undefined
     dailyMinutes.value = state.plan?.dailyMinutes ?? 120
     if (props.initialQuestion !== undefined) {
       question.value = props.initialQuestion; tab.value = 'help'
@@ -95,7 +102,16 @@ watch(pending, async value => { if (value) { await nextTick(); pendingAlert.valu
 
 async function generate() {
   if (!guide.configured.value) { tab.value = 'settings'; state.error = '请先配置 AI 服务，再生成学习路线。'; return }
-  if (await guide.generate(draft.value, Number(dailyMinutes.value))) { draft.value = ''; pending.value = null }
+  if (await guide.generate(draft.value, Number(dailyMinutes.value))) {
+    draft.value = ''; pending.value = null
+    await showPlanView('overview')
+  }
+}
+async function showPlanView(view: 'overview' | 'lessons' | 'settings') {
+  planView.value = view
+  await nextTick()
+  planTop.value?.parentElement?.scrollTo({ top: 0 })
+  planHeading.value?.focus({ preventScroll: true })
 }
 function updateDailyMinutes() {
   if (state.plan && !guide.setDailyMinutes(Number(dailyMinutes.value))) dailyMinutes.value = state.plan.dailyMinutes
@@ -174,130 +190,165 @@ function jumpBack(path: string, seconds?: number) {
         <p class="flex-1">{{ state.error || state.storageError }}</p>
         <UiButton variant="text" size="sm" @click="state.error = ''; state.storageError = ''">关闭提示</UiButton>
       </div>
-      <div v-if="state.busy" role="status" class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-sunbeam-yellow/15 px-6 py-3 text-body-sm">
+      <div v-if="state.busy" role="status" class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-6 py-3 text-body-sm">
         <span>{{ state.busy === 'plan' ? '正在生成学习路线…' : state.busy === 'practice' ? '正在生成实践安排…' : '正在查找基础课与字幕…' }}</span>
         <UiButton variant="text" size="sm" @click="guide.cancel()">取消</UiButton>
       </div>
 
       <div class="scroll-soft min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <div v-if="tab !== 'settings'" class="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div v-if="tab !== 'settings' && tab !== 'plan'" class="mb-5 flex flex-wrap items-center justify-between gap-3">
           <AiProfileSelector class="w-full sm:max-w-sm" :disabled="!!state.busy" />
           <UiButton variant="text" size="sm" @click="tab = 'settings'">管理 AI 配置</UiButton>
         </div>
         <TodayPlanPanel v-if="tab === 'today'" @segment="item => { emit('segment', item); emit('close') }" @question="loadQuestion" @plan="tab = 'plan'" />
-        <div v-if="planVisited" v-show="tab === 'plan'" class="grid items-start gap-5 md:grid-cols-[300px_minmax(0,1fr)]">
-          <section class="pane p-5">
-            <h3 class="text-heading-sm">学习背景与目标</h3>
-            <form class="mt-4 space-y-4" @submit.prevent="generate">
-              <label class="block text-body-sm font-bold">{{ state.plan ? '调整要求' : '规划要求' }}
-                <VTextarea v-model="draft" required maxlength="6000" rows="5" :disabled="!!state.busy"
-                   placeholder="例如：已掌握 Java 基础，目标是完成 Spring Boot 项目开发。" />
-              </label>
-              <div v-if="!state.plan" class="flex flex-col items-start gap-2">
-                <UiButton v-for="(example, index) in examples" :key="example" size="sm" :disabled="!!state.busy"
-                  @click="draft = example">{{ ['项目开发', '系统入门', '知识巩固'][index] }}</UiButton>
-              </div>
-              <label class="flex items-center justify-between gap-3 text-body-sm">{{ state.plan?.program ? '每日观看时间' : '每日学习时间' }}
-                <span class="flex items-center gap-2"><VTextField v-model.number="dailyMinutes" aria-label="每日学习分钟数" type="number" min="5" max="1440" step="1" required :disabled="!!state.busy" class="text-center" style="width: 5rem" @change="updateDailyMinutes" />分钟</span>
-              </label>
-              <UiButton type="submit" variant="primary" class="w-full" :disabled="!!state.busy || !guide.guideReady.value"><AppIcon name="sparkles" :size="18" />{{ state.plan ? '调整学习路线' : '生成学习路线' }}</UiButton>
-            </form>
-            <p class="mt-3 text-caption leading-relaxed text-stone">仅依据标题与时长规划，不上传视频。{{ state.scanning ? `时长读取中 ${state.scanned}/${guide.videoMap.value.size}，可先生成路线。` : '路线与学习背景自动保存。' }}</p>
-            <UiButton v-if="!guide.configured.value" variant="text" size="sm" class="mt-3" @click="tab = 'settings'">配置 AI 服务 →</UiButton>
-            <ProgramSettings v-if="state.plan" @settings="tab = 'settings'" />
-            <template v-if="state.plan">
-              <div class="mt-5 border-t border-linen pt-4"><h4 class="text-caption font-bold text-stone">学习背景</h4><p class="mt-2 whitespace-pre-wrap break-words text-body-sm leading-relaxed">{{ state.plan.profile }}</p></div>
-                <VExpansionPanels v-if="state.plan.messages.length" class="my-3">
-                  <VExpansionPanel value="content">
-                    <VExpansionPanelTitle>导学对话</VExpansionPanelTitle>
-                    <VExpansionPanelText>
-                      <div class="mt-3 max-h-72 space-y-3 overflow-y-auto">
-                        <div v-for="(message, index) in state.plan.messages" :key="index" class="rounded-xl p-3" :class="message.role === 'user' ? 'bg-page-cream' : 'bg-deep-indigo/5'">
-                          <p class="mb-1 text-caption font-bold text-stone">{{ message.role === 'user' ? '学习者' : 'AI 导学' }}</p><p class="whitespace-pre-wrap break-words leading-relaxed">{{ message.content }}</p>
-                        </div>
-                      </div>
-                    </VExpansionPanelText>
-                  </VExpansionPanel>
-                </VExpansionPanels>
-            </template>
-          </section>
+        <div v-if="planVisited" v-show="tab === 'plan'" ref="planTop" class="mx-auto max-w-4xl space-y-5">
+          <RoutePreview />
+          <p v-if="state.notice" role="status" class="text-body-sm text-stone">{{ state.notice }}</p>
 
-          <div v-if="!state.plan" class="pane px-6 py-10 sm:p-10">
-            <div class="mb-7 flex h-20 w-20 items-center justify-center rounded-full bg-sunbeam-yellow/30 text-deep-indigo"><AppIcon name="route" :size="40" /></div>
-            <h3 class="text-heading">规划学习顺序</h3>
-            <p class="mt-4 max-w-md text-body-sm leading-7 text-graphite">已读取 {{ guide.videoMap.value.size }} 节课程。</p>
-            <p v-if="state.notice" role="status" class="mt-6 text-body-sm text-stone">{{ state.notice }}</p>
-          </div>
-          <div v-else class="min-w-0 space-y-5">
-            <RoutePreview />
-            <section class="pane p-5">
-              <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="text-subheading">学习路线</h3><UiButton variant="text" size="sm" @click="guide.exportPlan()">导出路线</UiButton></div>
-              <p class="mt-3 whitespace-pre-wrap break-words text-body-sm leading-relaxed text-graphite">{{ state.plan.summary }}</p>
-              <div class="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-page-cream p-4 text-center">
-                <div><p class="text-heading-sm">{{ counts.required }}<span class="ml-1 text-caption font-medium">节</span></p><p class="text-caption text-stone">必修</p></div>
-                <div><p class="text-heading-sm">{{ counts.optional }}<span class="ml-1 text-caption font-medium">节</span></p><p class="text-caption text-stone">选修</p></div>
-                <div><p class="text-heading-sm">{{ counts.skipped }}<span class="ml-1 text-caption font-medium">节</span></p><p class="text-caption text-stone">已跳过</p></div>
+          <template v-if="state.plan">
+            <header class="flex flex-wrap items-center justify-between gap-4">
+              <div class="min-w-0">
+                <UiButton v-if="planView !== 'overview'" variant="text" size="sm" class="mb-2" @click="showPlanView('overview')"><AppIcon name="chevron-right" class="rotate-180" :size="16" />返回学习路线</UiButton>
+                <h3 ref="planHeading" tabindex="-1" class="text-heading-sm focus:outline-none">{{ planView === 'overview' ? '学习路线' : planView === 'lessons' ? '课节安排' : '调整路线' }}</h3>
+                <p v-if="planView === 'overview'" class="mt-2 text-body-sm text-stone">{{ counts.required }} 节必修 · {{ counts.optional }} 节选修 · {{ counts.skipped }} 节已跳过</p>
               </div>
-              <p v-if="state.notice" role="status" class="mt-3 text-caption leading-relaxed text-stone">{{ state.notice }}</p>
-              <div v-if="state.records.undo" class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-linen p-3 text-caption">
-                <span class="min-w-0 text-graphite [overflow-wrap:anywhere]">上次调整：{{ state.records.undo.label }}<template v-if="state.records.undo.at"> · {{ revisionTime(state.records.undo.at) }}</template></span>
-                <UiButton variant="text" size="sm" :disabled="!!state.busy" @click="guide.undo()">撤销上次调整</UiButton>
-              </div>
-              <div v-if="risks.length" role="alert" class="mt-4 rounded-xl border border-brand-orange/30 bg-brand-orange/8 p-4">
-                <h4 class="text-body-sm font-bold">{{ risks.length }} 节前置课未加入路线</h4>
-                <p v-for="risk in risks" :key="risk.prerequisite" class="mt-2 text-caption leading-relaxed">「{{ title(risk.prerequisite) }}」是「{{ risk.dependents.map(title).join('、') }}」的前置课。</p>
-                <UiButton class="mt-3" size="sm" :disabled="!!state.busy" @click="guide.repairDependencies()">补齐前置课</UiButton>
-              </div>
-              <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <label class="flex items-center gap-2 text-body-sm"><VCheckbox v-model="state.includeOptional" :disabled="!!state.busy" class="shrink-0" />包含选修课</label>
+              <div v-if="planView === 'overview'" class="flex flex-wrap items-center gap-2">
+                <UiButton size="sm" @click="showPlanView('settings')">调整路线</UiButton>
                 <UiButton variant="dark" size="sm" :disabled="!first || !!state.busy" @click="start"><AppIcon name="play" :size="16" />{{ schedule.completed === guide.route.value.length ? '重新学习' : schedule.completed ? '继续学习' : '开始学习' }}</UiButton>
               </div>
-            </section>
+            </header>
 
-            <section class="pane p-5" aria-label="学习排期">
-              <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="text-body font-bold">视频排期</h3><p class="mt-1 text-caption text-stone">每日观看 {{ state.plan.dailyMinutes }} 分钟 · 按原速观看估算{{ guide.program.value ? ` · 完整计划共 ${guide.program.value.days} 天` : '' }}</p></div><p class="text-heading-sm"><span class="mr-1 text-body-sm font-medium text-stone">{{ schedule.completed ? '剩余' : '预计' }}</span>{{ schedule.days }}<span class="ml-1 text-body-sm font-medium text-stone">天</span></p></div>
-              <p class="mt-3 text-body-sm text-graphite">总时长 {{ formatStudyDuration(schedule.totalSeconds) }} · 剩余 {{ formatStudyDuration(schedule.remainingSeconds) }} · 已完成 {{ schedule.completed }}/{{ guide.route.value.length }} 节</p>
-              <p v-if="schedule.unknown" class="mt-2 text-caption text-stone">{{ schedule.unknown }} 节时长未知，暂按已知课节中位数（无数据时按 20 分钟）估算，读取后自动更新。</p>
-              <ol class="mt-5 space-y-4">
-                <li v-for="(milestone, i) in schedule.milestones" :key="`${milestone.moduleId}-${i}`" class="flex items-start gap-3">
-                  <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-caption font-bold" :class="milestone.done ? 'bg-charcoal-ink text-white' : 'bg-sunbeam-yellow/30'">{{ milestone.done ? '✓' : i + 1 }}</span>
-                  <div class="min-w-0 flex-1"><p class="text-body-sm font-bold">{{ moduleMap.get(milestone.moduleId)?.title }}</p><p class="mt-0.5 text-caption text-stone">{{ milestone.done ? '已完成' : `第 ${milestone.startDay}${milestone.endDay > milestone.startDay ? `–${milestone.endDay}` : ''} 天 · ${formatStudyDuration(milestone.remainingSeconds)}` }}</p></div>
-                </li>
-              </ol>
-              <p class="mt-4 text-caption text-stone">{{ guide.program.value ? (guide.videoFinish.value === null ? '路线视频已全部观看。' : guide.videoFinish.value === Infinity ? '当前未分配观看时间。' : `按阶段时间分配，预计第 ${guide.videoFinish.value} 天完成观看。`) + '实践安排见完整学习计划。' : '排期仅统计视频，实践时间可在完整学习计划中设置。' }}</p>
-            </section>
+            <div v-if="risks.length" role="alert" class="rounded-xl border border-brand-orange/30 bg-pure-white p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-body-sm font-bold">{{ risks.length }} 节前置课未加入路线</p>
+                <UiButton size="sm" :disabled="!!state.busy" @click="guide.repairDependencies()">补齐前置课</UiButton>
+              </div>
+              <VExpansionPanels class="mt-3">
+                <VExpansionPanel title="查看前置关系">
+                  <VExpansionPanelText>
+                    <p v-for="risk in risks" :key="risk.prerequisite" class="mt-2 text-caption leading-relaxed">「{{ title(risk.prerequisite) }}」是「{{ risk.dependents.map(title).join('、') }}」的前置课。</p>
+                  </VExpansionPanelText>
+                </VExpansionPanel>
+              </VExpansionPanels>
+            </div>
+          </template>
 
-            <section class="pane p-5">
-              <h3 class="text-body font-bold">课节安排与掌握程度</h3>
-              <p class="mt-1 text-caption leading-relaxed text-stone">观看与掌握程度独立记录。全部知识点标为“已掌握”时跳过本课；“需要补学”时加入必修；“不确定”时保留查漏。</p>
-              <VTextField :model-value="lessonQuery" type="search" label="搜索课节或知识点"
-                clearable class="mt-4" @update:model-value="lessonQuery = $event ?? ''">
+          <section v-if="state.plan && planView === 'overview'" class="pane p-5 sm:p-6" aria-label="学习顺序">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div><h4 class="text-body font-bold">学习顺序</h4><p class="mt-1 text-caption text-stone">已观看 {{ schedule.completed }}/{{ guide.route.value.length }} 节 · 剩余 {{ formatStudyDuration(schedule.remainingSeconds) }}</p></div>
+              <UiButton variant="text" size="sm" @click="showPlanView('lessons')">课节安排<AppIcon name="chevron-right" :size="16" /></UiButton>
+            </div>
+            <p class="mt-3 text-caption text-stone">以下天数按每日观看 {{ state.plan.dailyMinutes }} 分钟、原速播放估算。</p>
+            <ol class="mt-4 divide-y divide-linen">
+              <li v-for="(milestone, i) in schedule.milestones" :key="`${milestone.moduleId}-${i}`" class="flex items-start gap-3 py-4">
+                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-caption font-bold" :class="milestone.done ? 'bg-charcoal-ink text-white' : 'border border-linen'">{{ milestone.done ? '✓' : i + 1 }}</span>
+                <div class="min-w-0 flex-1"><p class="text-body-sm font-bold leading-7 [overflow-wrap:anywhere]">{{ moduleMap.get(milestone.moduleId)?.title }}</p><p class="mt-1 text-caption text-stone">{{ milestone.done ? '已完成观看' : `第 ${milestone.startDay}${milestone.endDay > milestone.startDay ? `–${milestone.endDay}` : ''} 天 · ${formatStudyDuration(milestone.remainingSeconds)}` }}</p></div>
+              </li>
+            </ol>
+            <p v-if="!schedule.milestones.length" class="py-6 text-body-sm text-stone">当前路线没有课节，可在课节安排中添加。</p>
+            <VExpansionPanels class="mt-4">
+              <VExpansionPanel value="schedule">
+                <VExpansionPanelTitle>视频排期详情</VExpansionPanelTitle>
+                <VExpansionPanelText>
+                  <p class="text-body-sm text-graphite">每日观看 {{ state.plan.dailyMinutes }} 分钟 · 按原速估算剩余约 {{ schedule.days }} 天</p>
+                  <p class="mt-2 text-caption text-stone">总时长 {{ formatStudyDuration(schedule.totalSeconds) }}<template v-if="guide.program.value"> · 完整计划共 {{ guide.program.value.days }} 天</template></p>
+                  <p v-if="schedule.unknown" class="mt-2 text-caption text-stone">{{ schedule.unknown }} 节时长未知，暂按已知课节中位数（无数据时按 20 分钟）估算，读取后自动更新。</p>
+                  <p class="mt-2 text-caption text-stone">{{ guide.program.value ? (guide.videoFinish.value === null ? '路线视频已全部观看。' : guide.videoFinish.value === Infinity ? '当前未分配观看时间。' : `按阶段时间分配，预计第 ${guide.videoFinish.value} 天完成观看。`) : '排期仅统计视频，不含实践时间。' }}</p>
+                </VExpansionPanelText>
+              </VExpansionPanel>
+              <VExpansionPanel value="summary">
+                <VExpansionPanelTitle>路线说明</VExpansionPanelTitle>
+                <VExpansionPanelText>
+                  <p class="whitespace-pre-wrap break-words text-body-sm leading-relaxed text-graphite">{{ state.plan.summary }}</p>
+                  <UiButton variant="text" size="sm" class="mt-3" @click="guide.exportPlan()">导出路线</UiButton>
+                </VExpansionPanelText>
+              </VExpansionPanel>
+            </VExpansionPanels>
+          </section>
+
+          <section v-show="!state.plan || planView === 'settings'" class="pane p-5 sm:p-6">
+            <h3 v-if="!state.plan" class="text-heading-sm">学习背景与目标</h3>
+            <p v-if="!state.plan" class="mt-2 text-caption text-stone">已读取 {{ guide.videoMap.value.size }} 节课程</p>
+            <form class="space-y-5" :class="!state.plan && 'mt-5'" @submit.prevent="generate">
+              <VTextarea v-model="draft" required maxlength="6000" rows="4" :disabled="!!state.busy" :label="state.plan ? '调整要求' : '规划要求'"
+                placeholder="例如：已掌握 Java 基础，目标是完成 Spring Boot 项目开发。" />
+              <div v-if="!state.plan" class="flex flex-wrap gap-2">
+                <UiButton v-for="(example, index) in examples" :key="example" size="sm" :disabled="!!state.busy" @click="draft = example">{{ ['项目开发', '系统入门', '知识巩固'][index] }}</UiButton>
+              </div>
+              <div class="flex flex-wrap items-end gap-4">
+                <AiProfileSelector class="min-w-0 flex-1 basis-64" :disabled="!!state.busy" />
+                <VTextField v-model.number="dailyMinutes" :label="state.plan?.program ? '每日观看时间' : '每日学习时间'" suffix="分钟" aria-label="每日学习分钟数" type="number" min="5" max="1440" step="1" required :disabled="!!state.busy" class="w-44 flex-none" @change="updateDailyMinutes" />
+              </div>
+              <p class="text-caption leading-relaxed text-stone">仅依据标题与时长规划，不上传视频。<template v-if="state.scanning">时长读取中 {{ state.scanned }}/{{ guide.videoMap.value.size }}，可先生成路线。</template></p>
+              <div class="flex flex-wrap items-center gap-3">
+                <UiButton type="submit" variant="primary" :disabled="!!state.busy || !guide.guideReady.value"><AppIcon name="sparkles" :size="18" />{{ state.plan ? '生成调整方案' : '生成学习路线' }}</UiButton>
+                <UiButton variant="text" size="sm" @click="tab = 'settings'">{{ guide.configured.value ? '管理 AI 配置' : '配置 AI 服务' }}</UiButton>
+              </div>
+            </form>
+            <VExpansionPanels v-if="state.plan" class="mt-6">
+              <VExpansionPanel value="program">
+                <VExpansionPanelTitle>完整学习计划</VExpansionPanelTitle>
+                <VExpansionPanelText eager><ProgramSettings class="!mt-0 !border-t-0 !pt-0" @settings="tab = 'settings'" /></VExpansionPanelText>
+              </VExpansionPanel>
+              <VExpansionPanel value="background">
+                <VExpansionPanelTitle>学习背景与导学对话</VExpansionPanelTitle>
+                <VExpansionPanelText>
+                  <p class="whitespace-pre-wrap break-words text-body-sm leading-relaxed">{{ state.plan.profile }}</p>
+                  <div v-if="state.plan.messages.length" class="mt-4 max-h-72 space-y-3 overflow-y-auto">
+                    <div v-for="(message, index) in state.plan.messages" :key="index" class="rounded-xl border border-linen bg-pure-white p-3">
+                      <p class="mb-1 text-caption font-bold text-stone">{{ message.role === 'user' ? '学习者' : 'AI 导学' }}</p><p class="whitespace-pre-wrap break-words leading-relaxed">{{ message.content }}</p>
+                    </div>
+                  </div>
+                </VExpansionPanelText>
+              </VExpansionPanel>
+            </VExpansionPanels>
+          </section>
+
+          <section v-if="state.plan && planView === 'lessons' && tab === 'plan'" class="pane p-5 sm:p-6">
+            <div class="flex flex-wrap items-center gap-4">
+              <VTextField :model-value="lessonQuery" type="search" label="搜索课节或知识点" clearable class="min-w-0 flex-1 basis-64" @update:model-value="lessonQuery = $event ?? ''">
                 <template #prepend-inner><AppIcon name="search" :size="18" /></template>
               </VTextField>
-              <div v-if="pending" ref="pendingAlert" role="alert" class="mt-4 rounded-xl border border-brand-orange/40 bg-brand-orange/8 p-4">
-                <p class="text-body-sm font-bold">调整后将缺少前置课</p>
-                <p class="mt-2 text-body-sm">{{ pending.risks.map(r => `「${title(r.prerequisite)}」`).join('、') }}是后续课节的前置课。</p>
-                <div class="mt-3 flex flex-wrap gap-2"><UiButton size="sm" @click="pending = null">保留当前安排</UiButton><UiButton variant="text" size="sm" @click="confirmStatus">确认调整</UiButton></div>
-              </div>
-              <nav v-if="tab === 'plan' && pageCount > 1" aria-label="课节分页" class="mt-4 flex flex-wrap items-center justify-between gap-2">
-                <UiButton size="sm" :disabled="currentPage === 1" @click="lessonPage = currentPage - 1" aria-label="上一页课节">上一页</UiButton>
-                <span class="text-caption text-stone">第 {{ currentPage }} / {{ pageCount }} 页 · 共 {{ visibleLessons.length }} 节</span>
-                <UiButton size="sm" :disabled="currentPage === pageCount" @click="lessonPage = currentPage + 1" aria-label="下一页课节">下一页</UiButton>
-              </nav>
-              <ul v-if="tab === 'plan'" class="mt-2 divide-y divide-linen" aria-label="课节安排">
-                <li v-for="lesson in pageLessons" :key="lesson.path" :data-path="lesson.path" :data-route-position="guide.routePositions.value.get(lesson.path)" class="py-4">
-                  <p class="mb-2 text-caption font-bold text-deep-indigo">{{ guide.routePositions.value.has(lesson.path) ? `路线第 ${guide.routePositions.value.get(lesson.path)} 节` : '未加入当前路线' }} · {{ moduleMap.get(lesson.moduleId)?.title }}</p>
-                  <div class="flex items-start gap-3"><button type="button" class="min-w-0 flex-1 text-left text-body-sm font-bold [overflow-wrap:anywhere] hover:text-deep-indigo" :title="lesson.path" @click="emit('select', lesson.path); emit('close')">{{ title(lesson.path) }}<span v-if="source(lesson.path)" class="mt-0.5 block text-caption font-normal text-stone">{{ source(lesson.path) }}</span></button>
-                    <VSelect :model-value="lesson.status" :items="statusItems" :aria-label="`${fullTitle(lesson.path)} 学习状态`" :disabled="!!state.busy"
-                      class="w-36 max-w-36 flex-none" @update:model-value="requestStatus(lesson.path, $event)" />
-                  </div>
-                  <p class="mt-2 text-caption leading-relaxed text-stone">推荐理由：{{ lesson.reason }}</p>
-                  <p v-if="lesson.prerequisites.length" class="mt-1 text-caption leading-relaxed text-deep-indigo">前置课：{{ lesson.prerequisites.map(title).join('、') }}</p>
-                  <ConceptMastery :lesson="lesson" />
-                </li>
-              </ul>
-              <p v-if="!visibleLessons.length" class="py-8 text-center text-body-sm text-stone">未找到匹配的课节</p>
-            </section>
+              <VCheckbox v-model="state.includeOptional" label="将选修课加入路线" :disabled="!!state.busy" class="shrink-0" />
+            </div>
+            <div v-if="pending" ref="pendingAlert" role="alert" class="mt-4 rounded-xl border border-brand-orange/40 bg-pure-white p-4">
+              <p class="text-body-sm font-bold">调整后将缺少前置课</p>
+              <p class="mt-2 text-body-sm">{{ pending.risks.map(r => `「${title(r.prerequisite)}」`).join('、') }}是后续课节的前置课。</p>
+              <div class="mt-3 flex flex-wrap gap-2"><UiButton size="sm" @click="pending = null">保留当前安排</UiButton><UiButton variant="text" size="sm" @click="confirmStatus">确认调整</UiButton></div>
+            </div>
+            <nav v-if="pageCount > 1" aria-label="课节分页" class="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <UiButton size="sm" :disabled="currentPage === 1" @click="lessonPage = currentPage - 1" aria-label="上一页课节">上一页</UiButton>
+              <span class="text-caption text-stone">第 {{ currentPage }} / {{ pageCount }} 页 · 共 {{ visibleLessons.length }} 节</span>
+              <UiButton size="sm" :disabled="currentPage === pageCount" @click="lessonPage = currentPage + 1" aria-label="下一页课节">下一页</UiButton>
+            </nav>
+            <VExpansionPanels v-if="pageLessons.length" v-model="expandedLesson" class="mt-4" aria-label="课节安排">
+              <VExpansionPanel v-for="lesson in pageLessons" :key="lesson.path" :value="lesson.path" :data-path="lesson.path" :data-route-position="guide.routePositions.value.get(lesson.path)">
+                <VExpansionPanelTitle>
+                  <span class="w-7 shrink-0 text-caption text-stone" :aria-label="guide.routePositions.value.has(lesson.path) ? `路线第 ${guide.routePositions.value.get(lesson.path)} 节` : '未加入当前路线'">{{ guide.routePositions.value.get(lesson.path) ?? '—' }}</span>
+                  <span class="min-w-0 flex-1 font-medium [overflow-wrap:anywhere]" :title="fullTitle(lesson.path)">{{ title(lesson.path) }}</span>
+                  <LessonBadge :status="lesson.status" compact />
+                </VExpansionPanelTitle>
+                <VExpansionPanelText>
+                  <template v-if="expandedLesson === lesson.path">
+                    <p class="text-caption text-stone">{{ moduleMap.get(lesson.moduleId)?.title }}<template v-if="source(lesson.path)"> · {{ source(lesson.path) }}</template></p>
+                    <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <VSelect :model-value="lesson.status" :items="statusItems" label="学习状态" :aria-label="`${fullTitle(lesson.path)} 学习状态`" :disabled="!!state.busy" class="w-36 max-w-40 flex-none" @update:model-value="requestStatus(lesson.path, $event)" />
+                      <UiButton variant="text" size="sm" @click="emit('select', lesson.path); emit('close')"><AppIcon name="play" :size="16" />播放课节</UiButton>
+                    </div>
+                    <p class="mt-4 text-body-sm leading-relaxed text-graphite">{{ lesson.reason }}</p>
+                    <p v-if="lesson.prerequisites.length" class="mt-2 text-caption leading-relaxed text-deep-indigo">前置课：{{ lesson.prerequisites.map(title).join('、') }}</p>
+                    <ConceptMastery :lesson="lesson" />
+                    <p class="mt-2 text-caption leading-relaxed text-stone">全部知识点标为“已掌握”时跳过本课；“需要补学”时加入必修；“不确定”时保留查漏。观看进度独立记录。</p>
+                  </template>
+                </VExpansionPanelText>
+              </VExpansionPanel>
+            </VExpansionPanels>
+            <p v-else class="py-8 text-center text-body-sm text-stone">未找到匹配的课节</p>
+          </section>
+
+          <div v-if="state.plan && state.records.undo" class="flex flex-wrap items-center justify-between gap-2 text-caption">
+            <span class="min-w-0 text-stone [overflow-wrap:anywhere]">上次调整：{{ state.records.undo.label }}<template v-if="state.records.undo.at"> · {{ revisionTime(state.records.undo.at) }}</template></span>
+            <UiButton variant="text" size="sm" :disabled="!!state.busy" @click="guide.undo()">撤销上次调整</UiButton>
           </div>
         </div>
 
@@ -336,8 +387,3 @@ function jumpBack(path: string, seconds?: number) {
     </div>
   </VDialog>
 </template>
-
-<style scoped>
-@reference '../styles/main.css';
-.guide-input { @apply w-full rounded-xl border border-linen bg-pure-white px-3 py-2.5 text-body-sm text-charcoal-ink placeholder:text-stone focus:border-charcoal-ink focus:outline-none disabled:opacity-50; }
-</style>

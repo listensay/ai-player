@@ -96,13 +96,18 @@ export interface LessonMetadata {
   modified: number
 }
 
+export type AiProvider = 'openai' | 'anthropic'
+export type AiContextWindow = 'default' | '1m'
+
 export interface GuideSettings {
+  /** 旧配置未指定时使用 OpenAI 兼容格式。 */
+  provider?: AiProvider
+  /** Anthropic 长上下文请求选项；未指定时沿用模型默认容量。 */
+  contextWindow?: AiContextWindow
   baseUrl: string
   model: string
   apiKey: string
   timeoutMinutes?: number
-  /** 最大输出 token 数；0 表示不传，由服务端默认值决定。 */
-  maxTokens?: number
 }
 
 export interface AiProfile extends GuideSettings {

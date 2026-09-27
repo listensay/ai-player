@@ -130,12 +130,12 @@ test('按今日片段重新整理，出题材料不包含未来内容', async t 
   assert.equal(h.requests.length, 2)
 })
 
-test('AI 配置切换取消旧总结，迟到响应不会覆盖新结果', async t => {
+for (const [field, value] of [['model', 'new-model'], ['provider', 'anthropic'], ['contextWindow', '1m']]) test(`AI ${field} 切换取消旧总结，迟到响应不会覆盖新结果`, async t => {
   const pending = deferred(), h = harness(t)
   const normal = h.io.requestGuideJson
   h.io.requestGuideJson = () => pending.promise
   const old = h.knowledge.ensure('course', videos[0]).catch(e => e)
-  await tick(); h.settings.model = 'new-model'
+  await tick(); h.settings[field] = value
   h.io.requestGuideJson = normal
   const fresh = await h.knowledge.ensure('course', videos[0])
   pending.resolve({ points: [{ title: '旧结果', text: '旧内容', sourceIds: ['s1'] }] })

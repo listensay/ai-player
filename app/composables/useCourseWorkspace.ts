@@ -9,9 +9,12 @@ import { useProgress } from '~/composables/useProgress'
 import { useSegmentReminder } from '~/composables/useSegmentReminder'
 import { useShortcuts } from '~/composables/useShortcuts'
 import { useStudyCheckIn } from '~/composables/useStudyCheckIn'
+import { provideStudyTools } from '~/composables/useStudyTools'
+import { useReminderLinks } from '~/composables/useReminderLinks'
 import { useTranscripts } from '~/composables/useTranscripts'
 import { formatTime } from '~/utils/time'
-import { useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
+import type { ReminderLinkDestination } from '~/utils/reminderLinks'
 import { desktopInvoke } from '~/utils/platform'
 import { flushDatabaseWrites } from '~/utils/database'
 import { calculateDay } from '~/utils/dailyPlan'
@@ -26,6 +29,7 @@ export function provideCourseWorkspace() {
   const router = useRouter()
 
   const store = useCourseStore()
+  const studyTools = provideStudyTools()
   const { stats } = store
   const player = usePlayer()
 
@@ -74,7 +78,7 @@ export function provideCourseWorkspace() {
   })
   const daily = useDailyPractice(course, computed(() => guide.state.today), guide.todayDate, guide.state.settings, guide.configured, knowledge)
   watch(() => [course.value?.id, video.value?.path, currentView.value, guide.configured.value,
-    guide.state.settings.baseUrl, guide.state.settings.model, guide.state.settings.apiKey] as const, (value, previous) => {
+    guide.state.settings.provider, guide.state.settings.contextWindow, guide.state.settings.baseUrl, guide.state.settings.model, guide.state.settings.apiKey] as const, (value, previous) => {
     if (currentView.value !== 'player' || !course.value || !video.value) return
     if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2]) rightTab.value = 'knowledge'
     void knowledge.ensure(course.value.id, video.value).catch(() => {})
@@ -379,7 +383,6 @@ export function provideCourseWorkspace() {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     const { listen } = await import('@tauri-apps/api/event')
     const appWindow = getCurrentWindow()
-    await appWindow.maximize().catch(() => {})
     const closeSafely = async () => {
       if (closing) return
       closing = true
@@ -394,6 +397,7 @@ export function provideCourseWorkspace() {
         useProgress().flush()
         guide.persist(); practice.persist(); checkIn.persist()
         await daily.flush()
+        await studyTools.flush()
         await flushDatabaseWrites()
         await desktopInvoke('finish_close')
       } catch {
@@ -405,7 +409,35 @@ export function provideCourseWorkspace() {
     await desktopInvoke('frontend_ready')
   })
   onBeforeUnmount(() => { unlistenClose?.(); unlistenQuit?.() })
-  const workspace = { store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideQuestion, guideTab, returnPoint, feedbackQuestionId, pendingSeek, treeOpen, rightTab, transcripts, currentView, toast, showToast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, recordQuestion, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment, selectGuideVideo, returnToLesson, answerQuestion, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
+  const reminderLinks = useReminderLinks(async request => {
+    await noteEditor.value?.save()
+    if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记尚未保存，请保存后重试。')
+    await studyTools.flush()
+    await flushDatabaseWrites()
+    const target = await desktopInvoke<ReminderLinkDestination>('resolve_reminder_link', { reminderId: request.reminderId })
+    if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记有新的修改，请保存后重试。')
+    // A second click for the current player only reveals it; never reload or rewind a playing lesson.
+    const alreadyPlayingCourse = target.courseId === course.value?.id && currentView.value === 'player'
+    if (!alreadyPlayingCourse) {
+      player.pause()
+      if (course.value && video.value && player.state.ready) {
+        useProgress().update(course.value.id, video.value.path, player.state.currentTime, player.state.duration)
+        useProgress().flush()
+      }
+      await flushDatabaseWrites()
+    }
+    await leaveFullscreen()
+    if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记有新的修改，请保存后重试。')
+    helpOpen.value = false; guideOpen.value = false; practice.close(); daily.practice.close(); treeOpen.value = false
+    if (alreadyPlayingCourse) return
+    const navigation = await router.push(target.courseId
+      ? { name: 'course-player', params: { id: target.courseId }, query: target.lesson ? { lesson: target.lesson } : {} }
+      : { name: 'study-management' })
+    if (isNavigationFailure(navigation) && !isNavigationFailure(navigation, NavigationFailureType.duplicated))
+      throw new Error('页面切换未完成，请重试。')
+    if (target.notice) studyTools.state.notice = target.notice
+  })
+  const workspace = { reminderLinks, store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideQuestion, guideTab, returnPoint, feedbackQuestionId, pendingSeek, treeOpen, rightTab, transcripts, currentView, toast, showToast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, recordQuestion, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment, selectGuideVideo, returnToLesson, answerQuestion, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
   provide(COURSE_WORKSPACE, workspace)
   return workspace
 }

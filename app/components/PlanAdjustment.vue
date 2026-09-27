@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import type { LearningPlan, StudyBudget } from '~/types/guide'
 import { adjustLearningPlan, type PlanAdjustment } from '~/utils/planAdjustment'
+import { deferLearningPlan } from '~/utils/planDeferral'
 import {
   addDays,
   BUDGET_LABELS,
@@ -10,6 +11,7 @@ import {
   budgetTotal,
   emptyBudget,
   formatMinutes,
+  isPaused,
   programDay,
   programDate,
   stageForDay,
@@ -20,13 +22,14 @@ import { formatStudyDuration } from '~/utils/guide'
 import UiButton from '~/components/UiButton.vue'
 
 const guide = useGuide()
+type AdjustmentKind = PlanAdjustment['kind'] | 'defer' | 'rest'
 const open = ref(false),
-  preview = ref<ReturnType<typeof adjustLearningPlan> | null>(null),
+  preview = ref<(ReturnType<typeof adjustLearningPlan> & { resumeDate?: string }) | null>(null),
   error = ref('')
 const stale = ref(false)
 const base = ref<LearningPlan | null>(null)
 const form = reactive({
-  kind: 'today' as PlanAdjustment['kind'],
+  kind: 'today' as AdjustmentKind,
   weekdays: [1, 2, 3, 4, 5, 6, 7],
   budget: emptyBudget(),
   weekend: emptyBudget(),
@@ -39,6 +42,7 @@ const form = reactive({
   totalDays: 30,
 })
 const kinds = computed(() => [
+  ...(guide.program.value ? [{ title: '顺延未完成安排', value: 'defer' }, { title: '临时休息', value: 'rest' }] : []),
   { title: '调整今天', value: 'today' },
   { title: '每周安排', value: 'weekly' },
   { title: '暂停学习', value: 'pause' },
@@ -55,16 +59,22 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'].map((title, i
   title: `周${title}`,
   value: index + 1,
 }))
-function begin() {
+const unavailable = computed(() => !guide.guideReady.value || !guide.recordsReady.value || !!guide.state.busy || !guide.schedulingEnabled.value)
+const canDefer = computed(() => !!guide.program.value && !isPaused(guide.program.value, guide.todayDate.value))
+const remainingToday = computed(() => {
+  const day = calculateDay(guide.dayContext.value, guide.todayDate.value)
+  return day.today.items.filter(i => !i.done).length + day.work.filter(i => !i.done && i.targetMinutes > i.minutes).length
+})
+function begin(kind?: AdjustmentKind) {
   base.value = guide.planForScheduling()
   const p = base.value.program!
   Object.assign(form, {
-    kind: p.calendar?.pause ? 'resume' : guide.program.value ? 'today' : 'weekly',
+    kind: kind ?? (p.calendar?.pause ? 'resume' : guide.program.value ? 'today' : 'weekly'),
     weekdays: [...(p.calendar?.weekdays ?? [1, 2, 3, 4, 5, 6, 7])],
     budget: { ...p.budget },
     weekend: { ...(p.calendar?.weekendBudget ?? p.budget) },
     today: { ...(guide.todayBudget.value ?? p.budget) },
-    until: addDays(guide.todayDate.value, 3),
+    until: addDays(guide.todayDate.value, kind === 'rest' ? 1 : 3),
     indefinite: false,
     strategy: 'extend',
     days: 3,
@@ -75,6 +85,7 @@ function begin() {
   error.value = ''
   stale.value = false
   open.value = true
+  if (kind === 'defer') prepare()
 }
 watch(
   form,
@@ -82,8 +93,14 @@ watch(
     preview.value = null
     error.value = ''
   },
-  { deep: true },
+  { deep: true, flush: 'sync' },
 )
+watch(() => [guide.dayContext.value.progress, guide.state.today, guide.state.records.entries, guide.state.records.checks], () => {
+  if (open.value && preview.value) {
+    preview.value = null
+    error.value = '学习进度已变化，请重新预览。'
+  }
+}, { deep: true })
 watch(
   () => guide.todayDate.value,
   () => {
@@ -104,6 +121,12 @@ watch(
 function prepare() {
   if (!base.value || stale.value) return
   try {
+    if (form.kind === 'defer' || form.kind === 'rest') {
+      preview.value = deferLearningPlan({ ...guide.dayContext.value, plan: base.value }, guide.todayDate.value,
+        form.kind === 'defer' ? addDays(guide.todayDate.value, 1) : form.until)
+      error.value = ''
+      return
+    }
     let action: PlanAdjustment
     if (form.kind === 'weekly')
       action = { kind: 'weekly', weekdays: form.weekdays, budget: form.budget, weekendBudget: form.weekend }
@@ -178,9 +201,11 @@ function apply() {
     <UiButton
       size="sm"
       :disabled="!guide.guideReady.value || !guide.recordsReady.value || !!guide.state.busy"
-      @click="begin"
+      @click="begin()"
       >{{ guide.program.value ? '调整计划' : '设置学习计划' }}</UiButton
     >
+    <UiButton v-if="canDefer" size="sm" :disabled="unavailable || !remainingToday" @click="begin('defer')">顺延未完成安排</UiButton>
+    <UiButton v-if="canDefer" size="sm" variant="text" :disabled="unavailable" @click="begin('rest')">临时休息</UiButton>
     <UiButton
       v-if="guide.state.records.undo?.scheduleOnly"
       variant="text"
@@ -201,7 +226,12 @@ function apply() {
           课程已暂停或归档。请先在首页恢复课程，再安排学习。
         </p>
         <VSelect v-model="form.kind" label="调整内容" :items="kinds" />
-        <template v-if="form.kind === 'weekly'">
+        <template v-if="form.kind === 'defer' || form.kind === 'rest'">
+          <VTextField v-if="form.kind === 'rest'" v-model="form.until" type="date" :min="addDays(guide.todayDate.value, 1)" label="恢复日期" />
+          <p class="text-body-sm text-stone">{{ form.kind === 'defer' ? '今天剩余安排移至下个学习日。' : '从今天起暂停新增任务，到恢复日期继续学习。' }}保留每日投入，自动顺延阶段和结束日期。</p>
+          <p class="text-caption text-stone">已完成事项、观看进度和实践记录保留；周末与原定休息日继续生效。</p>
+        </template>
+        <template v-else-if="form.kind === 'weekly'">
           <VTextField v-model.number="form.totalDays" type="number" min="1" max="1095" label="计划总天数" />
           <div class="grid grid-cols-4 gap-1 sm:grid-cols-7">
             <VCheckbox
@@ -298,6 +328,7 @@ function apply() {
         >
           <h3 class="text-body font-bold">调整预览</h3>
           <dl class="mt-3 grid grid-cols-2 gap-3 text-body-sm">
+            <template v-if="preview.resumeDate"><dt>下次学习日期</dt><dd>{{ preview.resumeDate }}</dd></template>
             <dt>今日剩余任务</dt>
             <dd>
               {{

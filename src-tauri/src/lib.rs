@@ -2,6 +2,8 @@ mod asr;
 mod db;
 mod files;
 mod media_duration;
+mod mac_reminders;
+mod reminder_links;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::{
@@ -80,8 +82,10 @@ fn finish_close(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .manage(asr::AsrManager::default())
+        .manage(reminder_links::ReminderLinks::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let directory = app.path().app_data_dir()?;
             let directory = if std::env::var("AI_PLAYER_DEV_ISOLATE").map(|v| v == "1").unwrap_or(false) {
@@ -100,9 +104,6 @@ pub fn run() {
                 roots: Mutex::new(roots),
                 frontend_ready: AtomicBool::new(false),
             });
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.maximize();
-            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -116,6 +117,12 @@ pub fn run() {
             finish_close,
             database_request,
             export_learning_plan,
+            mac_reminders::mac_reminders_status,
+            mac_reminders::mac_reminders_export,
+            mac_reminders::mac_reminders_remove,
+            reminder_links::pending_reminder_link,
+            reminder_links::acknowledge_reminder_link,
+            reminder_links::resolve_reminder_link,
             files::choose_course_folder,
             files::course_locations,
             files::save_course_location,
@@ -129,6 +136,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("启动 AI Player 失败")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { ref urls } = event {
+                reminder_links::opened(app, urls);
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<asr::AsrManager>().shutdown();
             }

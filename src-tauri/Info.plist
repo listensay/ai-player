@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>AI Player 学习提醒</string>
+      <key>CFBundleURLSchemes</key>
+      <array><string>aiplayer-study</string></array>
+    </dict>
+  </array>
+  <key>NSRemindersUsageDescription</key>
+  <string>将你选择的学习提醒添加到 macOS 提醒事项，并在你点击更新时修改对应提醒。</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>将你选择的学习提醒添加到 macOS 提醒事项，并查找此前添加的对应提醒，避免重复创建。</string>
+</dict>
+</plist>

@@ -16,6 +16,7 @@ tauri-build = { version = "2.6.3", features = [] }
 tauri = { version = "2.11.6", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-http = "~2.6"
+tauri-plugin-notification = "2"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,3 +28,8 @@ futures-util = "0.3"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSCalendar", "NSTimeZone"] }
+objc2-event-kit = { version = "0.3", default-features = false, features = ["std", "EKAlarm", "EKCalendar", "EKCalendarItem", "EKEventStore", "EKObject", "EKRecurrenceDayOfWeek", "EKRecurrenceEnd", "EKRecurrenceRule", "EKReminder", "EKSource", "EKTypes", "block2"] }

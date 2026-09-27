@@ -198,7 +198,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     activeId = course.value?.id ?? ''
     historyLoad = loadHistory()
   }, { immediate: true, flush: 'sync' })
-  watch(() => [settings.baseUrl, settings.model, settings.apiKey, settings.timeoutMinutes, settings.maxTokens, available.value], () => {
+  watch(() => [settings.provider, settings.contextWindow, settings.baseUrl, settings.model, settings.apiKey, settings.timeoutMinutes, available.value], () => {
     if (state.busy !== 'generate' && state.busy !== 'review') return
     cancel(); state.error = 'AI 配置已变更，请重新提交请求。'
   }, { flush: 'sync' })

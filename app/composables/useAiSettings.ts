@@ -17,7 +17,9 @@ export function useAiSettings() {
     state.collection = collection
     const active = collection.profiles.find(p => p.id === collection.activeId)
     Object.assign(settings, emptyAiSettings(), active ? {
-      baseUrl: active.baseUrl, model: active.model, apiKey: active.apiKey, timeoutMinutes: active.timeoutMinutes, maxTokens: active.maxTokens,
+      provider: active.provider ?? 'openai',
+      contextWindow: active.contextWindow ?? 'default',
+      baseUrl: active.baseUrl, model: active.model, apiKey: active.apiKey, timeoutMinutes: active.timeoutMinutes,
     } : {})
   }
 

@@ -2,18 +2,24 @@ import type { AiProfile, AiSettingsCollection, GuideSettings } from '../types/gu
 import { completionUrl } from './guideAi.ts'
 import { isRecord } from './guide.ts'
 
-export const emptyAiSettings = (): GuideSettings => ({ baseUrl: '', model: '', apiKey: '', timeoutMinutes: 15, maxTokens: 0 })
+export const emptyAiSettings = (): GuideSettings => ({ provider: 'openai', contextWindow: 'default', baseUrl: '', model: '', apiKey: '', timeoutMinutes: 15 })
 export const emptyAiCollection = (): AiSettingsCollection => ({ version: 2, profiles: [], activeId: '' })
 
 function readSettings(value: Record<string, unknown>): GuideSettings {
+  if (value.provider !== undefined && value.provider !== 'openai' && value.provider !== 'anthropic') {
+    throw new Error('AI 接口格式无效，请选择 OpenAI 兼容或 Anthropic。')
+  }
+  if (value.contextWindow !== undefined && value.contextWindow !== 'default' && value.contextWindow !== '1m') {
+    throw new Error('AI 模型上下文选项无效，请选择默认或 1M。')
+  }
   return {
+    provider: value.provider ?? 'openai',
+    contextWindow: value.contextWindow ?? 'default',
     baseUrl: typeof value.baseUrl === 'string' ? value.baseUrl.trim() : '',
     model: typeof value.model === 'string' ? value.model.trim() : '',
     apiKey: typeof value.apiKey === 'string' ? value.apiKey.trim() : '',
     timeoutMinutes: typeof value.timeoutMinutes === 'number' && Number.isFinite(value.timeoutMinutes)
       ? Math.min(30, Math.max(1, value.timeoutMinutes)) : 15,
-    maxTokens: typeof value.maxTokens === 'number' && Number.isFinite(value.maxTokens) && value.maxTokens > 0
-      ? Math.min(1_000_000, Math.max(256, Math.round(value.maxTokens))) : 0,
   }
 }
 
@@ -47,7 +53,7 @@ export function validateAiProfile(value: GuideSettings & { name: string }, id: s
   const name = value.name.trim()
   if (!name || name.length > 60) throw new Error('请填写 1–60 字的配置名称。')
   const settings = readSettings(value as unknown as Record<string, unknown>)
-  completionUrl(settings.baseUrl)
+  completionUrl(settings.baseUrl, settings.provider)
   if (!settings.model) throw new Error('请填写模型名称。')
   return { ...settings, id, name }
 }

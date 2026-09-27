@@ -18,10 +18,10 @@ function edit(id = '') {
   const profile = ai.state.collection.profiles.find(p => p.id === id)
   editingId.value = profile?.id ?? ''
   Object.assign(draft, emptyAiSettings(), { name: '' }, profile ? {
-    name: profile.name, baseUrl: profile.baseUrl, model: profile.model, apiKey: profile.apiKey, timeoutMinutes: profile.timeoutMinutes, maxTokens: profile.maxTokens || undefined,
+    provider: profile.provider ?? 'openai',
+    contextWindow: profile.contextWindow ?? 'default',
+    name: profile.name, baseUrl: profile.baseUrl, model: profile.model, apiKey: profile.apiKey, timeoutMinutes: profile.timeoutMinutes,
   } : {})
-  // 未设置上限时留空；0 会触发输入框的最小值校验，导致新增配置无法提交。
-  draft.maxTokens = profile?.maxTokens || undefined
   message.value = ''; error.value = ''; confirmingDelete.value = false
 }
 watch(() => ai.state.ready, ready => { if (ready) edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id) }, { immediate: true })
@@ -74,13 +74,18 @@ async function remove() {
       <h4 class="text-body font-bold">{{ editingId ? '编辑配置' : '新增配置' }}</h4>
       <fieldset :disabled="disabled" class="min-w-0 space-y-4 disabled:opacity-60">
         <VTextField v-model="draft.name" required maxlength="60" placeholder="例如：日常学习、本地模型"  label="配置名称" />
-        <VTextField v-model="draft.baseUrl" type="url" required autocomplete="off" placeholder="https://api.example.com/v1"  label="服务地址" />
-        <p class="text-caption text-stone">支持 OpenAI 兼容服务；本机 Ollama 可使用 http://localhost:11434/v1。</p>
+        <VSelect v-model="draft.provider" label="接口格式" :disabled="disabled"
+          :items="[{ title: 'OpenAI 兼容', value: 'openai' }, { title: 'Anthropic', value: 'anthropic' }]" />
+        <VTextField v-model="draft.baseUrl" type="url" required autocomplete="off"
+          :placeholder="draft.provider === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.example.com/v1'" label="服务地址" />
+        <p v-if="draft.provider === 'anthropic'" class="text-caption text-stone">官方地址：https://api.anthropic.com/v1；也可填写兼容 Anthropic 的服务地址。</p>
+        <p v-else class="text-caption text-stone">本机 Ollama 可使用 http://localhost:11434/v1。</p>
         <VTextField v-model="draft.model" required autocomplete="off" placeholder="填写服务支持的模型名称"  label="模型名称" />
+        <VSelect v-if="draft.provider === 'anthropic'" v-model="draft.contextWindow" label="模型上下文" :disabled="disabled"
+          :items="[{ title: '默认', value: 'default' }, { title: '1M（100 万 token）', value: '1m' }]" />
+        <p v-if="draft.provider === 'anthropic' && draft.contextWindow === '1m'" class="text-caption text-stone">需所选模型和服务支持 1M 上下文。</p>
         <VTextField v-model="draft.apiKey" type="password" autocomplete="off" placeholder="无需密钥的本地服务可留空"  label="API 密钥" />
         <VTextField v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required  label="响应时限（分钟）" />
-        <VTextField v-model.number="draft.maxTokens" type="number" min="256" max="1000000" step="1" placeholder="留空则使用服务默认值"  label="最大输出长度（token）" />
-        <p class="text-caption text-stone">输出被截断时可调高此值，但不能超过模型的输出上限。</p>
         <p class="text-caption text-stone">配置与密钥保存在本地，切换配置仅影响新请求。</p>
         <div class="flex flex-wrap gap-2">
           <UiButton type="submit" variant="primary">{{ ai.state.saving ? '保存中…' : '保存并使用' }}</UiButton>

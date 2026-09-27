@@ -7,10 +7,9 @@
   ],
   "permissions": [
     "core:default",
+    "notification:default",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
-    "core:window:allow-maximize",
-    "core:window:allow-is-maximized",
     {
       "identifier": "http:default",
       "allow": [

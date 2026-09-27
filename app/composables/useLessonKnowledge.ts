@@ -111,7 +111,7 @@ export function useLessonKnowledge(course: Ref<Course | null>, settings: GuideSe
     return summarySources(summary)
   }
   watch(() => course.value?.id, cancelAll, { flush: 'sync' })
-  watch(() => [settings.baseUrl, settings.model, settings.apiKey, settings.timeoutMinutes, settings.maxTokens, configured.value], cancelAll, { flush: 'sync' })
+  watch(() => [settings.provider, settings.contextWindow, settings.baseUrl, settings.model, settings.apiKey, settings.timeoutMinutes, configured.value], cancelAll, { flush: 'sync' })
   onBeforeUnmount(cancelAll)
   return { get, ensure, sourcesFor, cancel }
 }

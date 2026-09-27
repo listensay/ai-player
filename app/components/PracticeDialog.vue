@@ -129,7 +129,7 @@ function help() {
 
       <div ref="contentEl" class="scroll-soft practice-content min-h-0 flex-1 overflow-y-auto">
         <div class="practice-reading">
-        <section v-if="daily && history.length" role="status" class="mb-6 rounded-xl bg-sunbeam-yellow/15 px-4 py-3 text-body-sm">{{ completedCount === history.length ? '今日练习已完成' : '作答进度' }} · {{ completedCount }} / {{ history.length }} 题<span v-if="completedCount"> · 回答正确 {{ correctCount }} 题</span></section>
+        <section v-if="daily && history.length" role="status" class="mb-6 rounded-xl border border-linen bg-pure-white px-4 py-3 text-body-sm">{{ completedCount === history.length ? '今日练习已完成' : '作答进度' }} · {{ completedCount }} / {{ history.length }} 题<span v-if="completedCount"> · 回答正确 {{ correctCount }} 题</span></section>
         <section v-if="current && view !== 'materials'" :key="current.id" class="space-y-7" aria-label="当前练习">
           <div v-if="view === 'question'" class="space-y-6">
             <div class="flex items-center gap-3">
@@ -289,9 +289,8 @@ function help() {
 </template>
 
 <style scoped>
-.practice-dialog { background: var(--color-pure-white); }
 .practice-picker { flex: 0 1 156px; min-width: 128px; }
-.practice-view-switch { height: 36px; margin-left: 12px; padding: 3px; background: var(--color-page-cream); border-radius: 800px; }
+.practice-view-switch { height: 36px; margin-left: 12px; padding: 3px; border: 1px solid var(--color-linen); background: var(--color-pure-white); border-radius: 800px; }
 .practice-view-switch :deep(.v-btn) { height: 30px; padding-inline: 16px; font-size: 14px; color: var(--color-stone); }
 .practice-view-switch :deep(.v-btn--active) { background: var(--color-charcoal-ink); color: var(--color-pure-white); }
 .practice-content { scroll-padding-block: 32px; background: var(--color-pure-white); }
@@ -303,10 +302,10 @@ function help() {
 .practice-answer :deep(.v-field__input) { min-height: 54px; line-height: 1.8; }
 .practice-answer :deep(.v-label) { opacity: 1; }
 .practice-answer :deep(.practice-option .practice-text) { font-size: 16px; }
-.practice-feedback-link { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; border-radius: 12px; padding: 14px 16px; background: var(--color-page-cream); font-size: 14px; font-weight: 700; }
+.practice-feedback-link { border: 1px solid var(--color-linen); display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; border-radius: 12px; padding: 14px 16px; background: var(--color-page-cream); font-size: 14px; font-weight: 700; }
 .practice-result-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 12px; background: var(--color-sunbeam-yellow); }
 .practice-feedback { font-size: 16px; line-height: 1.9; }
-.practice-submitted { padding: 16px 20px; border-radius: 12px; background: var(--color-page-cream); }
+.practice-submitted { border: 1px solid var(--color-linen); padding: 16px 20px; border-radius: 12px; background: var(--color-page-cream); }
 .practice-submitted pre { font-family: var(--font-mono); font-size: 15px; line-height: 1.8; }
 .practice-feedback-group { border-top: 1px solid var(--color-linen); padding-top: 24px; }
 .practice-feedback-item { display: flex; align-items: flex-start; gap: 12px; }

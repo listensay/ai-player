@@ -216,12 +216,12 @@ test('切换课节取消请求，旧题不会进入新课节', async t => {
   assert.equal(h.practice.state.records.length, 0)
 })
 
-test('请求期间更换 AI 配置，旧结果不会写入', async t => {
+for (const [field, value] of [['model', 'another'], ['provider', 'anthropic'], ['contextWindow', '1m']]) test(`请求期间更换 AI ${field}，旧结果不会写入`, async t => {
   const pending = deferred()
   const h = harness(t, { requestGuideJson: () => pending.promise })
   await open(h)
   const generation = h.practice.generate()
-  h.settings.model = 'another'
+  h.settings[field] = value
   pending.resolve(question())
   await generation
   assert.equal(h.practice.history.value.length, 0)

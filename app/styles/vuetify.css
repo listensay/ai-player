@@ -49,7 +49,10 @@
 .v-select__selection-text { white-space: normal; overflow-wrap: anywhere; }
 .v-overlay__content { font-family: var(--font-sans); }
 .v-dialog > .v-overlay__content { max-width: calc(100% - 24px); max-height: calc(100% - 32px); margin: 12px; }
-.paper-dialog { border: 1px solid var(--color-linen); border-radius: 24px; background: var(--color-page-cream); color: var(--color-charcoal-ink); overflow: hidden; box-shadow: var(--shadow-float); }
+/* Dialog surfaces stay white, including neutral sections in shared child components. */
+.v-dialog { --color-page-cream: var(--color-pure-white); }
+.paper-dialog { border: 1px solid var(--color-linen); border-radius: 24px; background: var(--color-pure-white); color: var(--color-charcoal-ink); overflow: hidden; box-shadow: var(--shadow-float); }
+.v-dialog > .v-overlay__content > .v-card { background: var(--color-pure-white); }
 /* The menu shell owns the surface; its scrolling list must not paint a second card. */
 .v-menu > .v-overlay__content,
 .v-menu > .v-overlay__content.v-select__content {
@@ -95,7 +98,7 @@
 .sidebar-panels > .v-expansion-panel > .v-expansion-panel-title { min-height: 36px; padding: 8px; font-size: 12px; color: var(--color-deep-indigo); }
 .sidebar-panels > .v-expansion-panel > .v-expansion-panel-text > .v-expansion-panel-text__wrapper { padding: 0; }
 .practice-option { border: 1px solid var(--color-linen); border-radius: 16px; padding: 8px 12px; margin-top: 10px; }
-.practice-option:has(input:checked) { border-color: var(--color-deep-indigo); background: color-mix(in srgb, var(--color-deep-indigo) 5%, white); }
+.practice-option:has(input:checked) { border-color: var(--color-deep-indigo); background: var(--color-pure-white); }
 .practice-option .v-label { white-space: normal; flex: 1; padding-block: 4px; }
 .practice-option .v-selection-control { align-items: flex-start; }
 .practice-option .v-selection-control__input { margin-top: 3px; }
