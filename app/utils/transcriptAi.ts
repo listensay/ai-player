@@ -61,15 +61,17 @@ export function validateTranscriptCorrections(raw: unknown, batch: TranscriptSeg
   if (!isRecord(raw) || !Array.isArray(raw.items)) {
     throw new Error('AI 未返回有效校对列表，请重试。')
   }
+  if (raw.items.length !== batch.length) throw new Error('AI 校对结果不完整，请重试本批次。')
 
   const validIds = new Set(batch.map((s) => s.id))
   for (const item of raw.items) {
-    if (!isRecord(item)) continue
-    const id = typeof item.id === 'number' ? item.id : Number(item.id)
-    if (!Number.isFinite(id) || !validIds.has(id)) continue
-    if (typeof item.text !== 'string') continue
+    if (!isRecord(item) || typeof item.id !== 'number' || !Number.isInteger(item.id)
+      || !validIds.has(item.id) || corrections.has(item.id) || typeof item.text !== 'string') {
+      throw new Error('AI 校对结果含无效或重复的句子，请重试本批次。')
+    }
+    const id = item.id
     const cleaned = item.text.replace(/\s+/g, ' ').trim()
-    if (!cleaned || cleaned.length > 2000) continue
+    if (!cleaned || cleaned.length > 2000) throw new Error('AI 校对文本无效，请重试本批次。')
     corrections.set(id, cleaned)
   }
 

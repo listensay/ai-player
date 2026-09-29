@@ -107,3 +107,32 @@ test('停用、课程暂停、重新启用与同步失败都保留明确的待�
   assert.equal(macReminderStatus({ ...r, title: '保存未同步' }, link).pending, true)
   assert.equal(link.snapshot.title, r.title)
 })
+
+const { hasStudyActivity, studiedForReminder, suppressStudiedReminder } = await import('../app/utils/studyTools.ts')
+test('以当天实际观看或实践投入判断开始学习，浏览课程和历史进度不算', () => {
+  const date = '2026-09-28'
+  assert.equal(hasStudyActivity({ [date]: { seconds: 0 } }, null, date), false)
+  assert.equal(hasStudyActivity({ '2026-09-27': { seconds: 100 } }, null, date), false)
+  assert.equal(hasStudyActivity({ [date]: { seconds: 0.2 } }, null, date), true)
+  assert.equal(hasStudyActivity({}, { entries: [{ date, minutes: 1 }] }, date), true)
+  assert.equal(hasStudyActivity({}, { entries: [{ date, minutes: 0, done: true }] }, date), false)
+  assert.equal(hasStudyActivity({}, { entries: [{ date: '2026-09-27', minutes: 10 }] }, date), false)
+})
+test('课程提醒只匹配关联课程，通用提醒匹配任何课程，次日恢复', () => {
+  const studied = { a: '2026-09-28' }
+  assert.equal(studiedForReminder(reminder({ courseId: 'a' }), studied, '2026-09-28'), true)
+  assert.equal(studiedForReminder(reminder({ courseId: 'b' }), studied, '2026-09-28'), false)
+  assert.equal(studiedForReminder(reminder(), studied, '2026-09-28'), true)
+  assert.equal(studiedForReminder(reminder(), studied, '2026-09-29'), false)
+})
+test('开始学习消除已弹出和稍后提醒，保存重启不补发，次日正常提醒', () => {
+  const now = new Date(2026, 8, 28, 19)
+  const r = reminder({ pending: true, snoozedUntil: now.getTime() + 600000 })
+  assert.equal(suppressStudiedReminder(r, now), true)
+  assert.equal(r.pending, false)
+  assert.equal(r.snoozedUntil, null)
+  const restored = JSON.parse(JSON.stringify(r))
+  assert.equal(deliverReminder(restored, new Date(2026, 8, 28, 21)), false)
+  assert.equal(suppressStudiedReminder(restored, now), false)
+  assert.equal(deliverReminder(restored, new Date(2026, 8, 29, 20)), true)
+})

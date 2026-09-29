@@ -263,3 +263,38 @@ test('保存、切换和重新加载保留上下文选项并清理旧输出长�
   assert.equal(ai.settings.contextWindow, '1m')
   assert.equal(ai.state.collection.activeId, id)
 })
+
+const { testAiConnection } = await import('../app/utils/aiConnectionTest.ts')
+test('连接测试使用当前配置与固定探针，两种协议均验证模型输出且不修改配置', async () => {
+  for (const provider of ['openai', 'anthropic']) {
+    const draft = { ...settings, provider, contextWindow: '1m' }
+    const before = structuredClone(draft)
+    const calls = transport(provider === 'anthropic' ? nativeReply() : openaiReply())
+    const result = await testAiConnection(draft, new AbortController().signal)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].body.model, 'test-model')
+    assert.equal(calls[0].body.messages.at(-1).content, '这是连接测试。请只返回 JSON：{"ok":true}。')
+    assert.deepEqual(draft, before)
+    assert.ok(result.milliseconds >= 0)
+  }
+})
+test('连接测试不能将鉴权失败或错误响应视为成功', async () => {
+  transport({}, 401)
+  await assert.rejects(testAiConnection(settings, new AbortController().signal), /密钥/)
+  transport(openaiReply({ message: { content: '{"ok":false}' } }))
+  await assert.rejects(testAiConnection(settings, new AbortController().signal), /预期的 JSON/)
+})
+test('连接测试可手动取消并在三十秒超时后终止请求', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  globalThis.aiServiceIO = { fetch: async (_, { signal }) => new Promise((_, reject) => {
+    if (signal.aborted) { reject(signal.reason); return }
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  }) }
+  const controller = new AbortController()
+  const cancelled = assert.rejects(testAiConnection(settings, controller.signal), /测试已取消/)
+  controller.abort()
+  await cancelled
+  const timedOut = assert.rejects(testAiConnection(settings, new AbortController().signal), /超过 30 秒/)
+  t.mock.timers.tick(30000)
+  await timedOut
+})

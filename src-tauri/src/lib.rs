@@ -1,4 +1,5 @@
 mod asr;
+mod companion;
 mod db;
 mod files;
 mod media_duration;
@@ -83,6 +84,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(asr::AsrManager::default())
         .manage(reminder_links::ReminderLinks::default())
+        .manage(companion::CompanionHitState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
@@ -115,6 +117,10 @@ pub fn run() {
             asr::asr_cancel,
             frontend_ready,
             finish_close,
+            companion::open_companion,
+            companion::set_companion_hit_regions,
+            companion::set_companion_fullscreen,
+            companion::reveal_learning_window,
             database_request,
             export_learning_plan,
             mac_reminders::mac_reminders_status,

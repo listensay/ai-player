@@ -7,9 +7,10 @@ export interface KnowledgePoint {
 }
 
 export interface LessonSummary {
-  version: 1
+  version: 2
   path: string
   fingerprint: string
   createdAt: number
+  overview: string
   points: KnowledgePoint[]
 }

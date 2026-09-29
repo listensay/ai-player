@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReminderTimePicker from '~/components/ReminderTimePicker.vue'
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePageTitle } from '~/composables/usePageTitle'
@@ -73,7 +74,7 @@ const coursePaused = (id: string) => !!id && !home.courses.value.some(c => c.cou
       <template v-else>
         <section class="space-y-5" aria-label="学习提醒设置">
           <div class="pane flex flex-wrap items-center justify-between gap-3 p-5">
-            <div><h2 class="text-subheading">学习提醒</h2><p class="mt-2 text-caption text-stone">软件内提醒需保持应用运行。暂停或归档的关联课程会暂停软件内提醒。</p></div>
+            <div><h2 class="text-subheading">学习提醒</h2><p class="mt-2 text-caption text-stone">当天开始观看或记录实践时间后，不再发送该课程的软件内和系统通知，并取消稍后提醒；次日恢复。未关联课程的提醒在当天任一课程开始学习后停止。暂停或归档的课程不提醒。Mac 提醒事项独立运行。</p></div>
             <UiButton variant="dark" :disabled="!!tools.state.saving || tools.mac.busy" @click="editReminder()"><AppIcon name="plus" :size="17" />添加提醒</UiButton>
           </div>
           <p v-if="tools.mac.notice" role="status" class="text-body-sm text-deep-indigo">{{ tools.mac.notice }}</p>
@@ -107,7 +108,7 @@ const coursePaused = (id: string) => !!id && !home.courses.value.some(c => c.cou
 
     <StudyFormDialog v-model:open="reminderDialog" :title="reminder.id ? '编辑提醒' : '添加提醒'" title-id="reminder-title" submit-label="保存提醒" :busy="!!tools.state.saving || tools.mac.busy" :error="formError" @submit="saveReminder">
       <VTextField v-model="reminder.title" label="提醒内容" maxlength="80" autofocus />
-      <VTextField v-model="reminder.time" label="提醒时间" type="time" />
+      <ReminderTimePicker v-model="reminder.time" />
       <VSelect v-model="reminder.weekdays" label="重复日" :items="weekdays" multiple chips />
       <VSelect v-model="reminder.courseId" label="关联课程" :items="scopeOptions" />
       <VCheckbox v-model="reminder.enabled" label="启用提醒" />

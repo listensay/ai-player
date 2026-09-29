@@ -26,7 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   play: [video: VideoEntry]
   segment: [item: TodayItem]
-  guide: [tab?: 'plan' | 'today' | 'help' | 'settings']
+  guide: [tab?: 'plan' | 'today' | 'settings']
 }>()
 
 const progress = useProgress()
@@ -103,13 +103,11 @@ const allocation = computed(() => {
 const videoItems = computed(() => guide.state.today?.items ?? [])
 const nextVideoItem = computed(() => videoItems.value.find(i => !i.done))
 function itemTitle(item: TodayItem) {
-  if (item.questionId) return guide.state.questions.find(q => q.id === item.questionId)?.text ?? '处理疑问'
   const video = guide.videoMap.value.get(item.path)
   return video ? conciseLessonTitle(video.title) : item.path
 }
 function startItem(item: TodayItem) {
   tasksOpen.value = false
-  if (item.questionId) { emit('guide', 'help'); return }
   emit('segment', item)
 }
 const stageOptions = computed(() => {
@@ -197,7 +195,7 @@ const todayMinutes = computed(() => Math.floor((todayVideoSeconds.value + (guide
             <span class="flex items-center gap-3"><span class="h-1.5 w-28 overflow-hidden rounded-full bg-linen" role="progressbar" aria-label="视频观看进度" :aria-valuenow="progressPercent" :aria-valuemin="0" :aria-valuemax="100"><span class="block h-full rounded-full bg-deep-indigo" :style="{ width: `${progressPercent}%` }" /></span><span class="text-caption tabular">{{ progressPercent }}%</span></span>
           </div>
         </div>
-        <div class="flex shrink-0 flex-wrap items-center gap-3">
+        <div class="overview-course-actions grid shrink-0 grid-cols-2 items-center gap-3">
           <UiButton v-if="resumeVideo" variant="dark" @click="startResume"><AppIcon name="play" :size="17" />{{ viewStats.done === viewStats.total ? '复习第一节' : viewStats.started || viewStats.done ? '继续学习' : '开始学习' }}</UiButton>
           <UiButton @click="planOpen = true">学习计划</UiButton>
         </div>
@@ -344,7 +342,6 @@ const todayMinutes = computed(() => Math.floor((todayVideoSeconds.value + (guide
           <p class="mt-4 text-body-sm font-medium leading-relaxed">{{ activeModule.title }}</p>
           <p v-if="activeProgress" class="mt-3 text-caption text-stone">视频已看完 {{ activeProgress.video.done }} / {{ activeProgress.video.total }} 节</p>
           <UiButton class="mt-4" size="sm" variant="text" @click="stageOpen = true">阶段详情与验收<AppIcon name="chevron-right" :size="15" /></UiButton>
-          <button v-if="guide.unresolvedQuestions.value.length" type="button" class="mt-3 block text-caption font-bold text-deep-indigo" @click="emit('guide', 'help')">{{ guide.unresolvedQuestions.value.length }} 个待解决疑问</button>
         </section>
         <section class="pane p-6" aria-label="近 7 天学习时长">
           <div class="flex items-center justify-between gap-2"><h2 class="text-body font-bold">学习记录</h2><UiButton size="sm" variant="text" @click="historyOpen = true">查看日历</UiButton></div>
@@ -401,7 +398,7 @@ const todayMinutes = computed(() => Math.floor((todayVideoSeconds.value + (guide
                   <div class="min-w-0 flex-1">
                     <button type="button" class="block max-w-full text-left text-body-sm font-bold text-charcoal-ink [overflow-wrap:anywhere] hover:text-deep-indigo"
                       :class="item.done ? 'text-stone line-through' : ''" @click="startItem(item)">{{ itemTitle(item) }}</button>
-                    <p class="mt-1 text-caption text-stone">{{ item.kind === 'question' ? '处理疑问' : item.kind === 'review' ? '补学基础' : '学习片段' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
+                    <p class="mt-1 text-caption text-stone">{{ item.kind === 'review' ? '补学基础' : '学习片段' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
                   </div>
                 </li>
               </ul>
@@ -419,6 +416,7 @@ const todayMinutes = computed(() => Math.floor((todayVideoSeconds.value + (guide
 </template>
 
 <style scoped>
+.overview-course-actions :deep(.ui-button) { width: 100%; min-width: 124px; box-shadow: none; }
 .overview-page { flex: 1; min-height: 0; overflow-y: auto; padding: 40px 32px; background: var(--color-page-cream); }
 .overview-shell { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 32px; max-width: 1440px; margin-inline: auto; }
 .overview-course-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; padding: 0 4px 8px; }

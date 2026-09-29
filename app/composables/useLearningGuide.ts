@@ -1,25 +1,24 @@
+import { useGuideScheduling } from '~/composables/useGuideScheduling'
+import { useGuideMastery } from '~/composables/useGuideMastery'
+import { useGuideAi } from '~/composables/useGuideAi'
 import { onBeforeUnmount, onMounted, computed, reactive, ref, watch, inject, provide } from 'vue'
 import type { Ref } from 'vue'
 import { useAiSettings } from '~/composables/useAiSettings'
 import { useProgress } from '~/composables/useProgress'
 import { desktopInvoke } from '~/utils/platform'
 import type { Course, VideoEntry } from '~/types/course'
-import type { ConceptMastery, FallbackRecommendation, LearningPlan, LearningQuestion, LessonMetadata, LessonStatus, MasteryLevel, QuestionStatus, StudyProgram, StudyRecords, SubtitleCue, TodayPlan, WorkEntry } from '~/types/guide'
+import type { ConceptMastery, LearningPlan, LearningQuestion, LessonMetadata, LessonStatus, StudyRecords, TodayPlan } from '~/types/guide'
 import { adjacentRoutePath, buildSchedule, dependencyRisks, isRecord, orderedRoute, retainPrerequisites, validateLearningPlan } from '~/utils/guide'
-import { planPrompt, practicePrompt, requestGuideJson } from '~/utils/guideAi'
-import { collectGuideMetadata, loadLessonSubtitles, relevantCues } from '~/utils/guideMedia'
-import { applyMastery, lessonConcepts, lessonMastery, localDayKey, masteryKey, restoreFeedback } from '~/utils/learningFeedback'
-import {
-  applyPractice, budgetTotal, checkKey, compareRoutes, conciseLessonTitle, emptyStudyRecords, inheritProgram, isLightDay,
-  parsePracticeImport, parseProgram, programDay, restoreStudyRecords, stageForDay, stageProgress, videoFinishDay,
-} from '~/utils/studyProgram'
-import { dbFetchGuide, dbSaveGuide, dbSaveSetting } from '~/utils/dbClient'
+import { collectGuideMetadata } from '~/utils/guideMedia'
+import { lessonMastery, localDayKey, restoreFeedback } from '~/utils/learningFeedback'
+import { applyPractice, budgetTotal, compareRoutes, conciseLessonTitle, emptyStudyRecords, inheritProgram, isLightDay, parsePracticeImport, programDay, restoreStudyRecords, stageForDay, stageProgress, videoFinishDay } from '~/utils/studyProgram'
+import { useGuidePersistence } from '~/composables/useGuidePersistence'
+import { dbFetchGuide } from '~/utils/dbClient'
 import { databaseRequest } from '~/utils/database'
 import { calculateDay, daySnapshot } from '~/utils/dailyPlan'
 
 const GUIDE_KEY = Symbol.for('ai-player.learning-guide')
 const recordsKey = (courseId: string) => `study-records:${courseId}`
-const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: Ref<boolean> = ref(true)) {
   const progress = useProgress()
@@ -29,14 +28,12 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     metadata: {} as Record<string, LessonMetadata>,
     view: 'all' as 'all' | 'route',
     includeOptional: false,
-    busy: '' as '' | 'plan' | 'fallback' | 'practice',
+    busy: '' as '' | 'plan' | 'practice',
     error: '', storageError: '', notice: '',
     scanning: false, scanned: 0,
-    recommendations: [] as FallbackRecommendation[],
-    fallbackMessage: '', fallbackQuestion: '', fallbackSource: '',
     mastery: {} as Record<string, ConceptMastery>,
+    /** 仅保留旧版疑问记录用于存储兼容，不再参与 AI 或今日排期。 */
     questions: [] as LearningQuestion[],
-    activeQuestionId: '',
     today: null as TodayPlan | null,
     /** 实践记录、验收证据与路线撤销快照，单独存放，不随 AI 重新规划而丢失。 */
     records: emptyStudyRecords() as StudyRecords,
@@ -46,80 +43,28 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
   })
   let activeId = ''
   let activePaths: string[] = []
-  let request: AbortController | null = null
   let scanner: AbortController | null = null
-  let saveTimer: ReturnType<typeof setTimeout> | null = null
-  let recordsTimer: ReturnType<typeof setTimeout> | null = null
   const recordsReady = ref(false)
   const guideReady = ref(false)
   let loadRevision = 0
-  let lastSaved = ''
   const todayDate = ref(localDayKey())
   let dayTimer: ReturnType<typeof setInterval> | undefined
 
-  function persist() {
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = null
-    persistRecords()
-    if (!activeId || !guideReady.value) return
-    const data = plain({
-      courseId: activeId,
-      plan: state.plan,
-      metadata: state.metadata,
-      view: state.view,
-      includeOptional: state.includeOptional,
-      mastery: state.mastery,
-      questions: state.questions,
-      today: state.today,
-    })
-    const serialized = JSON.stringify(data)
-    if (serialized === lastSaved) return
-    lastSaved = serialized
-    const revision = loadRevision
-    void dbSaveGuide(data).then(saved => {
-      if (revision !== loadRevision) return
-      if (!saved) {
-        lastSaved = ''
-        state.storageError = '导学数据保存失败，原有记录已保留。请重新打开课程后重试。'
-      }
-    })
-  }
-
-  function persistRecords() {
-    if (recordsTimer) clearTimeout(recordsTimer)
-    recordsTimer = null
-    // 读取失败时不写入，避免空记录覆盖已保存的实践与验收数据。
-    if (!activeId || !recordsReady.value) return
-    const revision = loadRevision
-    void dbSaveSetting(recordsKey(activeId), plain(state.records)).then(saved => {
-      if (!saved && revision === loadRevision) state.storageError = '实践与计划调整记录保存失败，请重试。'
-    })
-    captureDay()
-  }
-
-  let lastSnapshot = ''
-  function captureDay() {
-    if (!activeId || course.value?.id !== activeId || !guideReady.value || !recordsReady.value || !state.plan) return
-    const snapshot = daySnapshot(dayContext.value, todayDate.value)
-    const content = JSON.stringify({ ...snapshot, capturedAt: 0 })
-    if (content === lastSnapshot) return
-    lastSnapshot = content
-    const revision = loadRevision
-    void databaseRequest('day-snapshots', { method: 'POST', body: { courseId: activeId, snapshot } }).catch(() => {
-      if (revision === loadRevision) { lastSnapshot = ''; state.storageError = '每日计划记录保存失败，请重试。' }
-    })
-  }
-
-  function cancel() {
-    request?.abort()
-    request = null
-    state.busy = ''
-  }
+  const persistence = useGuidePersistence({
+    revision: () => loadRevision,
+    guide: () => !activeId || !guideReady.value ? null : ({
+      courseId: activeId, plan: state.plan, metadata: state.metadata, view: state.view,
+      includeOptional: state.includeOptional, mastery: state.mastery, questions: state.questions, today: state.today,
+    }),
+    records: () => !activeId || !recordsReady.value ? null : ({ key: recordsKey(activeId), value: state.records }),
+    day: () => !activeId || course.value?.id !== activeId || !guideReady.value || !recordsReady.value || !state.plan
+      ? null : ({ courseId: activeId, snapshot: daySnapshot(dayContext.value, todayDate.value) }),
+    error: message => { state.storageError = message },
+  })
+  const { persist, persistRecords, captureDay } = persistence
 
   const lessonMap = computed(() => new Map(state.plan?.lessons.map(l => [l.path, l]) ?? []))
   const masteredPaths = computed(() => new Set((state.plan?.lessons ?? []).filter(l => lessonMastery(l, state.mastery) === 'mastered').map(l => l.path)))
-  const unresolvedQuestions = computed(() => state.questions.filter(q => q.status !== 'resolved'))
-  const activeQuestion = computed(() => state.questions.find(q => q.id === state.activeQuestionId))
   const route = computed(() => orderedRoute(state.plan?.lessons ?? [], state.includeOptional))
   const routePaths = computed(() => route.value.map(l => l.path))
   const videoMap = computed(() => new Map(course.value?.videos.map(v => [v.path, v]) ?? []))
@@ -200,168 +145,6 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     return plan
   }
 
-  function snapshot(label: string) {
-    if (!state.plan) return
-    state.records.undo = { plan: plain(state.plan), includeOptional: state.includeOptional, view: state.view, label, at: Date.now(),
-      todayOverride: { date: todayDate.value, minutes: state.today?.override ?? null } }
-  }
-
-  function undo() {
-    const revision = state.records.undo
-    if (!revision || !course.value || state.busy) return false
-    let plan: LearningPlan
-    try { plan = restorePlan(revision.plan) } catch {
-      state.records.undo = null
-      state.error = '撤销记录与当前课程目录不一致，无法恢复。'
-      return false
-    }
-    if (revision.scheduleOnly && state.plan) {
-      state.plan.program = plan.program; state.plan.dailyMinutes = plan.dailyMinutes
-      for (const module of state.plan.modules) {
-        const previous = plan.modules.find(m => m.id === module.id)?.practice
-        if (module.practice && previous) { module.practice.startDay = previous.startDay; module.practice.endDay = previous.endDay }
-      }
-    } else { state.plan = plan; state.view = revision.view; state.includeOptional = revision.includeOptional }
-    if (state.today && revision.todayOverride?.date === todayDate.value) state.today.override = revision.todayOverride.minutes
-    state.records.undo = null; state.pending = null
-    state.notice = `已撤销“${revision.label}”。`
-    refreshWork(); refreshToday(); persist()
-    return true
-  }
-
-  function applySchedule(plan: LearningPlan, label: string) {
-    if (!guideReady.value || !recordsReady.value || state.busy || !plan.program) return false
-    try { parseProgram(plan.program) } catch (error) { state.error = (error as Error).message; return false }
-    if (!state.plan) {
-      state.plan = plain(plan); state.view = 'route'; state.includeOptional = false
-      state.notice = '已设置学习计划。'; refreshWork(); refreshToday(); persist(); return true
-    }
-    snapshot(label)
-    state.records.undo!.scheduleOnly = true
-    state.plan.program = plain(plan.program)
-    state.plan.dailyMinutes = plan.dailyMinutes
-    for (const module of state.plan.modules) {
-      const next = plan.modules.find(m => m.id === module.id)?.practice
-      if (module.practice && next) { module.practice.startDay = next.startDay; module.practice.endDay = next.endDay }
-    }
-    if (state.today) state.today.override = null
-    state.error = ''; state.notice = `已${label}，可撤销。`
-    refreshWork(); refreshToday(); persist()
-    return true
-  }
-
-  function applyPending() {
-    const pending = state.pending
-    if (!pending || state.busy) return
-    snapshot(pending.label)
-    state.plan = pending.plan
-    state.view = 'route'; state.includeOptional = false
-    state.pending = null
-    state.recommendations = []; state.fallbackMessage = ''
-    state.notice = pending.notice
-    persist()
-  }
-
-  function discardPending() {
-    if (!state.pending) return
-    state.pending = null
-    state.notice = '已放弃调整。'
-  }
-
-  function setActiveModule(id: string) {
-    if (id && !moduleMap.value.has(id)) return
-    state.records.activeModuleId = id
-    refreshWork()
-  }
-
-  function refreshWork() {
-    const current = program.value
-    if (!state.plan || !current || !recordsReady.value || planDay.value === null || planDay.value < 1 || !todayBudget.value) return
-    const entries = calculateDay(dayContext.value, todayDate.value).work
-    if (JSON.stringify(entries) === JSON.stringify(todayWork.value)) return
-    state.records.entries = [...state.records.entries.filter(e => e.date !== todayDate.value), ...entries]
-  }
-
-  function updateWork(id: string, patch: Partial<Pick<WorkEntry, 'minutes' | 'evidence' | 'done'>>) {
-    const entry = state.records.entries.find(e => e.id === id)
-    if (!entry) return false
-    if (patch.minutes !== undefined) {
-      if (!Number.isInteger(patch.minutes) || patch.minutes < 0 || patch.minutes > 1440) { state.error = '投入时间应为 0–1440 的整数分钟。'; return false }
-      entry.minutes = patch.minutes
-    }
-    if (patch.evidence !== undefined) entry.evidence = patch.evidence.slice(0, 6000)
-    if (patch.done !== undefined) entry.done = patch.done
-    state.error = ''
-    refreshWork()
-    return true
-  }
-
-  function setCheck(moduleId: string, checkId: string, evidence: string, passed: boolean) {
-    const check = moduleMap.value.get(moduleId)?.practice?.checks.find(c => c.id === checkId)
-    if (!check) return false
-    const value = evidence.trim().slice(0, 6000)
-    if (passed && !value) { state.error = '请先填写验收证据，例如仓库链接、测试结果或演示说明。'; return false }
-    state.records.checks[checkKey(moduleId, checkId)] = { text: check.text, evidence: value, passed, updatedAt: Date.now() }
-    state.error = ''
-    return true
-  }
-
-  /** 保存完整学习计划；看课额度同步为播放器排期使用的每日时间。 */
-  function setProgram(value: StudyProgram) {
-    if (!state.plan || state.busy) return false
-    let next: StudyProgram
-    try { next = parseProgram(plain(value)) } catch (err) { state.error = (err as Error).message; return false }
-    const overflow = state.plan.modules.find(m => m.practice && m.practice.endDay > next.days)
-    if (overflow) { state.error = `阶段“${overflow.title}”安排到第 ${overflow.practice!.endDay} 天，总天数不能少于该值。`; return false }
-    snapshot('编辑学习计划')
-    state.records.undo!.scheduleOnly = true
-    state.plan.program = next
-    if (next.budget.video >= 5) state.plan.dailyMinutes = next.budget.video
-    state.error = ''
-    state.notice = '完整学习计划已保存。'
-    refreshWork()
-    return true
-  }
-
-  function defaultProgram(): StudyProgram {
-    const video = state.plan?.dailyMinutes ?? 60
-    return { days: Math.min(1095, Math.max(7, schedule.value.days || 30)), startDate: todayDate.value,
-      budget: { video, code: 0, project: 0, recap: 0 }, lightEvery: 0, lightMinutes: 60 }
-  }
-
-  function planForScheduling(): LearningPlan {
-    if (state.plan) return { ...plain(state.plan), program: plain(state.plan.program ?? defaultProgram()) }
-    return { version: 1, createdAt: Date.now(), summary: '按课程顺序学习', profile: '按原课程目录安排学习', dailyMinutes: 30,
-      modules: [{ id: 'course', title: '课程学习', description: '按原课程顺序安排视频学习。' }], messages: [],
-      lessons: (course.value?.videos ?? []).map((video, index, videos) => ({ path: video.path, moduleId: 'course', concepts: [],
-        prerequisites: index ? [videos[index - 1]!.path] : [], status: 'required', reason: '按课程顺序学习' })),
-      program: { ...defaultProgram(), budget: { video: 30, code: 0, project: 0, recap: 0 } } }
-  }
-
-  async function generatePractice() {
-    if (!guideReady.value) return false
-    const current = course.value
-    if (!current || !state.plan || state.busy) return false
-    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return false }
-    const controller = new AbortController()
-    request = controller; state.busy = 'practice'; state.error = ''; state.notice = ''
-    try {
-      const raw = await requestGuideJson({ ...state.settings }, practicePrompt(state.plan, route.value, todayDate.value), controller.signal)
-      if (controller.signal.aborted || current.id !== activeId || !state.plan) return false
-      const practice = parsePracticeImport(raw, state.plan.modules, state.plan.program)
-      snapshot('AI 补全实践安排')
-      applyPractice(state.plan, practice)
-      state.notice = `已为 ${Object.keys(practice.stages).length} 个阶段补充实践任务与验收清单，可在知识地图中查看。`
-      refreshWork(); persist()
-      return true
-    } catch (err) {
-      if (!controller.signal.aborted) state.error = (err as Error).message
-      return false
-    } finally {
-      if (request === controller) { request = null; state.busy = '' }
-    }
-  }
-
   /** 导入导出的学习路线（先预览再应用），或只包含 program / stages 的实践安排。 */
   function importFile(content: string) {
     if (!guideReady.value) return false
@@ -393,51 +176,6 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     } catch (err) {
       state.error = (err as Error).message
       return false
-    }
-  }
-
-  async function generate(text: string, dailyMinutes: number) {
-    if (!guideReady.value) { state.error = '导学数据尚未读取成功，请重新打开课程后重试。'; return false }
-    const current = course.value
-    if (!current || state.busy) return false
-    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return false }
-    if (!text.trim()) { state.error = '请填写已有基础与学习目标。'; return false }
-    if (text.length > 6000) { state.error = '学习要求请控制在 6000 字以内。'; return false }
-    if (!Number.isFinite(dailyMinutes) || dailyMinutes < 5 || dailyMinutes > 1440) {
-      state.error = '每日学习时间应为 5–1440 分钟。'; return false
-    }
-    const controller = new AbortController()
-    request = controller
-    state.busy = 'plan'; state.error = ''; state.notice = ''
-    try {
-      const previous = state.plan
-      const raw = await requestGuideJson({ ...state.settings }, planPrompt(current.videos.map(v => ({
-        path: v.path, title: v.title, duration: durations.value[v.path] ?? null, done: !!progress.get(current.id, v.path)?.done,
-      })), text.trim(), dailyMinutes, previous, { mastery: Object.values(state.mastery), questions: state.questions.map(q => ({ path: q.path, text: q.text, status: q.status })) }, todayDate.value), controller.signal)
-      if (controller.signal.aborted || current.id !== activeId) return false
-      const plan = inheritProgram(validateLearningPlan(raw, current.videos.map(v => v.path)), previous)
-      const promoted = retainPrerequisites(plan.lessons, false, masteredPaths.value)
-      applyMastery(plan.lessons, state.mastery)
-      plan.messages = [...(previous?.messages ?? []).slice(-18), { role: 'user', content: text.trim() }, { role: 'assistant', content: plan.summary }]
-      const notice = promoted.length ? `已保留 ${promoted.length} 节必要的前置课。` : '学习路线已生成，可根据掌握程度调整课节。'
-      if (previous) {
-        // 已有路线时先预览变化，由用户确认后再替换。
-        state.pending = { plan, label: 'AI 调整路线', notice: `路线已更新。${promoted.length ? notice : ''}` }
-        state.notice = ''
-        return true
-      }
-      state.plan = plan
-      state.view = 'route'
-      state.includeOptional = false
-      state.recommendations = []; state.fallbackMessage = ''
-      state.notice = notice
-      persist()
-      return true
-    } catch (err) {
-      if (!controller.signal.aborted) state.error = (err as Error).message
-      return false
-    } finally {
-      if (request === controller) { request = null; state.busy = '' }
     }
   }
 
@@ -489,180 +227,6 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     return path ? videoMap.value.get(path) : undefined
   }
 
-  function setMastery(path: string, concept: string, level: MasteryLevel | '') {
-    const lesson = lessonMap.value.get(path)
-    if (!lesson || state.busy || !lessonConcepts(lesson).includes(concept)) return
-    const key = masteryKey(path, concept)
-    if (level) state.mastery[key] = { path, concept, level, updatedAt: Date.now() }
-    else delete state.mastery[key]
-    // 撤回标记时保守回到查漏，关键前置课仍会被保留。
-    if (!level && lesson.status === 'skipped') lesson.status = 'optional'
-    applyMastery(state.plan!.lessons, state.mastery)
-    state.notice = '已根据掌握程度更新学习路线，观看记录不受影响。'
-    persist()
-  }
-
-  /** 练习仅记录用户主动确认的本题知识点，支持尚未生成路线的课程。 */
-  function setPracticeMastery(path: string, concepts: string[], level: MasteryLevel | '') {
-    if (!videoMap.value.has(path) || state.busy) return
-    for (const concept of concepts.slice(0, 5)) {
-      if (!concept.trim() || concept.length > 200) continue
-      const key = masteryKey(path, concept)
-      if (level) state.mastery[key] = { path, concept, level, updatedAt: Date.now() }
-      else delete state.mastery[key]
-    }
-    if (state.plan) {
-      const lesson = lessonMap.value.get(path)
-      if (!level && lesson?.status === 'skipped') lesson.status = 'optional'
-      applyMastery(state.plan.lessons, state.mastery)
-    }
-    persist()
-  }
-
-  function saveQuestion(text: string, path: string, seconds: number, id?: string) {
-    if (!videoMap.value.has(path) || !text.trim() || text.trim().length > 3000 || !Number.isFinite(seconds)) return undefined
-    const value = text.trim()
-    const existing = state.questions.find(q => q.id === id)
-      ?? state.questions.find(q => q.path === path && q.text === value && Math.abs(q.seconds - seconds) < 2)
-    if (existing) {
-      if (existing.text !== value) {
-        existing.text = value; existing.status = 'open'; existing.recommendations = []; existing.reviewedPaths = []
-      }
-      existing.updatedAt = Date.now()
-      return existing
-    }
-    const question: LearningQuestion = { id: crypto.randomUUID(), path, seconds: Math.max(0, seconds), text: value,
-      status: 'open', createdAt: Date.now(), updatedAt: Date.now(), recommendations: [], reviewedPaths: [] }
-    state.questions.unshift(question)
-    persist()
-    return state.questions[0]
-  }
-
-  function selectQuestion(id: string) {
-    const question = state.questions.find(q => q.id === id)
-    if (!question || state.busy) return
-    state.activeQuestionId = id
-    state.recommendations = question.recommendations
-    state.fallbackQuestion = question.text; state.fallbackSource = question.path
-    state.fallbackMessage = question.recommendations.length ? '此前推荐的基础课' : ''
-  }
-
-  function markQuestionReview(id: string, path: string) {
-    const question = state.questions.find(q => q.id === id)
-    if (question?.recommendations.some(r => r.path === path) && !question.reviewedPaths.includes(path)) question.reviewedPaths.push(path)
-  }
-
-  function setQuestionStatus(id: string, status: QuestionStatus) {
-    const question = state.questions.find(q => q.id === id)
-    if (!question || state.busy) return
-    question.status = status; question.updatedAt = Date.now()
-    if (status === 'still-confused' && state.plan) {
-      for (const path of question.reviewedPaths) {
-        const lesson = lessonMap.value.get(path)
-        if (lesson) for (const concept of lessonConcepts(lesson)) {
-          state.mastery[masteryKey(path, concept)] = { path, concept, level: 'needs-review', updatedAt: Date.now() }
-        }
-      }
-      applyMastery(state.plan.lessons, state.mastery)
-      state.notice = question.reviewedPaths.length ? '相关基础课已加入补学路线。' : '疑问已保留，可补充描述。'
-    }
-    if (status === 'resolved' && state.today) {
-      for (const item of state.today.items) if (item.questionId === id) item.done = true
-    }
-    persist()
-  }
-
-  function refreshToday(override: number | null | undefined = undefined) {
-    if (!course.value || !guideReady.value) return
-    todayDate.value = localDayKey()
-    if (override !== null && override !== undefined && (!Number.isInteger(override) || override < 0 || override > 1440)) { state.error = '今日时间应为 0–1440 的整数分钟。'; return }
-    const next = calculateDay(dayContext.value, todayDate.value, override)
-    if (budgetTotal(next.budget) > 1440) { state.error = '今日总投入不能超过 1440 分钟。'; return }
-    if (JSON.stringify(state.today) !== JSON.stringify(next.today)) state.today = next.today
-  }
-
-  function completeTodayItem(id: string, done: boolean) {
-    const item = state.today?.items.find(i => i.id === id)
-    if (!item) return
-    item.done = done
-    persist()
-  }
-
-  async function findFallback(question: string, currentVideo: VideoEntry, seconds = 0, questionId?: string) {
-    const current = course.value
-    if (!current || state.busy) return
-    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return }
-    if (!state.plan) { state.error = '请先生成学习路线，再查找基础课。'; return }
-    if (!question.trim()) { state.error = '请描述需要理解的知识点，或在笔记中选中疑问内容。'; return }
-    if (question.length > 3000) { state.error = '请将疑问精简到 3000 字以内。'; return }
-    const entry = saveQuestion(question, currentVideo.path, seconds, questionId)
-    if (!entry) return
-    state.activeQuestionId = entry.id
-    const candidates = state.plan.lessons.filter(l => (l.status === 'skipped' || entry.reviewedPaths.includes(l.path)) && (videoMap.value.get(l.path)?.index ?? Infinity) < currentVideo.index)
-    state.error = ''; state.recommendations = []; state.fallbackMessage = ''
-    state.fallbackQuestion = question.trim(); state.fallbackSource = currentVideo.path
-    if (!candidates.length) { entry.recommendations = []; state.fallbackMessage = '此前无已跳过的基础课，可查看完整目录或调整学习目标。'; return }
-    const controller = new AbortController()
-    request = controller; state.busy = 'fallback'
-    const requestSettings = { ...state.settings }
-    try {
-      const raw = await requestGuideJson(requestSettings, [{ role: 'user', content: `根据疑问，从此前跳过的课节中推荐最多 3 节需要回看的基础课。只选直接相关的课节，没有匹配则返回空数组。keywords 为用于在字幕中检索的 2–5 个具体关键词。不要返回时间点。
-返回 JSON：{"recommendations":[{"path":"候选课节原路径","reason":"与疑问的关系","keywords":["反射"]}]}
-输入数据：${JSON.stringify({ question: question.trim(), current: currentVideo.title, profile: state.plan.profile, candidates })}` }], controller.signal)
-      if (!isRecord(raw) || !Array.isArray(raw.recommendations)) throw new Error('AI 未返回有效的回溯建议，请重试。')
-      const candidatesByPath = new Map(candidates.map(l => [l.path, l]))
-      const seen = new Set<string>()
-      const recommendations = raw.recommendations.slice(0, 3).map((item: unknown) => {
-        if (!isRecord(item) || typeof item.path !== 'string' || !candidatesByPath.has(item.path) || seen.has(item.path)
-          || typeof item.reason !== 'string' || !item.reason.trim()) throw new Error('AI 推荐的课节不在已跳过的候选中，请重试。')
-        seen.add(item.path)
-        return { path: item.path, reason: item.reason.slice(0, 2000), keywords: Array.isArray(item.keywords)
-          ? item.keywords.filter((k): k is string => typeof k === 'string').slice(0, 5) : candidatesByPath.get(item.path)!.concepts }
-      })
-      const evidence = new Map<string, SubtitleCue[]>()
-      await Promise.all(recommendations.map(async rec => {
-        const video = videoMap.value.get(rec.path)
-        if (!video) return
-        const cues = await loadLessonSubtitles(video)
-        const duration = durations.value[rec.path]
-        evidence.set(rec.path, relevantCues(cues.filter(c => !duration || c.end <= duration + 1), rec.keywords))
-      }))
-      if (controller.signal.aborted || current.id !== activeId) return
-      const result: FallbackRecommendation[] = recommendations.map(({ path, reason }) => ({ path, reason }))
-      let segmentWarning = ''
-      if ([...evidence.values()].some(cues => cues.length)) {
-        try {
-          const segments = await requestGuideJson(requestSettings, [{ role: 'user', content: `为疑问选择每节课最相关的一条字幕作为回看起点。只能引用提供的 cueId；不相关的返回 null。不要自行生成时间戳。
-返回 JSON：{"segments":[{"path":"课节原路径","cueId":0}]}
-输入数据：${JSON.stringify({ question, evidence: [...evidence].map(([path, cues]) => ({ path, cues: cues.map(c => ({ cueId: c.id, text: c.text })) })) })}` }], controller.signal)
-          if (!isRecord(segments) || !Array.isArray(segments.segments)) throw new Error('AI 的片段定位格式不正确，请重试。')
-          const verified = new Map<string, SubtitleCue>()
-          const selectedPaths = new Set<string>()
-          for (const segment of segments.segments) {
-            if (!isRecord(segment) || typeof segment.path !== 'string' || !evidence.has(segment.path)) throw new Error('AI 引用了不存在的字幕证据。')
-            if (selectedPaths.has(segment.path)) throw new Error('AI 返回了重复的字幕定位。')
-            selectedPaths.add(segment.path)
-            if (segment.cueId === null) continue
-            const cue = evidence.get(segment.path)?.find(c => c.id === segment.cueId)
-            if (!cue) throw new Error('AI 引用了不存在的字幕片段，未应用此建议。')
-            verified.set(segment.path, cue)
-          }
-          // 全部证据通过校验后才应用，避免残缺响应留下部分时间点。
-          for (const rec of result) rec.cue = verified.get(rec.path)
-        } catch (err) {
-          if (controller.signal.aborted) throw err
-          segmentWarning = '已找到基础课，暂无法定位字幕，可从头观看。'
-        }
-      }
-      if (controller.signal.aborted || current.id !== activeId) return
-      state.recommendations = result
-      entry.recommendations = result
-      state.fallbackMessage = segmentWarning || (result.length ? '已找到基础课，回看后可返回提问位置。' : '已跳过的课节中无匹配结果，请补充术语或疑问描述。')
-    } catch (err) {
-      if (!controller.signal.aborted) state.error = (err as Error).message
-    } finally { if (request === controller) { request = null; state.busy = '' } }
-  }
-
   async function exportPlan() {
     if (!state.plan || !course.value) return
     const content = JSON.stringify({ course: course.value.name, plan: state.plan, mastery: state.mastery, questions: state.questions, today: state.today,
@@ -671,20 +235,28 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     catch { state.error = '学习路线导出失败，请重试。' }
   }
 
+  const { snapshot, undo, applySchedule, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, planForScheduling, refreshToday, completeTodayItem } = useGuideScheduling(state, {
+    course, guideReady, recordsReady, todayDate, moduleMap, program, planDay, todayBudget, todayWork, dayContext, schedule, restorePlan, persist,
+  })
+  const { setMastery, setPracticeMastery } = useGuideMastery(state, { lessonMap, videoMap, persist })
+  const { generate, generatePractice, cancel } = useGuideAi(state, {
+    course, activeId: () => activeId, guideReady, configured, progress, durations, route, todayDate,
+    masteredPaths, snapshot, refreshWork, persist,
+  })
+
   watch(() => course.value?.id, async (_id, _oldId, onCleanup) => {
     let stale = false
     onCleanup(() => { stale = true })
     persist(); cancel(); scanner?.abort()
     loadRevision++
     guideReady.value = false
-    lastSaved = ''
-    lastSnapshot = ''
+    persistence.reset()
     const current = course.value
     activeId = current?.id ?? ''; activePaths = current?.videos.map(v => v.path) ?? []
     recordsReady.value = false
     Object.assign(state, { plan: null, metadata: {}, view: 'all', includeOptional: false, scanned: 0, scanning: false,
-      error: '', storageError: '', notice: '', recommendations: [], fallbackMessage: '', fallbackQuestion: '', fallbackSource: '',
-      mastery: {}, questions: [], today: null, activeQuestionId: '', records: emptyStudyRecords(), pending: null })
+      error: '', storageError: '', notice: '',
+      mastery: {}, questions: [], today: null, records: emptyStudyRecords(), pending: null })
     if (!current) return
     const records = databaseRequest<unknown>('settings', { query: { key: recordsKey(current.id) } })
       .then(value => ({ ok: true as const, value }), () => ({ ok: false as const, value: null }))
@@ -733,12 +305,10 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
 
   watch(() => [state.plan, state.view, state.includeOptional, state.mastery, state.questions, state.today], () => {
     if (!guideReady.value) return
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(persist, 200)
+    persistence.schedule()
   }, { deep: true })
   watch(() => state.records, () => {
-    if (recordsTimer) clearTimeout(recordsTimer)
-    recordsTimer = setTimeout(persistRecords, 300)
+    persistence.scheduleRecords()
   }, { deep: true })
   watch(() => [course.value?.id, todayDate.value, state.plan?.createdAt, state.plan?.dailyMinutes, state.includeOptional, todayBudget.value?.video, schedulingEnabled.value,
     state.plan?.lessons.map(l => [l.path, l.status]), Object.values(state.mastery).map(m => [m.path, m.concept, m.level]),
@@ -754,8 +324,8 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
   onBeforeUnmount(() => { persist(); cancel(); scanner?.abort(); clearInterval(dayTimer); window.removeEventListener('beforeunload', persist); window.removeEventListener('focus', checkDay) })
 
   const guide = { persist, state, ai, lessonMap, route, routePaths, routeView, routePositions, routeVideos, arrangedLessons, videoMap, durations, schedule, risks, firstLesson, counts, configured,
-    generate, cancel, previewStatus, setStatus, setDailyMinutes, repairDependencies, adjacent, findFallback, exportPlan,
-    masteredPaths, unresolvedQuestions, activeQuestion, setMastery, setPracticeMastery, saveQuestion, selectQuestion, markQuestionReview, setQuestionStatus, refreshToday, completeTodayItem,
+    generate, cancel, previewStatus, setStatus, setDailyMinutes, repairDependencies, adjacent, exportPlan,
+    masteredPaths, setMastery, setPracticeMastery, refreshToday, completeTodayItem,
     todayDate, program, moduleMap, planDay, practiceModules, scheduledModule, progressModule, activeModule, lightDay, todayBudget, todayTotalMinutes, todayWork,
     workSecondsByDate, courseProgressMap, stageProgressMap, videoFinish, pendingPreview, recordsReady, guideReady,
     undo, applyPending, discardPending, applySchedule, planForScheduling, dayContext, schedulingEnabled, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, generatePractice, importFile }

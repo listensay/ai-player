@@ -46,13 +46,17 @@ export async function dbDeleteRecentCourse(id: string): Promise<boolean> {
 }
 
 export async function dbFetchAllProgress(): Promise<Record<string, Record<string, VideoProgress>>> {
-  try {
-    const data = await databaseRequest<Record<string, Record<string, VideoProgress>>>('progress')
-    return data ?? {}
-  } catch (err) {
-    console.warn('读取本地进度失败', err)
-    return {}
+  const data = await databaseRequest<Record<string, Record<string, VideoProgress>>>('progress')
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('播放进度格式异常')
+  for (const lessons of Object.values(data)) {
+    if (!lessons || typeof lessons !== 'object' || Array.isArray(lessons)) throw new Error('播放进度格式异常')
+    for (const item of Object.values(lessons)) {
+      if (!item || typeof item.done !== 'boolean' || ![item.time, item.duration, item.ratio, item.updatedAt].every(Number.isFinite)) {
+        throw new Error('播放进度格式异常')
+      }
+    }
   }
+  return data
 }
 
 export async function dbSaveProgress(item: {
@@ -94,15 +98,14 @@ export async function dbSaveCheckIns(courseId: string, days: StudyDay[]): Promis
 }
 
 export async function dbFetchNote(courseId: string, videoPath: string): Promise<{ content: string; updatedAt: number | null }> {
-  try {
-    const data = await databaseRequest<{ content: string; updatedAt: number | null }>(
-      'notes', { query: { courseId, videoPath } },
-    )
-    return data ?? { content: '', updatedAt: null }
-  } catch (err) {
-    console.warn('读取本地笔记失败', err)
-    return { content: '', updatedAt: null }
+  const data = await databaseRequest<{ content: string; updatedAt: number | null }>(
+    'notes', { query: { courseId, videoPath } },
+  )
+  if (!data || typeof data.content !== 'string'
+    || (data.updatedAt !== null && (typeof data.updatedAt !== 'number' || !Number.isFinite(data.updatedAt)))) {
+    throw new Error('笔记记录格式异常，原有内容未修改。')
   }
+  return data
 }
 
 export async function dbSaveNote(courseId: string, videoPath: string, content: string): Promise<{ success: boolean; updatedAt?: number }> {
@@ -137,10 +140,10 @@ export async function dbSaveNoteImage(image: {
   }
 }
 
-export async function dbFetchNoteImages(courseId: string, videoPath: string): Promise<Array<{ id: string; name: string; data_base64: string }>> {
+export async function dbFetchNoteImages(courseId: string, videoPath: string, name?: string): Promise<Array<{ id: string; name: string; data_base64: string }>> {
   try {
     const data = await databaseRequest<Array<{ id: string; name: string; data_base64: string }>>(
-      'note-images', { query: { courseId, videoPath } },
+      'note-images', { query: { courseId, videoPath, ...(name ? { name } : {}) } },
     )
     return data ?? []
   } catch (err) {

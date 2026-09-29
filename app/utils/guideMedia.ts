@@ -106,14 +106,7 @@ export async function loadLessonSubtitles(video: VideoEntry): Promise<SubtitleCu
       if (file.size > 5_000_000) continue
       const cues = parseSubtitles(await file.text())
       if (cues.length) return cues
-    } catch { /* 没有同名字幕时只推荐课节，绝不推测时间戳 */ }
+    } catch { /* 继续查找另一种字幕格式 */ }
   }
   return []
-}
-
-export function relevantCues(cues: SubtitleCue[], keywords: string[], limit = 50): SubtitleCue[] {
-  const terms = keywords.map(k => k.trim().toLowerCase()).filter(k => k.length >= 2)
-  return cues.map(cue => ({ cue, score: terms.reduce((sum, term) => sum + (cue.text.toLowerCase().includes(term) ? 1 : 0), 0) }))
-    .filter(item => item.score > 0).sort((a, b) => b.score - a.score || a.cue.start - b.cue.start)
-    .slice(0, limit).map(item => item.cue)
 }

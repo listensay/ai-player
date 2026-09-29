@@ -40,15 +40,11 @@ export function localDayKey(date = new Date()) {
 /** 当日已完成事项占用预算；长课按连续片段安排，不越过尚未学完的前置课。 */
 export function buildTodayPlan(
   lessons: GuideLesson[], durations: Record<string, number | null>, progress: Record<string, VideoProgress>,
-  mastery: Record<string, ConceptMastery>, questions: LearningQuestion[], minutes: number,
+  mastery: Record<string, ConceptMastery>, _legacyQuestions: LearningQuestion[], minutes: number,
   date: string, previous: TodayPlan | null = null, override: number | null = null,
 ): TodayPlan {
-  const items: TodayItem[] = previous?.date === date ? previous.items.filter(i => i.done).map(i => ({ ...i })) : []
+  const items: TodayItem[] = previous?.date === date ? previous.items.filter(i => i.done && i.kind !== 'question').map(i => ({ ...i })) : []
   let available = Math.max(0, minutes * 60 - items.reduce((sum, i) => sum + i.seconds, 0))
-  const question = questions.filter(q => q.status !== 'resolved' && !items.some(i => i.questionId === q.id))
-    .sort((a, b) => Number(b.status === 'still-confused') - Number(a.status === 'still-confused') || a.createdAt - b.createdAt)[0]
-  const reserve = question ? Math.min(300, Math.floor(available * (lessons.length ? 0.2 : 1))) : 0
-  available -= reserve
   const known = Object.values(durations).filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0).sort((a, b) => a - b)
   const estimate = known.length ? known[Math.floor(known.length / 2)]! : 1200
   for (const lesson of lessons) {
@@ -67,9 +63,6 @@ export function buildTodayPlan(
       start, end: start + seconds, seconds, estimated: duration !== raw, done: false })
     available -= seconds
   }
-  if (question && reserve > 0) items.push({ id: `${date}:question:${question.id}`, kind: 'question',
-    path: question.path, questionId: question.id, start: question.seconds, end: question.seconds,
-    seconds: reserve, estimated: true, done: false })
   return { date, minutes, override, items }
 }
 

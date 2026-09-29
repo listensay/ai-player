@@ -218,6 +218,11 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                 .unwrap_or(json!({"content":"","updatedAt":null})))
         }
         "note-images" => {
+            if let Some(name) = q["name"].as_str() {
+                return Ok(json!(rows(db,
+                    "SELECT id,name,data_base64 FROM note_images WHERE course_id=? AND video_path=? AND name=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                    vec![course()?, sql(&json!(text(q, "videoPath")?)), sql(&json!(name))])?));
+            }
             if let Some(id) = q["id"].as_str() {
                 return Ok(rows(
                     db,
@@ -282,6 +287,24 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
     }
 }
 fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) -> Result<Value> {
+    if endpoint == "ai-batch-cache" {
+        if method == "POST" {
+            let key = text(b, "key")?;
+            if !key.starts_with("ai-batches:v1:") { return Err("无效的 AI 批次键".into()); }
+            let raw: Option<String> = db.query_row("SELECT value_json FROM app_settings WHERE key=?", [key], |r| r.get(0))
+                .optional().map_err(|e| e.to_string())?;
+            if let Some(raw) = raw {
+                let mut value: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+                if value["version"] != 1 || !value["values"].is_array() { return Err("无效的 AI 批次记录".into()); }
+                value["completedAt"] = json!(now());
+                db.execute("UPDATE app_settings SET value_json=? WHERE key=?", params![value.to_string(), key]).map_err(|e| e.to_string())?;
+            }
+        } else if method != "DELETE" { return Err("不支持的数据操作".into()); }
+        // Incomplete and legacy checkpoints have no completedAt and are never removed.
+        let cutoff = now() - 30 * 24 * 60 * 60 * 1000;
+        let removed = db.execute("DELETE FROM app_settings WHERE key LIKE 'ai-batches:v1:%' AND CASE WHEN json_valid(value_json) THEN json_type(value_json,'$.completedAt')='integer' AND json_extract(value_json,'$.completedAt') < ? ELSE 0 END", [cutoff]).map_err(|e| e.to_string())?;
+        return Ok(json!({"success":true,"removed":removed}));
+    }
     if method == "DELETE" && endpoint == "recent-courses" {
         db.execute(
             "DELETE FROM recent_courses WHERE id=?",
@@ -371,6 +394,39 @@ mod persistence_tests {
     fn save_guide(db: &mut Connection, plan: Value) -> Result<Value> {
         request(db, "guide", "POST", json!({}), json!({"courseId":"one", "plan":plan,
             "metadata":{}, "view":"route", "includeOptional":false, "mastery":{}, "questions":[], "today":null}))
+    }
+
+    #[test]
+    fn completed_ai_cache_expires_without_touching_unfinished_or_other_settings() {
+        let mut db = database();
+        let old = super::now() - 31 * 24 * 60 * 60 * 1000;
+        for (key, value) in [
+            ("ai-batches:v1:old", json!({"version":1,"values":[1],"completedAt":old})),
+            ("ai-batches:v1:pending", json!({"version":1,"values":[1]})),
+            ("ai-batches:v1:recent", json!({"version":1,"values":[1],"completedAt":super::now()})),
+            ("user-setting", json!({"completedAt":old})),
+        ] {
+            request(&mut db, "settings", "POST", json!({}), json!({"key":key,"value":value})).unwrap();
+        }
+        let result = request(&mut db, "ai-batch-cache", "DELETE", json!({}), json!({})).unwrap();
+        assert_eq!(result["removed"], 1);
+        for key in ["ai-batches:v1:pending", "ai-batches:v1:recent", "user-setting"] {
+            assert_ne!(super::read(&db, "settings", &json!({"key":key})).unwrap(), Value::Null);
+        }
+        request(&mut db, "ai-batch-cache", "POST", json!({}), json!({"key":"ai-batches:v1:pending"})).unwrap();
+        assert!(super::read(&db, "settings", &json!({"key":"ai-batches:v1:pending"})).unwrap()["completedAt"].is_i64());
+        assert!(request(&mut db, "ai-batch-cache", "POST", json!({}), json!({"key":"user-setting"})).is_err());
+    }
+
+    #[test]
+    fn image_lookup_by_name_is_scoped_and_returns_only_requested_image() {
+        let mut db = database();
+        for (course, name, content) in [("one", "a.png", "old"), ("two", "a.png", "other-course"), ("one", "b.png", "other-image"), ("one", "a.png", "new")] {
+            request(&mut db, "note-images", "POST", json!({}), json!({"courseId":course,"videoPath":"lesson.mp4","name":name,"dataBase64":content})).unwrap();
+        }
+        let result = super::read(&db, "note-images", &json!({"courseId":"one","videoPath":"lesson.mp4","name":"a.png"})).unwrap();
+        assert_eq!(result.as_array().unwrap().len(), 1);
+        assert_eq!(result[0]["data_base64"], "new");
     }
 
     #[test]

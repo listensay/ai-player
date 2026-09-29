@@ -10,7 +10,7 @@ import PlanAdjustment from '~/components/PlanAdjustment.vue'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
 import { BUDGET_LABELS, formatMinutes } from '~/utils/studyProgram'
-const emit = defineEmits<{ segment: [item: TodayItem]; question: [id: string]; plan: [] }>()
+const emit = defineEmits<{ segment: [item: TodayItem]; plan: [] }>()
 const guide = useGuide()
 const today = computed(() => guide.state.today)
 const minutes = ref(30)
@@ -19,8 +19,7 @@ const done = computed(() => today.value?.items.filter(i => i.done) ?? [])
 const next = computed(() => today.value?.items.find(i => !i.done))
 const totalSeconds = computed(() => today.value?.items.reduce((n, i) => n + i.seconds, 0) ?? 0)
 function start(item: TodayItem) {
-  if (item.questionId) emit('question', item.questionId)
-  else emit('segment', item)
+  emit('segment', item)
 }
 const allocationText = computed(() => {
   const b = guide.todayBudget.value
@@ -94,19 +93,19 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
           <VCheckbox :model-value="item.done" :aria-label="`完成今日第 ${index + 1} 项`" class="shrink-0"
             @update:model-value="guide.completeTodayItem(item.id, !!$event)" />
           <div class="min-w-0 flex-1">
-            <p class="text-caption text-stone">{{ item.kind === 'question' ? '处理疑问' : item.kind === 'review' ? '补学基础' : '学习课节' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
+            <p class="text-caption text-stone">{{ item.kind === 'review' ? '补学基础' : '学习课节' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
             <button class="mt-1 max-w-full break-words text-left text-body-sm font-bold hover:text-deep-indigo" :class="item.done ? 'text-stone line-through' : ''" @click="start(item)">
-              {{ item.questionId ? guide.state.questions.find(q => q.id === item.questionId)?.text : guide.videoMap.value.get(item.path)?.title }}
+              {{ guide.videoMap.value.get(item.path)?.title }}
             </button>
-            <p v-if="item.kind !== 'question'" class="mt-1 text-caption text-stone">{{ formatTime(item.start, true) }} → {{ formatTime(item.end, true) }}</p>
+            <p class="mt-1 text-caption text-stone">{{ formatTime(item.start, true) }} → {{ formatTime(item.end, true) }}</p>
           </div>
         </li>
       </ol>
       <p v-if="!next && today?.items.length" class="py-4 text-body-sm font-bold text-forest">
-        今日视频与疑问已全部学完！{{ guide.program.value && guide.todayWork.value.length ? '可继续完成下方的实践任务。' : '' }}
+        今日视频已全部学完。{{ guide.program.value && guide.todayWork.value.length ? '可继续完成下方的实践任务。' : '' }}
       </p>
       <div v-if="!today?.items.length" class="py-6 text-center">
-        <p class="text-body-sm text-stone">{{ guide.state.plan ? '暂无待学课节或疑问。' : '请先生成学习路线或记录待解决的疑问。' }}</p>
+        <p class="text-body-sm text-stone">{{ guide.state.plan ? '暂无待学课节。' : '请先生成学习路线。' }}</p>
         <UiButton v-if="!guide.state.plan" class="mt-3" size="sm" @click="emit('plan')">定制学习路线</UiButton>
       </div>
       <section v-if="guide.program.value" class="mt-2 border-t border-linen pt-4" aria-label="今日实践">

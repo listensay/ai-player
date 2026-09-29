@@ -1,18 +1,20 @@
 import { onBeforeUnmount, reactive, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
-import type { GuideSettings } from '~/types/guide'
+import type { GuideMessage, GuideSettings } from '~/types/guide'
 import type { LessonSummary } from '~/types/knowledge'
 import type { PracticeScope } from '~/types/practice'
 import { useTranscripts } from '~/composables/useTranscripts'
 import { databaseRequest } from '~/utils/database'
+import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
 import { requestGuideJson } from '~/utils/guideAi'
-import { materialBatches, restoreSummary, summaryPrompt, summarySources, transcriptSources, validateSummaryPoints } from '~/utils/knowledge'
+import { materialBatches, restoreSummary, summaryPrompt, summarySources, transcriptSources, validateSummaryPoints, synthesisSources, wholeSummaryPrompt, validateWholeSummary } from '~/utils/knowledge'
 
 export function useLessonKnowledge(course: Ref<Course | null>, settings: GuideSettings, configured: Ref<boolean>) {
   const transcripts = useTranscripts()
   const states = reactive(new Map<string, { status: 'idle' | 'loading' | 'transcribing' | 'generating' | 'ready' | 'error'; summary: LessonSummary | null; error: string; progress: string; storageError: string }>())
   const jobs = new Map<string, { controller: AbortController; promise: Promise<LessonSummary> }>()
+  const unsavedTasks = new Map<string, unknown[]>()
   let aiQueue: Promise<unknown> = Promise.resolve()
   const key = (id: string, path: string, scopes?: PracticeScope[]) => JSON.stringify([id, path, scopes ?? null])
   function get(id: string, path: string, scopes?: PracticeScope[]) {
@@ -66,52 +68,97 @@ export function useLessonKnowledge(course: Ref<Course | null>, settings: GuideSe
       if (cached && !force) { state.summary = cached; state.status = 'ready'; return cached }
       if (!configured.value) throw new Error('请先在 AI 设置中选择服务，配置后会自动整理知识点。')
       state.status = 'generating'
-      const points: LessonSummary['points'] = []
       const batches = materialBatches(sources)
       const submittedSettings = { ...settings }
-      for (const [index, batch] of batches.entries()) {
-        check(); state.progress = `${index + 1} / ${batches.length}`
+      const identity = { kind: 'knowledge', promptVersion: 2, id, path: video.path, title: video.title,
+        scopes, fingerprint, settings: aiTaskSettings(submittedSettings) }
+      const taskIdentities: unknown[] = []
+      function request(messages: GuideMessage[]) {
         const response = aiQueue.catch(() => {}).then(() => {
           check()
-          // 服务忽略取消或迟到返回时，后续课节仍可继续处理。
           return new Promise<unknown>((resolve, reject) => {
             const abort = () => reject(new DOMException('已取消，请重试。', 'AbortError'))
             signal.addEventListener('abort', abort, { once: true })
-            requestGuideJson(submittedSettings, summaryPrompt(video.title, batch), signal)
+            requestGuideJson(submittedSettings, messages, signal)
               .then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
           })
         })
         aiQueue = response
-        const raw = await response
-        check()
-        points.push(...validateSummaryPoints(raw, batch))
+        return response
       }
+      const extractionIdentity = { ...identity, stage: 'extract' }
+      taskIdentities.push(extractionIdentity)
+      const results = await runAiBatches({
+        identity: extractionIdentity,
+        batches, signal, reset: force,
+        progress: (completed, total) => { state.progress = `提炼材料 ${completed} / ${total} 批` },
+        validate: (raw, batch) => validateSummaryPoints(raw, batch),
+        request: batch => request(summaryPrompt(video.title, batch)),
+      })
+      let points = results.flat()
       if (!points.length) throw new Error('逐字稿中未找到足够的教学内容，无法生成知识点总结。')
-      const summary: LessonSummary = { version: 1, path: video.path, fingerprint, createdAt: Date.now(),
-        points: points.sort((a, b) => a.start - b.start).map((p, i) => ({ ...p, id: `k${i + 1}` })) }
+      let overview = ''
+      // Merge by topic across every batch. Each result is bounded to 6000 characters,
+      // so repeated rounds shrink long courses until a single whole-lesson result fits.
+      for (let level = 0; ; level++) {
+        check()
+        const material = synthesisSources(points)
+        const mergeBatches = materialBatches(material)
+        // Include actual intermediate content: a regenerated extraction must never reuse a stale merge.
+        const mergeIdentity = { ...identity, stage: 'synthesize', level, material }
+        taskIdentities.push(mergeIdentity)
+        const merged = await runAiBatches({
+          identity: mergeIdentity, batches: mergeBatches, signal, reset: force,
+          progress: (completed, total) => { state.progress = `合并整课总结 ${completed} / ${total} 批` },
+          validate: (raw, batch) => validateWholeSummary(raw, batch),
+          request: batch => request(wholeSummaryPrompt(video.title, batch, mergeBatches.length > 1)),
+        })
+        points = merged.flatMap(result => result.points)
+        if (merged.length === 1) { overview = merged[0]!.overview; break }
+      }
+      const summary: LessonSummary = { version: 2, path: video.path, fingerprint, createdAt: Date.now(), overview,
+        points: points.map((p, i) => ({ ...p, id: `k${i + 1}` })) }
       check()
       await databaseRequest('settings', { method: 'POST', body: { key: storageKey, value: summary } }).catch(() => {
-        if (!signal.aborted) state.storageError = '知识点保存失败，请重新整理以重试保存。'
+        if (!signal.aborted) state.storageError = '知识点保存失败，结果已保留，请重试保存。'
       })
       check(); state.summary = summary; state.status = 'ready'
+      if (state.storageError) unsavedTasks.set(key(id, video.path, scopes), taskIdentities)
+      else {
+        unsavedTasks.delete(key(id, video.path, scopes))
+        for (const task of taskIdentities) await completeAiBatches(task)
+      }
       return summary
     } catch (error) {
       if (jobs.get(key(id, video.path, scopes))?.controller === controller) {
         state.status = 'error'; state.error = (error as Error).message || '知识点整理失败，请重试。'
+        if (state.progress && !signal.aborted) state.error += `（${state.progress}，继续整理会复用已完成批次。）`
       }
       throw error
     }
   }
+  async function retrySave(id: string, path: string, scopes?: PracticeScope[]) {
+    const state = get(id, path, scopes)
+    if (!state.summary || !state.storageError) return
+    const summary = state.summary
+    try {
+      await databaseRequest('settings', { method: 'POST', body: {
+        key: `lesson-knowledge:${key(id, path, scopes)}`, value: JSON.parse(JSON.stringify(summary)),
+      } })
+      if (state.summary === summary) {
+        state.storageError = ''
+        const k = key(id, path, scopes)
+        for (const task of unsavedTasks.get(k) ?? []) await completeAiBatches(task)
+        unsavedTasks.delete(k)
+      }
+    } catch { state.storageError = '知识点保存失败，结果已保留，请重试保存。' }
+  }
   async function sourcesFor(id: string, video: VideoEntry, scopes?: PracticeScope[]) {
-    let summary = await ensure(id, video)
-    if (scopes) {
-      const cues = transcripts.get(id, video.path).segments
-      if (cues.some(c => !scopes.some(s => c.start >= s.start && c.end <= s.end))) summary = await ensure(id, video, scopes)
-    }
+    const summary = await ensure(id, video, scopes)
     return summarySources(summary)
   }
   watch(() => course.value?.id, cancelAll, { flush: 'sync' })
   watch(() => [settings.provider, settings.contextWindow, settings.baseUrl, settings.model, settings.apiKey, settings.timeoutMinutes, configured.value], cancelAll, { flush: 'sync' })
   onBeforeUnmount(cancelAll)
-  return { get, ensure, sourcesFor, cancel }
+  return { get, ensure, sourcesFor, cancel, retrySave }
 }

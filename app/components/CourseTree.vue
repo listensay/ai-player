@@ -6,6 +6,7 @@ import { useProgress } from '~/composables/useProgress'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTreeNode from '~/components/CourseTreeNode.vue'
 import type { Course, FolderEntry, TreeFilter, VideoEntry } from '~/types/course'
+import type { TodayItem } from '~/types/guide'
 
 const props = defineProps<{
   course: Course
@@ -16,13 +17,36 @@ const emit = defineEmits<{
   select: [video: VideoEntry]
   guide: []
   start: [path: string]
+  startToday: [item: TodayItem]
 }>()
 
 const store = useCourseStore()
 const progress = useProgress()
 const guide = useGuide()
 const routeView = guide.routeView
-const visibleRoute = computed(() => guide.routeVideos.value.filter(matchesVideo))
+const showAllRoute = ref(false)
+watch(() => [props.course.id, guide.todayDate.value], () => { showAllRoute.value = false })
+const todayReady = computed(() => guide.guideReady.value && guide.recordsReady.value
+  && guide.state.today?.date === guide.todayDate.value)
+const todayItems = computed(() => todayReady.value
+  ? guide.state.today!.items.filter(item => item.kind === 'lesson' || item.kind === 'review') : [])
+const todayRoute = computed(() => {
+  const paths = new Set(todayItems.value.map(item => item.path))
+  // Keep the route order and each video once, even when today has multiple segments.
+  return guide.routeVideos.value.filter(video => paths.has(video.path))
+})
+const routeInScope = computed(() => showAllRoute.value ? guide.routeVideos.value : todayRoute.value)
+const visibleRoute = computed(() => routeInScope.value.filter(matchesVideo))
+const nextTodayItem = computed(() => todayRoute.value.map(video =>
+  todayItems.value.find(item => item.path === video.path && !item.done)).find(item => !!item))
+const canStart = computed(() => showAllRoute.value ? !!guide.firstLesson.value : !!nextTodayItem.value)
+const startLabel = computed(() => showAllRoute.value
+  ? !guide.firstLesson.value ? '暂无待学课节' : guide.schedule.value.completed ? '继续学习' : '开始学习'
+  : !todayReady.value ? '今日安排加载中' : nextTodayItem.value ? '开始学习'
+    : todayRoute.value.length ? '今日视频已完成' : '今日暂无视频安排')
+const routeEmptyLabel = computed(() => !showAllRoute.value && !todayReady.value
+  ? guide.state.storageError ? '今日安排读取失败' : '今日安排加载中…'
+  : !showAllRoute.value && !todayRoute.value.length ? '今日暂无视频安排' : '未找到匹配的课节')
 const moduleTitles = computed(() => new Map(guide.state.plan?.modules.map(m => [m.id, m.title]) ?? []))
 function routeModule(path: string) { return guide.lessonMap.value.get(path)?.moduleId }
 
@@ -53,10 +77,21 @@ function toggleRouteAll() {
 }
 
 function startRoute() {
+  if (!showAllRoute.value) {
+    if (nextTodayItem.value) emit('startToday', nextTodayItem.value)
+    return
+  }
   const lesson = guide.firstLesson.value
   if (!lesson) return
   guide.state.view = 'route'
   emit('start', lesson.path)
+}
+
+function selectRouteVideo(video: VideoEntry) {
+  const items = todayItems.value.filter(item => item.path === video.path)
+  const item = items.find(item => !item.done) ?? items[0]
+  if (!showAllRoute.value && item) emit('startToday', item)
+  else emit('select', video)
 }
 
 const listEl = ref<HTMLElement>()
@@ -171,7 +206,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         {{ allExpanded ? '全部收起' : '全部展开' }}
       </button>
       <button
-        v-else-if="routeView && routeGroups.length > 1 && !isFiltering"
+        v-else-if="routeView && showAllRoute && routeGroups.length > 1 && !isFiltering"
         type="button"
         class="rounded-full px-2.5 py-1 text-caption font-medium text-stone transition-colors hover:bg-cream-deep hover:text-charcoal-ink"
         @click="toggleRouteAll"
@@ -188,7 +223,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
       <div v-if="routeView" class="mb-3 rounded-xl border border-linen p-3">
         <div class="flex items-center justify-between gap-2"><p class="text-caption text-stone">已选 {{ guide.route.value.length }} 节 · {{ guide.program.value && (guide.planDay.value ?? 0) >= 1 ? `计划第 ${guide.planDay.value} / ${guide.program.value.days} 天` : `视频排期约 ${guide.schedule.value.days} 天` }}</p><button type="button" class="text-caption font-bold hover:text-deep-indigo" @click="emit('guide')">调整</button></div>
         <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><VCheckbox v-model="guide.state.includeOptional" :disabled="!!guide.state.busy" class="shrink-0" />包含选修课</label>
-        <button type="button" :disabled="!guide.firstLesson.value" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ !guide.firstLesson.value ? '暂无待学课节' : guide.schedule.value.completed ? '继续学习' : '开始学习' }}</button>
+        <button type="button" :disabled="!canStart" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ startLabel }}</button>
         <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error hover:text-deep-indigo" @click="emit('guide')">{{ guide.risks.value.length }} 节前置课未加入路线，查看建议</button>
       </div>
       <div>
@@ -226,10 +261,17 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
           {{ f.label }}
         </button>
       </div>
+      <div v-if="routeView" class="mt-3 flex items-center justify-between gap-2">
+        <span class="text-caption font-medium text-stone">{{ showAllRoute ? '全部视频' : '今日视频' }} · {{ routeInScope.length }} 节</span>
+        <button type="button" :aria-pressed="showAllRoute" class="rounded-full border border-linen px-2.5 py-1 text-caption font-bold transition-colors hover:bg-cream-deep" @click="showAllRoute = !showAllRoute">{{ showAllRoute ? '只看今天' : '显示全部' }}</button>
+      </div>
     </div>
 
     <div ref="listEl" class="scroll-soft min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-      <ul v-if="routeView && visibleRoute.length" aria-label="AI 推荐课节">
+      <ul v-if="routeView && !showAllRoute && visibleRoute.length" aria-label="今日视频">
+        <CourseTreeNode v-for="entry in visibleRoute" :key="entry.path" :node="entry" :depth="0" :course-id="course.id" :current-path="currentPath" :expanded="expanded" :route-position="guide.routePositions.value.get(entry.path)" @select="selectRouteVideo" />
+      </ul>
+      <ul v-else-if="routeView && visibleRoute.length" aria-label="AI 推荐课节">
         <li v-for="group in routeGroups" :key="group.key" class="pt-2">
           <VExpansionPanels class="sidebar-panels" :model-value="routeOpen(group.moduleId) ? 'content' : undefined" :readonly="isFiltering" @update:model-value="setModuleOpen(group.moduleId, $event)">
             <VExpansionPanel value="content">
@@ -246,7 +288,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
           </VExpansionPanels>
         </li>
       </ul>
-      <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">未找到匹配的课节</p>
+      <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">{{ routeEmptyLabel }}</p>
       <ul v-else-if="visibleRoot" role="tree">
         <CourseTreeNode
           v-for="child in visibleRoot.children"

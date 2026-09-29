@@ -1,5 +1,5 @@
 import { platformFetch } from './platform.ts'
-import type { AiProvider, ConceptMastery, GuideMessage, GuideSettings, LearningPlan, LearningQuestion } from '../types/guide'
+import type { AiProvider, ConceptMastery, GuideMessage, GuideSettings, LearningPlan } from '../types/guide'
 import { isRecord } from './guide.ts'
 
 // Messages API 要求 max_tokens；由请求层提供，不作为用户配置项。
@@ -113,12 +113,12 @@ export async function requestGuideJson(settings: GuideSettings, messages: GuideM
 export function planPrompt(
   catalog: Array<{ path: string; title: string; duration: number | null; done: boolean }>,
   request: string, dailyMinutes: number, previous: LearningPlan | null,
-  feedback?: { mastery: ConceptMastery[]; questions: Array<Pick<LearningQuestion, 'path' | 'text' | 'status'>> },
+  feedback?: { mastery: ConceptMastery[] },
   today = new Date().toISOString().slice(0, 10),
 ): GuideMessage[] {
   return [{ role: 'user', content: `请为整个课程生成结构化知识图谱和定制学习路线。
 根据背景、目标和已有进度决定 required（必修）、optional（查漏）、skipped（已掌握或不相关）。
-feedback 中的 mastery 是用户亲自标记的知识掌握程度，优先于观看完成状态：mastered 可略过，uncertain 应保守查漏，needs-review 必须安排补学。不得因看完视频或解决一个疑问就推断整节课已掌握。保留此前已标记的知识点名称，避免随意改名导致反馈丢失。questions 中仍不理解的疑问用于调整相关基础课安排。
+feedback 中的 mastery 是用户亲自标记的知识掌握程度，优先于观看完成状态：mastered 可略过，uncertain 应保守查漏，needs-review 必须安排补学。不得因看完视频就推断整节课已掌握。保留此前已标记的知识点名称，避免随意改名导致反馈丢失。
 不得因为用户说学过基础就跳过尚未明确掌握的关键前置知识，例如 SpringBoot 的反射、注解。
 每个课节必须且只能出现一次，path 使用目录中的原始路径。prerequisites 是直接前置课节 path，不得引用自身、目录外课节或构成环。
 板块按知识主题归类，不局限于文件夹。保留至少一节必修。必须给每节课具体选择理由。

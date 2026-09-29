@@ -73,3 +73,23 @@ export function macReminderStatus(reminder: StudyReminder, link: MacReminderLink
   return { label: !current.enabled ? '停用待同步' : saved?.enabled === false ? '启用待同步' : '修改后待更新',
     action: !current.enabled ? '同步停用' : '同步更新', pending: true }
 }
+
+/** A course reminder follows that course; a general reminder follows any study today. */
+export function studiedForReminder(reminder: Pick<StudyReminder, 'courseId'>, studied: Record<string, string>, date: string) {
+  return reminder.courseId ? studied[reminder.courseId] === date : Object.values(studied).includes(date)
+}
+
+export function suppressStudiedReminder(reminder: StudyReminder, now: Date) {
+  const date = localDayKey(now)
+  const changed = reminder.pending || reminder.snoozedUntil !== null || reminder.lastNotifiedDate !== date
+  reminder.pending = false
+  reminder.snoozedUntil = null
+  reminder.lastNotifiedDate = date
+  return changed
+}
+
+export function hasStudyActivity(days: Record<string, { seconds: number }>, records: unknown, date: string) {
+  if ((days[date]?.seconds ?? 0) > 0) return true
+  return record(records) && Array.isArray(records.entries)
+    && records.entries.some((e: unknown) => record(e) && e.date === date && typeof e.minutes === 'number' && e.minutes > 0)
+}

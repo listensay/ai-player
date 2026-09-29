@@ -48,7 +48,7 @@ test('refineTranscriptPrompt 包含视频标题与待校对的 ID 列表', () =>
   assert.ok(messages[0].content.includes('you state'))
 })
 
-test('validateTranscriptCorrections 校验合法格式并剔除无效/伪造的 ID', () => {
+test('validateTranscriptCorrections 只接受每个输入句子恰好出现一次', () => {
   const batch = [
     { id: 1, start: 0, end: 1, text: 'you state' },
     { id: 2, start: 1, end: 2, text: '正常句子' },
@@ -58,19 +58,25 @@ test('validateTranscriptCorrections 校验合法格式并剔除无效/伪造的 
   assert.throws(() => validateTranscriptCorrections(null, batch), /有效校对列表/)
   assert.throws(() => validateTranscriptCorrections({ notItems: [] }, batch), /有效校对列表/)
 
-  // 正常校对并忽略不存在的 ID 999
+  // 正常校对必须完整对应输入
   const raw = {
     items: [
       { id: 1, text: 'useState' },
       { id: 2, text: '正常句子' },
-      { id: 999, text: '虚构的句子' },
     ],
   }
   const corrections = validateTranscriptCorrections(raw, batch)
   assert.equal(corrections.size, 2)
   assert.equal(corrections.get(1), 'useState')
   assert.equal(corrections.get(2), '正常句子')
-  assert.ok(!corrections.has(999))
+  for (const items of [[], [{ id: 1, text: 'useState' }],
+    [{ id: 1, text: 'useState' }, { id: 1, text: '重复' }],
+    [{ id: 1, text: 'useState' }, { id: 999, text: '伪造' }],
+    [{ id: 1, text: 'useState' }, { id: '2', text: '字符串 ID' }],
+    [{ id: 1, text: 'useState' }, { id: 2, text: '  ' }],
+    [{ id: 1, text: 'useState' }, { id: 2, text: 'a'.repeat(2001) }]]) {
+    assert.throws(() => validateTranscriptCorrections({ items }, batch), /校对/)
+  }
 })
 
 test('applyTranscriptCorrections 准确更新文本、设置 refined 标记并统计变动条数', () => {

@@ -1,0 +1,20 @@
+name: Check
+on: [push, pull_request]
+jobs:
+  desktop:
+    runs-on: macos-latest
+    env:
+      # CI has no local SSD mount; keep the project's Cargo configuration intact.
+      CARGO_TARGET_DIR: ${{ runner.temp }}/ai-player-target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run check
+      - run: node scripts/desktop-runtime.mjs
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: npm run tauri -- build --debug --bundles app

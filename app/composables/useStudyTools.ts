@@ -2,7 +2,8 @@ import { computed, inject, onBeforeUnmount, onMounted, provide, reactive, toRaw 
 import type { InjectionKey } from 'vue'
 import { databaseRequest } from '~/utils/database'
 import { desktopInvoke } from '~/utils/platform'
-import { deliverReminder, emptyStudyTools, macReminderStatus, parseStudyTools, reminderDue } from '~/utils/studyTools'
+import { hasStudyActivity, studiedForReminder, suppressStudiedReminder, deliverReminder, emptyStudyTools, macReminderStatus, parseStudyTools, reminderDue } from '~/utils/studyTools'
+import { localDayKey } from '~/utils/learningFeedback'
 import { useCourseStore } from './useCourseStore'
 import type { MacReminderLink, StudyReminder, StudyToolsData } from '~/types/studyTools'
 
@@ -38,18 +39,47 @@ export function provideStudyTools() {
     queue = task
     return task
   }
+  const studied = reactive<Record<string, string>>({})
+  const activityLoaded = reactive<Record<string, string>>({})
+  const clock = reactive({ date: localDayKey() })
+  function markStudied(courseId: string, date: string) {
+    if (!courseId || studied[courseId] === date) return
+    studied[courseId] = date
+    void checkReminders()
+  }
+  const hasStudied = (r: StudyReminder) => studiedForReminder(r, studied, clock.date)
+  const activityReady = (r: StudyReminder) => r.courseId
+    ? activityLoaded[r.courseId] === clock.date || hasStudied(r)
+    : store.state.library.every(c => activityLoaded[c.id] === clock.date) || hasStudied(r)
   const courseActive = (id: string) => !id || store.state.library.some(c => c.id === id && c.status === 'active')
-  const pending = computed(() => state.data.reminders.filter(r => r.enabled && r.pending && courseActive(r.courseId)))
+  const pending = computed(() => state.data.reminders.filter(r => r.enabled && r.pending && courseActive(r.courseId) && activityReady(r) && !hasStudied(r)))
   async function checkReminders() {
     if (checking || stopped || !state.ready || !store.state.libraryReady) return
-    const now = new Date()
-    if (!state.data.reminders.some(r => courseActive(r.courseId) && reminderDue(r, now))) return
+    if (!state.data.reminders.some(r => r.enabled)) return
     checking = true
+    clock.date = localDayKey()
     try {
+      const ids = new Set(state.data.reminders.filter(r => r.enabled).flatMap(r => r.courseId ? [r.courseId] : store.state.library.map(c => c.id)))
+      await Promise.all([...ids].filter(id => activityLoaded[id] !== clock.date).map(async id => {
+        const [days, records] = await Promise.all([
+          databaseRequest<Record<string, { seconds: number }>>('check-in', { query: { courseId: id } }),
+          databaseRequest('settings', { query: { key: `study-records:${id}` } }),
+        ])
+        if (hasStudyActivity(days, records, clock.date)) studied[id] = clock.date
+        activityLoaded[id] = clock.date
+      }))
+      if (stopped) return
+      const now = new Date()
+      if (localDayKey(now) !== clock.date) return
+      if (!state.data.reminders.some(r => courseActive(r.courseId) && (hasStudied(r)
+        ? r.pending || r.snoozedUntil !== null || r.lastNotifiedDate !== clock.date
+        : reminderDue(r, now)))) return
       const fired: Array<{ title: string; courseId: string }> = []
       const saved = await mutate(data => {
         for (const r of data.reminders) {
-          if (!courseActive(r.courseId) || !deliverReminder(r, now)) continue
+          if (!courseActive(r.courseId)) continue
+          if (hasStudied(r)) { suppressStudiedReminder(r, now); continue }
+          if (!deliverReminder(r, now)) continue
           fired.push({ title: r.title, courseId: r.courseId })
         }
       })
@@ -57,12 +87,12 @@ export function provideStudyTools() {
         const { isPermissionGranted } = await import('@tauri-apps/plugin-notification')
         if (await isPermissionGranted()) {
           // The JS Notification constructor discards the native promise; await it so failures remain visible.
-          await Promise.all(fired.map(r => desktopInvoke('plugin:notification|notify', {
+          await Promise.all(fired.filter(r => !studiedForReminder(r, studied, localDayKey())).map(r => desktopInvoke('plugin:notification|notify', {
             options: { title: '学习提醒 · AI Player', body: r.title },
           })))
         } else state.notice = '系统通知未获授权，提醒仍会显示在软件内。'
       }
-    } catch { state.notice = '系统通知发送失败，提醒已保留在软件内。' }
+    } catch { state.notice = '学习状态读取或通知发送失败，将在下次检查时重试。' }
     finally { checking = false }
   }
   async function setDesktopNotifications(enabled: boolean) {
@@ -122,7 +152,7 @@ export function provideStudyTools() {
   const orphanedMac = computed(() => Object.entries(mac.links).filter(([id]) => !state.data.reminders.some(r => r.id === id)))
   onMounted(() => { void load(); void loadMacStatus(); timer = setInterval(() => { void checkReminders() }, 15_000); window.addEventListener('focus', checkReminders) })
   onBeforeUnmount(() => { stopped = true; clearInterval(timer); window.removeEventListener('focus', checkReminders) })
-  const tools = { state, mac, load, loadMacStatus, exportMacReminder, removeMacReminder, macStatus, macEnabled, orphanedMac, mutate, pending, dismiss, snooze, setDesktopNotifications, checkReminders, flush: async () => { await queue; await exporting } }
+  const tools = { markStudied, state, mac, load, loadMacStatus, exportMacReminder, removeMacReminder, macStatus, macEnabled, orphanedMac, mutate, pending, dismiss, snooze, setDesktopNotifications, checkReminders, flush: async () => { await queue; await exporting } }
   provide(KEY, tools)
   return tools
 }

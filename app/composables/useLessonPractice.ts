@@ -3,12 +3,13 @@ import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { GuideSettings, SubtitleCue } from '~/types/guide'
 import type { PracticeRecord, PracticeScope, PracticeSource } from '~/types/practice'
+import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
 import { materialBatches } from '~/utils/knowledge'
 import { isRecord } from '~/utils/guide'
 import { loadLessonSubtitles } from '~/utils/guideMedia'
 import { requestGuideJson } from '~/utils/guideAi'
 import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validatePracticeFeedback, restorePractice, isChoiceQuestion, practiceAnswerText, reviewPracticeChoice, appendPracticeRecord, isRepeatedPracticeQuestion, PRACTICE_ATTEMPT_LIMIT } from '~/utils/practice'
-import { dbFetchPractice, dbSavePractice } from '~/utils/dbClient'
+import { dbFetchPractice, dbSavePractice, dbFetchNote } from '~/utils/dbClient'
 
 
 interface PracticeOptions {
@@ -27,7 +28,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     note: '', cues: [] as SubtitleCue[], supplement: '',
     records: [] as PracticeRecord[], selectedId: '', historyReady: false,
     busy: '' as '' | 'loading' | 'generate' | 'review', error: '', storageError: '', materialNotice: '',
-    mode, preparedSources: null as PracticeSource[] | null, questionCount: mode === 'daily' ? 5 : 3, generationProgress: '',
+    mode, preparedSources: null as PracticeSource[] | null, questionCount: mode === 'daily' ? 5 : 3, generationProgress: '', retryGenerationCount: 0,
   })
   let activeId = ''
   let request: AbortController | null = null
@@ -52,9 +53,10 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     if (!activeId || !state.path || !state.historyReady) return
     const id = activeId, path = state.path, revision = ++saveRevision, courseVersion = courseRevision
     const recordsForPath: PracticeRecord[] = JSON.parse(JSON.stringify(state.records.filter(r => r.path === path)))
-    void saveRecords(id, path, recordsForPath).then(saved => {
-      if (courseVersion !== courseRevision || state.path !== path || revision !== saveRevision) return
-      state.storageError = saved ? '' : '练习记录保存失败，请关闭后重新打开练习重试。'
+    return saveRecords(id, path, recordsForPath).then(saved => {
+      if (courseVersion === courseRevision && state.path === path && revision === saveRevision)
+        state.storageError = saved ? '' : '练习记录保存失败，请关闭后重新打开练习重试。'
+      return saved
     })
   }
   function cancel() { request?.abort(); request = null; state.busy = '' }
@@ -67,6 +69,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     cancel()
     persist()
     if (state.path !== video.path || JSON.stringify(state.scope) !== JSON.stringify(scope)) state.supplement = ''
+    state.retryGenerationCount = 0
     state.path = video.path; state.title = video.title; state.scope = scope; state.open = true
     state.error = ''; state.materialNotice = ''; state.note = ''; state.cues = []; state.preparedSources = options.sources ? [] : null
     state.selectedId = history.value.find(r => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
@@ -81,6 +84,11 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
         loadLessonSubtitles(video),
         noteSnapshot !== undefined ? Promise.resolve(noteSnapshot) : (async () => {
           try {
+            const saved = await dbFetchNote(activeId, video.path)
+            if (saved.updatedAt !== null) {
+              if (saved.content.length > 1_000_000) { state.materialNotice = '笔记超过 1 MB，请粘贴本次需要的内容。'; return '' }
+              return saved.content
+            }
             const handle = await video.parent.getFileHandle(`${video.title}.md`)
             const file = await handle.getFile()
             if (controller.signal.aborted) return ''
@@ -105,7 +113,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
 
   async function openSources(path: string, title: string, loader: (signal: AbortSignal) => Promise<PracticeSource[]>) {
     if (!activeId) return
-    cancel(); persist()
+    cancel(); persist(); state.retryGenerationCount = 0
     Object.assign(state, { path, title, scope: null, open: true, error: '', materialNotice: '', note: '', cues: [], supplement: '', preparedSources: [], selectedId: '' })
     const controller = new AbortController(); request = controller; state.busy = 'loading'
     try {
@@ -127,6 +135,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     if (!configured.value) { state.error = '请先在 AI 设置中填写服务地址和模型。'; return }
     if (!Number.isInteger(count) || count < 1 || count > 8) return
     const controller = new AbortController(); request = controller; state.busy = 'generate'
+    state.retryGenerationCount = count; state.generationProgress = ''
     // 固定本次提交的材料，等待期间的 UI 变化不能改变题目依据。
     const submitted = sources.value.map(s => ({ ...s }))
     const scope = state.scope ? { ...state.scope } : null
@@ -136,24 +145,38 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
       // 单题续练轮换材料批次，保证按钮始终只新增一题；整组练习覆盖全部批次。
       const batches = count === 1 ? [allBatches[history.value.length % allBatches.length]!] : allBatches
       if (batches.length * count > historyLimit) throw new Error(`知识点较多，请减少每组题数（本次最多保留 ${historyLimit} 题）。`)
-      const pending: PracticeRecord[] = []
       const submittedSettings = { ...settings }
-      for (const [index, batch] of batches.entries()) {
-        state.generationProgress = `${index + 1} / ${batches.length}`
-        const raw = await requestGuideJson(submittedSettings, practicePrompt(state.title, batch, scope, [...history.value, ...pending].map(r => r.question), count, mode === 'daily'), controller.signal)
-        if (controller.signal.aborted) return
-        const questions = count === 1 ? [raw] : isRecord(raw) && Array.isArray(raw.questions) ? raw.questions : []
-        if (questions.length !== count) throw new Error('AI 返回的题目数量不完整，请重试。')
-        for (const rawQuestion of questions) {
-          const question = validatePracticeQuestion(rawQuestion, batch, true)
-          if (isRepeatedPracticeQuestion(question, [...history.value, ...pending].map(r => r.question))) {
-            throw new Error('AI 返回了已有题目，请点击“再练一题”重试，或补充学习材料。')
+      const previous = history.value.map(r => r.question)
+      const identity = { kind: 'practice', promptVersion: 1, courseId: activeId, path, title: state.title, scope,
+        count, mode, batches, previous, settings: aiTaskSettings(submittedSettings) }
+      const results = await runAiBatches({
+        identity,
+        batches, signal: controller.signal,
+        progress: (done, total) => { state.generationProgress = `已完成 ${done} / ${total} 批` },
+        request: (batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) =>
+          requestGuideJson(submittedSettings, practicePrompt(state.title, batch, scope,
+            [...previous, ...completed.flat()], count, mode === 'daily'), controller.signal),
+        validate: (raw, batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) => {
+          const questions = count === 1 ? [raw] : isRecord(raw) && Array.isArray(raw.questions) ? raw.questions : []
+          if (questions.length !== count) throw new Error('AI 返回的题目数量不完整，请重试。')
+          const validated: ReturnType<typeof validatePracticeQuestion>[] = []
+          for (const item of questions) {
+            const question = validatePracticeQuestion(item, batch, true)
+            if (isRepeatedPracticeQuestion(question, [...previous, ...completed.flat(), ...validated])) {
+              throw new Error('AI 返回了已有题目，请重试或补充学习材料。')
+            }
+            validated.push(question)
           }
-          pending.push({ id: crypto.randomUUID(), path, createdAt: Date.now(), scope, sources: batch, question, draft: '', attempts: [] })
-        }
-      }
+          return validated
+        },
+      })
+      if (controller.signal.aborted) return
+      const pending: PracticeRecord[] = results.flatMap((questions, index) => questions.map(question => ({
+        id: crypto.randomUUID(), path, createdAt: Date.now(), scope, sources: batches[index]!, question, draft: '', attempts: [],
+      })))
       for (const record of pending) state.records = appendPracticeRecord(state.records, record, historyLimit)
-      state.selectedId = pending[0]?.id ?? ''; persist()
+      state.selectedId = pending[0]?.id ?? ''; state.retryGenerationCount = 0
+      if (await persist()) await completeAiBatches(identity)
     } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
     finally { if (request === controller) { request = null; state.busy = '' } }
   }

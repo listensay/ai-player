@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, computed, ref } from 'vue'
-import { dbFetchNote, dbSaveNote, dbSaveNoteImage, dbFetchNoteImages } from '~/utils/dbClient'
-import { readTextFile, writeTextFile, writeBlobFile, resolveRelativeFile, isAbsoluteUrl } from '~/utils/fs'
+import { useNoteSession } from '~/composables/useNoteSession'
+import { createNoteImages } from '~/utils/noteImages'
+import { dbFetchNote, dbSaveNote } from '~/utils/dbClient'
+import { readTextFile, writeTextFile } from '~/utils/fs'
 import { formatTime, timestampToken, timestampSlug, formatRelative } from '~/utils/time'
-import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 /**
  * 笔记编辑器：Milkdown Crepe（所见即所得 Markdown）
@@ -31,54 +32,31 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   seek: [seconds: number]
-  askGuide: [question: string]
-  recordQuestion: [question: string]
 }>()
 
-type SaveStatus = 'loading' | 'new' | 'saved' | 'dirty' | 'saving' | 'error'
-
 const rootEl = ref<HTMLElement>()
-const status = ref<SaveStatus>('loading')
-const savedAt = ref<number | null>(null)
-const errorMessage = ref('')
-const hasFocus = ref(false)
-const detectedQuestion = ref('')
-
-/** 仅将用户选中的文字（或最近的疑问段落）带入导学输入框，由用户提交。 */
-function askGuide(recordOnly = false) {
-  if (!crepe || destroyed) return
-  detectQuestion(serialize(crepe))
-  let selected = ''
-  crepe.editor.action((ctx) => {
-    const view = ctx.get(editorViewCtx)
-    const { from, to } = view.state.selection
-    selected = view.state.doc.textBetween(from, to, '\n').trim()
-  })
-  const question = (selected || detectedQuestion.value).slice(0, 3000)
-  if (recordOnly) emit('recordQuestion', question)
-  else emit('askGuide', question)
-}
-
-function detectQuestion(markdown: string) {
-  // 不把代码块里的问号当作学习疑问，也不自动发送笔记内容。
-  detectedQuestion.value = markdown.replace(/```[\s\S]*?```/g, '').split('\n')
-    .filter(line => /[?？]|疑问|不理解|没听懂/.test(line)).at(-1)?.replace(/^\s*(?:[>#*-]|\d+\.)\s*/, '').trim().slice(0, 3000) ?? ''
-}
+const editorReady = ref(false)
+const editorError = ref('')
+// Capture the target once: late I/O must never use the next lesson's props.
+const target = { courseId: props.courseId, video: props.video }
+const session = useNoteSession({
+  read: () => dbFetchNote(target.courseId, target.video.path),
+  readCopy: () => readTextFile(target.video.parent, `${target.video.title}.md`),
+  write: content => dbSaveNote(target.courseId, target.video.path, content),
+  writeCopy: content => writeTextFile(target.video.parent, `${target.video.title}.md`, content),
+})
+const status = computed(() => session.state.error || editorError.value ? 'error'
+  : !editorReady.value ? 'loading' : session.state.saving ? 'saving'
+  : session.state.dirty ? 'dirty' : session.state.savedAt === null ? 'new' : 'saved')
 
 const noteFileName = computed(() => `${props.video.title}.md`)
-const assetsDirName = computed(() => `${props.video.title}.assets`)
 
 let crepe: Crepe | null = null
 let destroyed = false
-let version = 0
-let savedVersion = 0
-/** 最后一次写盘（或打开时）的序列化结果，内容没变就不重复写文件；编辑器创建完成前为 null */
-let lastSavedMarkdown: string | null = null
-/** 编辑器刚创建时插件会做一些规范化事务（比如补尾段落），这段时间内的更新不算用户改动 */
-let settledAt = 0
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-let inflight: Promise<void> | null = null
-const blobUrls = new Map<string, string>()
+let initializing: Promise<void> | undefined
+const images = createNoteImages({ courseId: target.courseId, ...target.video })
+const saveImage = images.save
+const resolveImageSrc = images.resolve
 
 const statusText = computed(() => {
   switch (status.value) {
@@ -91,102 +69,13 @@ const statusText = computed(() => {
     case 'saving':
       return '保存中…'
     case 'saved':
-      return savedAt.value ? `已保存 ${formatRelative(savedAt.value)}` : '已保存'
+      return session.state.savedAt ? `已保存 ${formatRelative(session.state.savedAt)}` : '已保存'
     case 'error':
-      return `保存失败：${errorMessage.value}`
+      return session.state.error || editorError.value
     default:
       return ''
   }
 })
-
-/* ---------- 数据库与文件读写 ---------- */
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result)
-      } else {
-        reject(new Error('无法将图片转为 Base64'))
-      }
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
-}
-
-async function resolveImageSrc(src: string): Promise<string> {
-  if (!src || isAbsoluteUrl(src)) return src
-  let decoded = src
-  try {
-    decoded = decodeURI(src)
-  } catch {
-    /* 保留原样 */
-  }
-  const cached = blobUrls.get(decoded)
-  if (cached) return cached
-
-  // 1. 尝试从 SQLite 中读取 Base64 图片
-  try {
-    const imgName = decoded.split('/').pop()
-    if (imgName) {
-      const images = await dbFetchNoteImages(props.courseId, props.video.path)
-      const found = images.find((img) => img.name === imgName || img.name === decoded)
-      if (found?.data_base64) {
-        blobUrls.set(decoded, found.data_base64)
-        return found.data_base64
-      }
-    }
-  } catch {
-    /* 忽略错误 */
-  }
-
-  // 2. 本地文件系统回退
-  try {
-    const file = await resolveRelativeFile(props.video.parent, decoded)
-    if (file) {
-      const url = URL.createObjectURL(file)
-      blobUrls.set(decoded, url)
-      return url
-    }
-  } catch {
-    /* 忽略错误 */
-  }
-
-  return src
-}
-
-/** 图片以 Base64 存入 SQLite，并同步写入课程目录的 xxx.assets/ */
-async function saveImage(blob: Blob, baseName: string, ext = 'png'): Promise<string> {
-  const name = `${baseName}.${ext}`
-  const base64 = await blobToBase64(blob)
-
-  // 存入 SQLite 数据库
-  await dbSaveNoteImage({
-    courseId: props.courseId,
-    videoPath: props.video.path,
-    name,
-    dataBase64: base64,
-  })
-
-  // 同步写入课程目录，便于 Obsidian 等外部工具查看；失败不影响数据库中的记录
-  try {
-    const dir = await props.video.parent.getDirectoryHandle(assetsDirName.value, { create: true })
-    await writeBlobFile(dir, name, blob)
-  } catch {
-    /* 忽略文件系统错误 */
-  }
-
-  const relative = `${assetsDirName.value}/${name}`
-  blobUrls.set(relative, base64)
-  return base64
-}
-
-function scheduleSave() {
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => void save(), 800)
-}
 
 /** remark 会把行内的 "[" 转义成 "\["；时间戳不可能是链接引用，还原成裸的 [12:35]，保持 .md 文件干净 */
 const ESCAPED_TIMESTAMP_RE = /\\\[(?=(?:\d{1,3}:)?\d{1,2}:\d{2}\])/g
@@ -196,47 +85,8 @@ function serialize(instance: Crepe): string {
 }
 
 async function save(): Promise<void> {
-  if (!crepe || destroyed) return
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-  if (inflight) {
-    await inflight
-    if (version === savedVersion) return
-  }
-  const snapshotVersion = version
-  const markdown = serialize(crepe)
-  // 只是插件的规范化事务、序列化结果没变：不碰用户的文件
-  if (markdown === lastSavedMarkdown) {
-    savedVersion = snapshotVersion
-    if (status.value === 'dirty' || status.value === 'saving') status.value = savedAt.value ? 'saved' : 'new'
-    return
-  }
-  status.value = 'saving'
-  inflight = (async () => {
-    try {
-      // 存入 SQLite 数据库
-      const result = await dbSaveNote(props.courseId, props.video.path, markdown)
-      if (!result.success) throw new Error('笔记写入数据库失败，请重试。')
-      try {
-        await writeTextFile(props.video.parent, noteFileName.value, markdown)
-      } catch {
-        /* 课程目录中的 .md 为副本，写入失败不影响数据库中的笔记 */
-      }
-      savedVersion = snapshotVersion
-      lastSavedMarkdown = markdown
-      savedAt.value = Date.now()
-      status.value = version === snapshotVersion ? 'saved' : 'dirty'
-    } catch (err) {
-      errorMessage.value = (err as Error).message
-      status.value = 'error'
-      console.error('保存笔记失败', err)
-    } finally {
-      inflight = null
-    }
-  })()
-  await inflight
+  if (crepe && editorReady.value) session.edit(serialize(crepe))
+  await session.save()
 }
 
 /* ---------- 编辑器 ---------- */
@@ -276,9 +126,9 @@ function insertInline(token: string) {
 
 /** 截图入笔记：时间戳 + 图片块（Milkdown 的图片块约定：alt 存宽高比，title 存图片说明） */
 async function insertScreenshot(blob: Blob, seconds: number, ratio = 16 / 9) {
-  if (!crepe || destroyed) return
+  if (!crepe || destroyed) throw new Error('课节已切换，请重新截图。')
   const relative = await saveImage(blob, timestampSlug(seconds))
-  if (!crepe || destroyed) return
+  if (!crepe || destroyed) throw new Error('课节已切换，请重新截图。')
   const caption = `${props.video.title} ${formatTime(seconds, true)}`.replace(/"/g, '”')
   const markdown = `${timestampToken(seconds)} 截图\n\n![${ratio.toFixed(2)}](${relative} "${caption}")\n\n`
   crepe.editor.action((ctx) => {
@@ -301,27 +151,23 @@ function focus() {
   crepe?.editor.action((ctx) => ctx.get(editorViewCtx).focus())
 }
 
-onMounted(async () => {
-  let existing: string | null = null
-  try {
-    const noteRes = await dbFetchNote(props.courseId, props.video.path)
-    if (noteRes && noteRes.content) {
-      existing = noteRes.content
-    } else {
-      existing = await readTextFile(props.video.parent, noteFileName.value)
-      if (existing) {
-        void dbSaveNote(props.courseId, props.video.path, existing)
-      }
-    }
-  } catch (err) {
-    errorMessage.value = (err as Error).message
-    status.value = 'error'
-  }
+function initialize(): Promise<void> {
+  if (editorReady.value || destroyed) return Promise.resolve()
+  if (initializing) return initializing
+  editorError.value = ''
+  initializing = createEditor().catch(error => {
+    editorError.value = (error as Error).message || '编辑器初始化失败，请重试。'
+    throw error
+  }).finally(() => { initializing = undefined })
+  return initializing
+}
+async function createEditor() {
+  await session.load()
   if (destroyed || !rootEl.value) return
-
+  if (crepe) await crepe.destroy()
   crepe = new Crepe({
     root: rootEl.value,
-    defaultValue: existing ?? '',
+    defaultValue: session.state.content,
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
         text: '记录笔记…',
@@ -392,63 +238,46 @@ onMounted(async () => {
   crepe.editor.use(createTimestampAnchorPlugin({ onSeek: (s) => emit('seek', s) }))
 
   crepe.on((listener) => {
-    listener.updated(() => {
-      // 创建后 600ms 内的更新是插件的规范化事务（补尾段落等），不算用户改动
-      if (!settledAt || (Date.now() < settledAt && !hasFocus.value)) return
-      version += 1
-      status.value = 'dirty'
-      scheduleSave()
-      if (crepe) detectQuestion(serialize(crepe))
+    listener.updated((_ctx, doc, previous) => {
+      if (!editorReady.value || !crepe || (previous && doc.eq(previous))) return
+      const markdown = serialize(crepe)
+      session.edit(markdown)
     })
-    listener.focus(() => (hasFocus.value = true))
-    listener.blur(() => (hasFocus.value = false))
   })
 
-  try {
-    await crepe.create()
-    lastSavedMarkdown = serialize(crepe)
-    detectQuestion(lastSavedMarkdown)
-    settledAt = Date.now() + 600
-    if (status.value !== 'error') status.value = existing === null ? 'new' : 'saved'
-  } catch (err) {
-    console.error('编辑器初始化失败', err)
-    errorMessage.value = (err as Error).message
-    status.value = 'error'
-  }
-})
+  const instance = crepe
+  await instance.create()
+  if (destroyed) { await instance.destroy(); return }
+  session.acceptEditorContent(serialize(instance))
+  editorReady.value = true
+}
+onMounted(() => { void initialize().catch(() => {}) })
 
 function onBeforeUnload(e: BeforeUnloadEvent) {
-  if (!crepe || lastSavedMarkdown === null) return
-  if (serialize(crepe) !== lastSavedMarkdown) {
-    void save()
+  if (session.state.dirty) {
+    void save().catch(() => {})
     e.preventDefault()
   }
 }
-
 onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
-
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
+  if (crepe && editorReady.value) session.edit(serialize(crepe))
+  session.dispose()
   destroyed = true
   const instance = crepe
   crepe = null
-  if (saveTimer) clearTimeout(saveTimer)
-  if (instance && lastSavedMarkdown !== null) {
-    // 卸载前把最后的内容存入 SQLite 数据库（内容没变则跳过）
-    const markdown = serialize(instance)
-    if (markdown !== lastSavedMarkdown) {
-      void dbSaveNote(props.courseId, props.video.path, markdown)
-      void writeTextFile(props.video.parent, noteFileName.value, markdown).catch((err) =>
-        console.error('保存笔记失败', err),
-      )
-    }
-  }
-  void instance?.destroy()
-  for (const url of blobUrls.values()) URL.revokeObjectURL(url)
-  blobUrls.clear()
+  // If create is pending, createEditor will destroy the completed instance.
+  if (editorReady.value) void instance?.destroy()
+  images.dispose()
 })
-
-defineExpose({ hasUnsavedChanges: () => status.value === 'error' || version !== savedVersion, insertTimestamp, insertInline, insertScreenshot, setPlayhead, save, focus, getMarkdown: () => crepe && !destroyed ? serialize(crepe) : undefined })
+function retry() {
+  if (!editorReady.value) void initialize().catch(() => {})
+  else void save().catch(() => {})
+}
+defineExpose({ whenReady: initialize, hasUnsavedChanges: () => session.state.dirty,
+  insertTimestamp, insertInline, insertScreenshot, setPlayhead, save, focus,
+  getMarkdown: () => crepe && editorReady.value && !destroyed ? serialize(crepe) : undefined })
 </script>
 
 <template>
@@ -464,14 +293,12 @@ defineExpose({ hasUnsavedChanges: () => status.value === 'error' || version !== 
           {{ statusText }}
         </p>
       </div>
-      <slot name="actions" />
+      <UiButton v-if="status === 'error' || session.state.copyError" size="sm" variant="ghost" @click="retry">重试</UiButton>
+      <div class="flex items-center gap-2" :inert="!editorReady"><slot name="actions" /></div>
     </header>
 
-    <div ref="rootEl" class="scroll-soft note-editor min-h-0 flex-1 overflow-y-auto" />
-    <footer class="flex shrink-0 items-center justify-end gap-3 border-t border-linen px-4 py-3">
-      <p v-if="detectedQuestion" class="min-w-0 flex-1 truncate text-caption text-stone" :title="detectedQuestion">{{ detectedQuestion }}</p>
-      <UiButton variant="text" size="sm" title="记录所选或最近的疑问及时间" :disabled="status === 'loading'" @click="askGuide(true)">记录疑问</UiButton>
-      <UiButton variant="ghost" size="sm" title="根据所选或最近的疑问查找基础课" :disabled="status === 'loading'" @click="askGuide(false)"><AppIcon name="sparkles" :size="15" />查找基础课</UiButton>
-    </footer>
+    <p v-if="session.state.copyError" role="status" class="px-4 py-2 text-caption text-stone">{{ session.state.copyError }}</p>
+    <p v-if="!editorReady" :role="status === 'error' ? 'alert' : 'status'" class="px-4 py-6 text-body-sm">{{ status === 'error' ? '读取成功前暂停编辑，原有笔记不会被覆盖。' : '正在准备笔记…' }}</p>
+    <div v-show="editorReady" ref="rootEl" class="scroll-soft note-editor min-h-0 flex-1 overflow-y-auto" />
   </section>
 </template>

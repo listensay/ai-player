@@ -14,6 +14,6 @@ usePageTitle(() => `${course.value?.name ?? '课程概览'} · AI Player`)
       :current-video="video"
       @play="playVideoFromDashboard"
       @segment="startSegment"
-      @guide="openGuide(undefined, $event ?? 'plan')"
+      @guide="openGuide($event ?? 'plan')"
     />
 </template>

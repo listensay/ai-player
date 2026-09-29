@@ -7,7 +7,8 @@ import { createRenderer, reactive, ref } from 'vue'
 const boundaries = {
   '~/utils/guideAi': ['requestGuideJson'],
   '~/utils/guideMedia': ['loadLessonSubtitles'],
-  '~/utils/dbClient': ['dbFetchPractice', 'dbSavePractice'],
+  '~/utils/database': ['databaseRequest'],
+  '~/utils/dbClient': ['dbFetchPractice', 'dbSavePractice', 'dbFetchNote'],
 }
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -42,8 +43,13 @@ function deferred() {
   return { promise, resolve, reject }
 }
 function harness(t, overrides = {}) {
-  const saves = [], calls = []
+  const saves = [], calls = [], checkpoints = new Map()
   const io = {
+    databaseRequest: async (_, options) => {
+      if (options.method === 'POST') { checkpoints.set(options.body.key, structuredClone(options.body.value)); return true }
+      return structuredClone(checkpoints.get(options.query.key) ?? null)
+    },
+    dbFetchNote: async () => ({ content: '', updatedAt: null }),
     dbFetchPractice: async () => ({}),
     dbSavePractice: async (...args) => { saves.push(args); return true },
     loadLessonSubtitles: async () => [],

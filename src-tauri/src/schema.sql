@@ -83,6 +83,7 @@
     );
   
 CREATE TABLE IF NOT EXISTS course_aliases (alias_id TEXT PRIMARY KEY, course_id TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS note_images_lesson_name ON note_images(course_id, video_path, name, created_at);
 CREATE TABLE IF NOT EXISTS course_locations (course_id TEXT PRIMARY KEY, path TEXT NOT NULL);
 
 -- 课程库独立于最近打开列表；归档与移出最近列表均保留学习记录。

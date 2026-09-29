@@ -1,6 +1,6 @@
 import { h } from 'vue'
 import { createVuetify } from 'vuetify'
-import { VApp, VBtn, VBtnToggle, VCard, VCheckbox, VChip, VDialog, VExpansionPanels, VExpansionPanel, VExpansionPanelTitle, VExpansionPanelText, VFileInput, VList, VListItem, VMenu, VRadio, VRadioGroup, VSelect, VSlider, VTextField, VTextarea } from 'vuetify/components'
+import { VApp, VBtn, VBtnToggle, VCard, VCheckbox, VChip, VDialog, VExpansionPanels, VExpansionPanel, VExpansionPanelTitle, VExpansionPanelText, VFileInput, VList, VListItem, VMenu, VRadio, VRadioGroup, VSelect, VSlider, VSwitch, VTextField, VTextarea } from 'vuetify/components'
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, CircleCheck, CircleAlert, CircleDot, Info, Minus, Paperclip, Plus, Square, SquareCheck, SquareMinus, X } from '@lucide/vue'
 import { zhHans } from 'vuetify/locale'
 
@@ -13,7 +13,7 @@ const iconAliases = {
 }
 
 export const vuetify = createVuetify({
-  components: { VApp, VBtn, VBtnToggle, VCard, VCheckbox, VChip, VDialog, VExpansionPanels, VExpansionPanel, VExpansionPanelTitle, VExpansionPanelText, VFileInput, VList, VListItem, VMenu, VRadio, VRadioGroup, VSelect, VSlider, VTextField, VTextarea },
+  components: { VApp, VBtn, VBtnToggle, VCard, VCheckbox, VChip, VDialog, VExpansionPanels, VExpansionPanel, VExpansionPanelTitle, VExpansionPanelText, VFileInput, VList, VListItem, VMenu, VRadio, VRadioGroup, VSelect, VSlider, VSwitch, VTextField, VTextarea },
   locale: { locale: 'zhHans', messages: { zhHans } },
   icons: {
     defaultSet: 'lucide', aliases: iconAliases,

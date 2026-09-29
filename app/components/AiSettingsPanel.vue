@@ -1,18 +1,41 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import AiProfileSelector from '~/components/AiProfileSelector.vue'
 import UiButton from '~/components/UiButton.vue'
+import { VSnackbar } from 'vuetify/components/VSnackbar'
+import AppIcon from '~/components/AppIcon.vue'
+import { testAiConnection } from '~/utils/aiConnectionTest'
 import { emptyAiSettings } from '~/utils/aiSettings'
-const emit = defineEmits<{ done: [] }>()
 const guide = useGuide()
 const { ai } = guide
 const editingId = ref('')
 const draft = reactive({ ...emptyAiSettings(), name: '' })
-const message = ref('')
+const notice = reactive({ open: false, success: true, title: '', detail: '' })
+const testing = ref(false)
+let testController: AbortController | undefined
+let disposed = false
+function notify(success: boolean, title: string, detail: string) {
+  notice.open = false
+  Object.assign(notice, { open: true, success, title, detail })
+}
+onBeforeUnmount(() => { disposed = true; testController?.abort() })
+async function testConnection() {
+  if (disabled.value) return
+  testing.value = true
+  notice.open = false
+  testController = new AbortController()
+  const settings = { ...draft }
+  try {
+    const result = await testAiConnection(settings, testController.signal)
+    if (!disposed) notify(true, '连接测试通过', `模型 ${settings.model.trim()} 已返回有效结果，耗时 ${(result.milliseconds / 1000).toFixed(1)} 秒。${editingId.value ? '修改后的配置需保存才会用于后续请求。' : '点击「保存并使用」即可启用此配置。'}`)
+  } catch (err) {
+    if (!disposed) notify(false, testController.signal.aborted ? '测试已取消' : '连接测试失败', (err as Error).message)
+  } finally { testing.value = false; testController = undefined }
+}
 const error = ref('')
 const confirmingDelete = ref(false)
-const disabled = computed(() => !ai.state.ready || ai.state.saving || !!guide.state.busy)
+const disabled = computed(() => !ai.state.ready || ai.state.saving || !!guide.state.busy || testing.value)
 
 function edit(id = '') {
   const profile = ai.state.collection.profiles.find(p => p.id === id)
@@ -22,18 +45,18 @@ function edit(id = '') {
     contextWindow: profile.contextWindow ?? 'default',
     name: profile.name, baseUrl: profile.baseUrl, model: profile.model, apiKey: profile.apiKey, timeoutMinutes: profile.timeoutMinutes,
   } : {})
-  message.value = ''; error.value = ''; confirmingDelete.value = false
+  notice.open = false; error.value = ''; confirmingDelete.value = false
 }
 watch(() => ai.state.ready, ready => { if (ready) edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id) }, { immediate: true })
 
 async function save() {
   if (disabled.value) return
-  error.value = ''; message.value = ''
+  error.value = ''; notice.open = false
   try {
     editingId.value = await ai.saveProfile({ ...draft }, editingId.value || undefined)
-    message.value = '配置已保存并启用。'
+    notify(true, 'AI 配置已保存并启用', `「${draft.name.trim()}」已设为当前配置。后续 AI 请求将使用模型 ${draft.model.trim()}。`)
     confirmingDelete.value = false
-  } catch (err) { error.value = (err as Error).message }
+  } catch (err) { error.value = (err as Error).message; notify(false, '保存配置失败', error.value) }
 }
 async function remove() {
   if (disabled.value) return
@@ -41,19 +64,19 @@ async function remove() {
   try {
     await ai.deleteProfile(editingId.value)
     edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id)
-    message.value = ai.state.collection.activeId ? '配置已删除。' : '配置已删除，请选择或新增 AI 配置。'
-  } catch (err) { error.value = (err as Error).message }
+    notify(true, '配置已删除', ai.state.collection.activeId ? '其他已保存的配置仍可使用。' : '请选择或新增 AI 配置后继续使用 AI 功能。')
+  } catch (err) { error.value = (err as Error).message; notify(false, '删除配置失败', error.value) }
 }
 </script>
 
 <template>
-  <section class="mx-auto max-w-2xl" aria-label="AI 配置管理">
-    <h3 class="text-heading-sm">AI 服务配置</h3>
+  <section class="w-full min-w-0" aria-label="AI 配置管理">
+    <h2 class="text-heading-sm">AI 服务设置</h2>
     <div v-if="ai.state.error" role="alert" class="pane mt-4 p-4 text-body-sm text-error">
       {{ ai.state.error }}<UiButton variant="text" size="sm" class="ml-2" :disabled="ai.state.loading" @click="ai.load">重新加载</UiButton>
     </div>
     <div class="pane mt-5 space-y-4 p-5">
-      <AiProfileSelector :disabled="!!guide.state.busy" @selected="edit" />
+      <AiProfileSelector :disabled="disabled" @selected="edit" />
       <div class="flex items-center justify-between gap-3 border-t border-linen pt-4">
         <h4 class="text-body-sm font-bold">已保存的配置</h4>
         <UiButton size="sm" :disabled="disabled" @click="edit()">新增配置</UiButton>
@@ -88,6 +111,7 @@ async function remove() {
         <VTextField v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required  label="响应时限（分钟）" />
         <p class="text-caption text-stone">配置与密钥保存在本地，切换配置仅影响新请求。</p>
         <div class="flex flex-wrap gap-2">
+          <UiButton @click="testConnection">{{ testing ? '测试中…' : '测试连接' }}</UiButton>
           <UiButton type="submit" variant="primary">{{ ai.state.saving ? '保存中…' : '保存并使用' }}</UiButton>
           <UiButton v-if="editingId" variant="text" @click="confirmingDelete = !confirmingDelete">删除配置</UiButton>
           <UiButton v-if="!editingId && ai.state.collection.profiles.length" variant="text" @click="edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id)">取消新增</UiButton>
@@ -98,9 +122,22 @@ async function remove() {
         </div>
       </fieldset>
       <p v-if="error" role="alert" class="text-body-sm text-error">{{ error }}</p>
-      <p v-if="message" role="status" class="text-body-sm text-graphite">{{ message }}</p>
+      <div v-if="testing" role="status" class="flex items-center justify-between gap-3 rounded-xl bg-page-cream p-3 text-body-sm">
+        <span>正在验证服务地址、密钥和模型响应…</span>
+        <UiButton size="sm" variant="text" @click="testController?.abort()">取消测试</UiButton>
+      </div>
+      <p class="text-caption text-stone">测试使用当前表单发送一条简短请求，不会保存配置或发送课程资料。</p>
     </form>
     <p class="mt-4 text-caption leading-relaxed text-stone">使用 AI 时，相关课程信息、疑问、字幕、笔记或作答会发送至所选服务，视频与截图不会上传。</p>
-    <UiButton v-if="ai.configured.value" class="mt-4" @click="emit('done')">返回定制路线</UiButton>
+    <VSnackbar v-model="notice.open" location="top right" :timeout="notice.success ? 6000 : -1" color="surface" rounded="xl" max-width="460">
+      <div class="flex items-start gap-3 py-1" :role="notice.success ? 'status' : 'alert'">
+        <AppIcon :name="notice.success ? 'check' : 'close'" :size="22" :class="notice.success ? 'text-deep-indigo' : 'text-error'" />
+        <div class="min-w-0">
+          <p class="text-body-sm font-bold">{{ notice.title }}</p>
+          <p class="mt-1 break-words text-caption leading-relaxed text-stone">{{ notice.detail }}</p>
+        </div>
+      </div>
+      <template #actions><UiButton icon size="sm" variant="text" title="关闭提示" @click="notice.open = false"><AppIcon name="close" :size="18" /></UiButton></template>
+    </VSnackbar>
   </section>
 </template>

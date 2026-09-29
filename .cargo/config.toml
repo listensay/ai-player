@@ -1,0 +1,3 @@
+# Store Rust build artifacts on the external volume. Keep Cargo profile defaults.
+[build]
+target-dir = "/Volumes/Fake"

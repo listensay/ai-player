@@ -10,9 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
+        "backgroundThrottling": "disabled",
         "title": "AI Player",
         "width": 1440,
         "height": 960,

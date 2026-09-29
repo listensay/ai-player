@@ -5,7 +5,7 @@ import { usePageTitle } from '~/composables/usePageTitle'
 import { formatTime } from '~/utils/time'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTree from '~/components/CourseTree.vue'
-import NoteEditor from '~/components/NoteEditor.vue'
+import LazyNoteEditor from '~/components/LazyNoteEditor.vue'
 import TranscriptPanel from '~/components/TranscriptPanel.vue'
 import LessonKnowledgePanel from '~/components/LessonKnowledgePanel.vue'
 import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
@@ -13,11 +13,11 @@ import UiButton from '~/components/UiButton.vue'
 import VideoStage from '~/components/VideoStage.vue'
 import { formatStudyClock, formatStudyHours } from '~/utils/checkIn'
 const {
-  player, noteEditor, stage, returnPoint, feedbackQuestionId, treeOpen, rightTab,
+  player, noteEditor, stage, treeOpen, desktopTreeOpen, rightTab,
   transcripts, course, video, guide, segment, checkIn, hasPrev, hasNext,
-  onVideoSample, navigateEpisode, recordQuestion, openGuide, openPractice,
-  practiceSegment, completeSegment, noteAfterSegment, questionsAfterSegment,
-  selectGuideVideo, returnToLesson, answerQuestion, selectVideo, insertTimestamp,
+  onVideoSample, navigateEpisode, openGuide, openPractice,
+  practiceSegment, completeSegment, noteAfterSegment,
+  selectGuideVideo, selectVideo, startSegment, insertTimestamp,
   screenshot, seekTo, quoteToNote, showToast,
 } = useCourseWorkspace()
 function bindStage(instance: unknown) { stage.value = instance as typeof stage.value }
@@ -28,12 +28,16 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
 <template>
     <main
       v-if="course"
-      class="scroll-soft relative grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[280px_minmax(0,1fr)_400px] lg:overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)_440px]"
+      class="scroll-soft relative grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:overflow-hidden"
+      :class="desktopTreeOpen
+        ? 'lg:grid-cols-[280px_minmax(0,1fr)_400px] xl:grid-cols-[300px_minmax(0,1fr)_440px]'
+        : 'lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_440px]'"
     >
-      <!-- 目录：大屏常驻，小屏作为抽屉（fixed，不随主区域滚动） -->
+      <!-- 目录：大屏可收起侧栏，小屏作为抽屉；隐藏时保留筛选状态。 -->
       <div
-        class="min-h-0 lg:contents"
-        :class="treeOpen ? 'fixed inset-x-4 top-[72px] bottom-4 z-30 lg:static' : 'hidden lg:contents'"
+        id="player-course-directory"
+        class="min-h-0 lg:static"
+        :class="[treeOpen ? 'fixed inset-x-4 top-[72px] bottom-4 z-30' : 'max-lg:hidden', desktopTreeOpen ? 'lg:contents' : 'lg:hidden']"
       >
         <CourseTree
           :course="course"
@@ -42,6 +46,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           @select="selectVideo"
           @guide="openGuide()"
           @start="selectGuideVideo($event)"
+          @start-today="startSegment"
         />
       </div>
       <div
@@ -53,7 +58,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
 
       <!-- 舞台 + 控制条 -->
       <div class="flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0">
-        <button type="button" class="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-linen bg-pure-white p-3 text-left transition-colors hover:border-charcoal-ink/30" @click="openGuide(undefined, 'today')">
+        <button type="button" class="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-linen bg-pure-white p-3 text-left transition-colors hover:border-charcoal-ink/30" @click="openGuide('today')">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <span class="text-body-sm font-bold">今日学习</span>
@@ -74,15 +79,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           <span class="shrink-0 text-caption font-bold text-charcoal-ink">查看学习计划 →</span>
         </button>
         <DailyPracticeCard class="mb-3 shrink-0" />
-        <div v-if="returnPoint" class="mb-3 flex items-center justify-between gap-3 rounded-xl border border-linen bg-sunbeam-yellow/15 p-3 text-body-sm">
-          <span class="min-w-0 truncate">基础课回溯</span>
-          <UiButton variant="ghost" size="sm" @click="returnToLesson">返回提问位置 {{ formatTime(returnPoint.seconds, true) }}</UiButton>
-        </div>
-        <div v-if="feedbackQuestionId" class="mb-3 shrink-0 rounded-xl border border-linen bg-page-cream p-3" aria-label="回看反馈">
-          <p class="text-body-sm font-bold">疑问是否已解决</p>
-          <p class="mt-1 truncate text-caption text-stone">{{ guide.state.questions.find(q => q.id === feedbackQuestionId)?.text }}</p>
-          <div class="mt-2 flex flex-wrap gap-2"><UiButton size="sm" :disabled="!!guide.state.busy" @click="answerQuestion(true)">标记已解决</UiButton><UiButton size="sm" :disabled="!!guide.state.busy" @click="answerQuestion(false)">仍不理解</UiButton><UiButton variant="text" size="sm" @click="feedbackQuestionId = ''">稍后反馈</UiButton></div>
-        </div>
         <VideoStage
           v-if="video"
           :ref="bindStage"
@@ -103,7 +99,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
               <div class="mt-3 flex flex-wrap gap-2">
                 <UiButton size="sm" @click="practiceSegment">开始练习</UiButton>
                 <UiButton variant="ghost" size="sm" @click="noteAfterSegment">记录笔记</UiButton>
-                <UiButton variant="ghost" size="sm" @click="questionsAfterSegment">处理疑问</UiButton>
                 <UiButton variant="ghost" size="sm" @click="completeSegment">标记片段完成</UiButton>
                 <UiButton variant="text" size="sm" @click="segment.dismiss()">收起提醒</UiButton>
               </div>
@@ -119,10 +114,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
       <!-- 笔记 / 逐字稿 -->
       <div class="pane flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0">
         <div v-if="video" class="flex shrink-0 items-center gap-1 border-b border-linen px-3 pt-3 pb-2" role="tablist" aria-label="右侧面板">
-          <button type="button" role="tab" :aria-selected="rightTab === 'knowledge'"
-            class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors"
-            :class="rightTab === 'knowledge' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'"
-            @click="rightTab = 'knowledge'">知识点</button>
           <button
             type="button"
             role="tab"
@@ -134,6 +125,10 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
             <AppIcon name="note" :size="15" />
             笔记
           </button>
+          <button type="button" role="tab" :aria-selected="rightTab === 'knowledge'"
+            class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors"
+            :class="rightTab === 'knowledge' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'"
+            @click="rightTab = 'knowledge'">知识点</button>
           <button
             type="button"
             role="tab"
@@ -160,17 +155,16 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
         </div>
 
         <LessonKnowledgePanel v-if="video" v-show="rightTab === 'knowledge'" />
-        <NoteEditor
+        <LazyNoteEditor
           v-if="video"
           v-show="rightTab === 'notes'"
+          :active="rightTab === 'notes'"
           :ref="bindNoteEditor"
           :key="`${course.id}:${video.path}`"
           :video="video"
           :course-id="course.id"
           class="flex-1 border-0"
           @seek="seekTo"
-          @ask-guide="openGuide($event)"
-          @record-question="recordQuestion"
         >
           <template #actions>
             <UiButton variant="dark" size="sm" title="截取当前画面到笔记（⌥S）" :disabled="!player.state.ready" @click="screenshot">
@@ -182,7 +176,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
               插入时间戳
             </UiButton>
           </template>
-        </NoteEditor>
+        </LazyNoteEditor>
 
         <TranscriptPanel
           v-if="video"

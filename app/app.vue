@@ -9,9 +9,14 @@ import GuideDialog from '~/components/GuideDialog.vue'
 import PracticeDialog from '~/components/PracticeDialog.vue'
 import ShortcutsDialog from '~/components/ShortcutsDialog.vue'
 import { RouterView } from 'vue-router'
+import { useProgress } from '~/composables/useProgress'
+import { onMounted } from 'vue'
+import { pruneAiBatchCache } from '~/utils/aiBatchTask'
+onMounted(() => { void pruneAiBatchCache() })
+const progress = useProgress()
 const router = useRouter()
 const {
-  stats, transcripts, helpOpen, guideOpen, guideQuestion, guideTab, treeOpen, reminderLinks,
+  stats, transcripts, helpOpen, guideOpen, guideTab, treeVisible, toggleTree, reminderLinks, companion,
   currentView, toast, course, video, practice, daily, openDailyPractice, openPractice, openGuide, startSegment, selectGuideVideo,
 } = provideCourseWorkspace()
 </script>
@@ -27,10 +32,12 @@ const {
       :done="stats.done"
       :current-view="currentView"
       :show-tree-toggle="!!course && currentView === 'player'"
+      :tree-visible="treeVisible"
       @help="helpOpen = true"
       @close="router.push('/')"
-      @toggle-tree="treeOpen = !treeOpen"
+      @toggle-tree="toggleTree"
       @guide="openGuide()"
+      @companion="companion.openMini()"
     />
 
     <aside v-if="transcripts.activeJobs.value" aria-label="后台转写任务" class="shrink-0 border-b border-linen bg-sunbeam-yellow/15 px-4 py-2 text-caption">
@@ -42,6 +49,9 @@ const {
     </aside>
     <aside v-if="reminderLinks.error.value" role="alert" class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm">
       <p>{{ reminderLinks.error.value }}</p><UiButton size="sm" @click="reminderLinks.retry()">重试打开</UiButton>
+    </aside>
+    <aside v-if="progress.state.error" role="alert" class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm">
+      <p>{{ progress.state.error }}</p><UiButton size="sm" :disabled="progress.state.loading || progress.state.saving" @click="progress.retry().catch(() => {})">{{ progress.state.ready ? '重试保存' : '重试读取' }}</UiButton>
     </aside>
     <StudyReminderNotice />
     <RouterView />
@@ -63,10 +73,10 @@ const {
     </Transition>
 
     <ShortcutsDialog :open="helpOpen" @close="helpOpen = false" />
-    <GuideDialog v-if="course" :key="course.id" :open="guideOpen" :current-video="video" :initial-question="guideQuestion" :initial-tab="guideTab"
+    <GuideDialog v-if="course" :key="course.id" :open="guideOpen" :initial-tab="guideTab"
       @close="guideOpen = false" @select="selectGuideVideo" @segment="startSegment" />
-    <PracticeDialog v-if="course" :practice="practice" @retry="openPractice(practice.state.scope)" @settings="openGuide(undefined, 'settings')" @seek="selectGuideVideo" @help="openGuide($event, 'help')" />
-    <PracticeDialog v-if="course" :practice="daily.practice" @retry="openDailyPractice" @settings="openGuide(undefined, 'settings')" @seek="selectGuideVideo" @help="openGuide($event, 'help')" />
+    <PracticeDialog v-if="course" :practice="practice" @retry="openPractice(practice.state.scope)" @settings="openGuide('settings')" @seek="selectGuideVideo" />
+    <PracticeDialog v-if="course" :practice="daily.practice" @retry="openDailyPractice" @settings="openGuide('settings')" @seek="selectGuideVideo" />
   </div>
   </VApp>
 </template>

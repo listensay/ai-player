@@ -12,11 +12,13 @@ defineProps<{
   done?: number
   /** 当前视图：仪表盘或播放器 */
   currentView?: 'dashboard' | 'player'
-  /** 小屏下显示"目录"开关 */
+  /** 播放器目录开关，适用于侧栏和窄窗口抽屉。 */
   showTreeToggle?: boolean
+  treeVisible?: boolean
 }>()
 
 const emit = defineEmits<{
+  companion: []
   help: []
   close: []
   toggleTree: []
@@ -34,7 +36,7 @@ const emit = defineEmits<{
     <!-- 课程名称与集数进度 -->
     <div v-if="courseName && currentView === 'player'" class="hidden min-w-0 items-center gap-3 border-l border-linen pl-4 md:flex">
       <span class="truncate text-body-sm font-medium text-charcoal-ink" :title="courseName">{{ courseName }}</span>
-      <span v-if="total" class="tabular hidden shrink-0 text-caption text-stone lg:inline">
+      <span v-if="total" class="tabular hidden shrink-0 text-caption text-stone xl:inline">
         共 {{ total }} 节 · 已完成 {{ done }} 节
       </span>
     </div>
@@ -72,19 +74,26 @@ const emit = defineEmits<{
     <!-- 右侧工具栏 -->
     <div class="flex shrink-0 items-center gap-1.5">
       <RouterLink to="/study" class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream" active-class="bg-page-cream text-deep-indigo" aria-label="学习管理" title="学习管理">
-        <AppIcon name="bell" :size="18" /><span class="hidden sm:inline">学习管理</span>
+        <AppIcon name="bell" :size="18" /><span class="hidden xl:inline">学习管理</span>
+      </RouterLink>
+      <RouterLink to="/settings" class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream" active-class="bg-page-cream text-deep-indigo" aria-label="设置" title="设置">
+        <AppIcon name="settings" :size="18" /><span class="hidden xl:inline">设置</span>
       </RouterLink>
       <UiButton v-if="courseName" variant="ghost" size="sm" title="AI 导学" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('guide')">
         <AppIcon name="sparkles" :size="17" class="text-deep-indigo" />
         <span class="hidden sm:inline">AI 导学</span>
       </UiButton>
-      <UiButton v-if="showTreeToggle && currentView === 'player'" variant="text" size="sm" title="目录" class="max-sm:h-8 max-sm:w-8 max-sm:p-0 lg:hidden" @click="emit('toggleTree')">
+      <UiButton v-if="showTreeToggle && currentView === 'player'" variant="text" size="sm" :title="treeVisible ? '收起目录' : '展开目录'" aria-label="目录" :aria-expanded="treeVisible" aria-controls="player-course-directory" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('toggleTree')">
         <AppIcon name="menu" :size="18" />
         <span class="hidden sm:inline">目录</span>
       </UiButton>
-      <UiButton variant="text" size="sm" title="快捷键（?）" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('help')">
+      <UiButton variant="text" size="sm" title="打开桌面挂件" aria-label="桌面挂件" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('companion')">
+        <AppIcon name="pip" :size="18" />
+        <span class="hidden xl:inline">桌面挂件</span>
+      </UiButton>
+      <UiButton variant="text" size="sm" title="快捷键（?）" aria-label="快捷键" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('help')">
         <AppIcon name="keyboard" :size="18" />
-        <span class="hidden sm:inline">快捷键</span>
+        <span class="hidden xl:inline">快捷键</span>
       </UiButton>
       <UiButton v-if="courseName" variant="ghost" size="sm" title="返回首页" @click="emit('close')"><span class="hidden sm:inline">返回首页</span><span class="sm:hidden">首页</span></UiButton>
     </div>

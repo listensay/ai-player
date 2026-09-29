@@ -13,7 +13,7 @@ import type { PracticeScope } from '~/types/practice'
 import { masteryKey } from '~/utils/learningFeedback'
 
 const props = defineProps<{ practice: ReturnType<typeof useLessonPractice> }>()
-const emit = defineEmits<{ settings: []; retry: []; seek: [path: string, seconds: number]; help: [question: string] }>()
+const emit = defineEmits<{ settings: []; retry: []; seek: [path: string, seconds: number] }>()
 const { state, current, history, sources, configured, hasMaterial, canReview, answerSubmitted } = props.practice
 const guide = useGuide()
 const contentEl = ref<HTMLElement>()
@@ -90,11 +90,6 @@ watch(view, async () => {
 function mark(concept: string, value: string) {
   if (current.value) guide.setPracticeMastery(current.value.path, [concept], value as MasteryLevel | '')
 }
-function help() {
-  const question = current.value?.question.prompt
-  if (!question) return
-  props.practice.close(); emit('help', `练习疑问：${question}`.slice(0, 3000))
-}
 </script>
 
 <template>
@@ -118,7 +113,7 @@ function help() {
             <UiButton variant="text" size="sm" icon title="上一题" :disabled="!!state.busy || questionNumber <= 1" @click="navigateQuestion(-1)"><AppIcon name="chevron-right" class="rotate-180" :size="18" /></UiButton>
             <UiButton variant="text" size="sm" icon title="下一题" :disabled="!!state.busy || questionNumber >= history.length" @click="navigateQuestion(1)"><AppIcon name="chevron-right" :size="18" /></UiButton>
           </div>
-          <VBtnToggle v-if="current && view !== 'materials'" v-model="view" mandatory class="practice-view-switch" aria-label="练习阅读视图">
+          <VBtnToggle v-if="current && view !== 'materials'" v-model="view" mandatory variant="text" class="practice-view-switch" role="group" aria-label="练习阅读视图">
             <VBtn value="question" size="small">作答</VBtn>
             <VBtn value="feedback" size="small" :disabled="!attempt">反馈解析</VBtn>
           </VBtnToggle>
@@ -218,7 +213,6 @@ function help() {
                   <VSelect :model-value="guide.state.mastery[masteryKey(current.path, concept)]?.level ?? ''" :aria-label="`练习知识点 ${concept} 掌握程度`"
                     :disabled="!!guide.state.busy" :items="selectionItems" class="w-36 max-w-48" @update:model-value="mark(concept, $event)" />
                 </div>
-                <UiButton variant="text" size="sm" @click="help">查找基础课</UiButton>
               </VExpansionPanelText>
             </VExpansionPanel>
             <VExpansionPanel value="sources">
@@ -273,6 +267,7 @@ function help() {
           <div class="ml-auto flex flex-wrap gap-2">
             <UiButton v-if="daily" variant="text" :disabled="!!state.busy" @click="practice.close()">{{ completedCount === history.length && history.length ? '完成' : '稍后继续' }}</UiButton>
             <UiButton v-if="state.error && !hasMaterial && !state.busy" variant="ghost" @click="emit('retry')">重试准备</UiButton>
+            <UiButton v-if="state.error && state.retryGenerationCount" variant="ghost" :disabled="!canGenerate" @click="practice.generate(state.retryGenerationCount)">继续上次出题</UiButton>
             <VMenu v-if="current">
               <template #activator="{ props: menuProps }"><UiButton v-bind="menuProps" variant="ghost" :disabled="!canGenerate">继续出题<AppIcon name="chevron-down" :size="16" /></UiButton></template>
               <VList aria-label="继续出题"><VListItem title="再练一题" @click="practice.generate()" /><VListItem :title="`再练一组（每组 ${state.questionCount} 题）`" @click="practice.generate(state.questionCount)" /></VList>
@@ -290,9 +285,16 @@ function help() {
 
 <style scoped>
 .practice-picker { flex: 0 1 156px; min-width: 128px; }
-.practice-view-switch { height: 36px; margin-left: 12px; padding: 3px; border: 1px solid var(--color-linen); background: var(--color-pure-white); border-radius: 800px; }
-.practice-view-switch :deep(.v-btn) { height: 30px; padding-inline: 16px; font-size: 14px; color: var(--color-stone); }
-.practice-view-switch :deep(.v-btn--active) { background: var(--color-charcoal-ink); color: var(--color-pure-white); }
+.practice-view-switch.v-btn-group { height: 40px; margin-left: 12px; padding: 3px; gap: 4px; border: 1px solid var(--color-linen); background: var(--color-pure-white); border-radius: var(--radius-pill); }
+.practice-view-switch :deep(.v-btn) { height: 32px; padding-inline: 16px; border-radius: var(--radius-pill); font-size: 14px; color: var(--color-graphite); background: transparent; }
+.practice-view-switch :deep(.v-btn--active) { background: var(--color-sunbeam-yellow); color: var(--color-charcoal-ink); }
+.practice-view-switch :deep(.v-btn__overlay) { background: var(--color-deep-indigo); }
+.practice-view-switch :deep(.v-btn--active:not(:hover):not(:focus-visible) > .v-btn__overlay) { opacity: 0; }
+.practice-view-switch :deep(.v-btn:disabled) { background: transparent; color: var(--color-stone); opacity: .65; }
+.practice-view-switch :deep(.v-btn:disabled > .v-btn__overlay),
+.practice-view-switch :deep(.v-btn:disabled > .v-btn__underlay) { opacity: 0; }
+.practice-view-switch :deep(.v-btn:focus-visible) { outline: 2px solid var(--color-deep-indigo); outline-offset: -2px; }
+.practice-view-switch :deep(.v-btn:focus-visible::after) { opacity: 0; }
 .practice-content { scroll-padding-block: 32px; background: var(--color-pure-white); }
 .practice-reading { width: min(100%, 744px); margin-inline: auto; padding: 32px; }
 .practice-section-title { font-size: 22px; line-height: 1.4; }
@@ -315,7 +317,7 @@ function help() {
 @media (max-width: 640px) {
   .practice-reading { padding: 24px 20px; }
   .practice-section-title { font-size: 20px; }
-  .practice-view-switch { margin-left: auto; }
+  .practice-view-switch.v-btn-group { margin-left: auto; }
   .practice-toolbar > .ui-button:last-child { margin-left: auto; }
 }
 </style>

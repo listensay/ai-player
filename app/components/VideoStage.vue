@@ -163,7 +163,7 @@ function toggleFullscreen() {
 
 function onBeforeUnload() {
   persistProgress(true)
-  progress.flush()
+  void progress.flush().catch(() => {})
 }
 
 onMounted(async () => {
@@ -196,7 +196,7 @@ watch(
 onBeforeUnmount(() => {
   unmounting = true
   persistProgress(true)
-  progress.flush()
+  void progress.flush().catch(() => {})
   unlistenResize?.()
   window.removeEventListener('beforeunload', onBeforeUnload)
   player.detach()

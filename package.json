@@ -3,6 +3,8 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm test && npm run build",
     "build": "vue-tsc --noEmit && vite build",
     "dev": "tauri dev",
     "desktop:dev": "tauri dev",

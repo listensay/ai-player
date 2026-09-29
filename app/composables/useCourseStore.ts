@@ -232,7 +232,7 @@ export function useCourseStore() {
 
   function closeCourse() {
     operation++
-    progress.flush()
+    void progress.flush().catch(() => {})
     state.loading = false
     state.course = null
     state.currentVideo = null

@@ -8,7 +8,7 @@ const boundaries = {
   '~/composables/useProgress': ['useProgress'],
   '~/utils/platform': ['desktopInvoke'],
   '~/utils/guideAi': ['planPrompt', 'practicePrompt', 'requestGuideJson'],
-  '~/utils/guideMedia': ['collectGuideMetadata', 'loadLessonSubtitles', 'relevantCues'],
+  '~/utils/guideMedia': ['collectGuideMetadata'],
   '~/utils/dbClient': ['dbFetchGuide', 'dbSaveGuide', 'dbSaveSetting', 'dbFetchCheckIns', 'dbSaveCheckIns'],
   '~/utils/database': ['databaseRequest'],
 }
@@ -114,4 +114,24 @@ test('没有 AI 路线时可直接按本地目录设置学习计划', async t =>
   assert.equal(h.guide.applySchedule(local, '设置学习计划'), true)
   h.guide.persist(); await tick()
   assert.equal(h.saves.at(-1).plan.program.budget.video, 30)
+})
+
+test('移除疑问回溯后保留历史记录，但不再加入今日任务或影响掌握度', async t => {
+  const q = { id: 'legacy-question', path: 'a.mp4', seconds: 12, text: '变量为何变化？', status: 'still-confused', createdAt: 1, updatedAt: 1, recommendations: [], reviewedPaths: [] }
+  const h = harness(t, { dbFetchGuide: async () => ({ ...stored(), questions: [q] }) }); await tick()
+  assert.equal(h.guide.state.questions[0].id, q.id)
+  assert.ok(h.guide.state.today.items.every(item => item.kind !== 'question'))
+  assert.deepEqual(h.guide.state.mastery, {})
+  h.guide.setDailyMinutes(60); h.guide.persist(); await tick()
+  assert.equal(h.saves.at(-1).questions[0].text, q.text)
+})
+
+test('切换 AI 配置取消旧导学请求，迟到结果不会进入路线预览', async t => {
+  const response = deferred()
+  const h = harness(t, { planPrompt: () => [], requestGuideJson: () => response.promise }); await tick()
+  const generation = h.guide.generate('继续学习', 30)
+  assert.equal(h.guide.state.busy, 'plan')
+  h.guide.state.settings.model = 'new-model'
+  response.resolve(plan()); assert.equal(await generation, false)
+  assert.equal(h.guide.state.pending, null); assert.equal(h.guide.state.plan.summary, '保留这条路线')
 })

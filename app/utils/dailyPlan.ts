@@ -55,7 +55,7 @@ export function daySnapshot(context: DailyContext, date: string): DaySnapshot {
   const result = calculateDay(context, date)
   return { date, plannedMinutes: budgetTotal(result.budget), initialMinutes: budgetTotal(result.budget), capturedAt: Date.now(),
     tasks: [
-      ...result.today.items.map(item => ({ id: item.id, title: item.kind === 'question' ? context.questions.find(q => q.id === item.questionId)?.text ?? '处理疑问' : item.path.split('/').at(-1) ?? item.path, done: item.done, kind: item.kind })),
+      ...result.today.items.map(item => ({ id: item.id, title: item.path.split('/').at(-1) ?? item.path, done: item.done, kind: item.kind })),
       ...result.work.filter(item => item.done || result.budget[item.kind] > 0).map(item => ({ id: item.id, title: item.title, done: item.done, kind: item.kind })),
     ] }
 }

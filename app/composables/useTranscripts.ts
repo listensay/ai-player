@@ -1,3 +1,5 @@
+import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
+import { retainedCache } from '~/utils/retainedCache'
 import { computed, reactive, ref } from 'vue'
 import { useAsrService } from '~/composables/useAsrService'
 import { writeTextFile } from '~/utils/fs'
@@ -6,7 +8,7 @@ import type { CourseDirectoryHandle } from '~/types/storage'
 /**
  * 逐字稿状态：按「课程 id + 视频路径」缓存，切换课时或页签不会丢掉进行中的转写。
  * 逐字稿以同名 .srt 存在视频旁边（01-环境搭建.mp4 -> 01-环境搭建.srt），
- * 播放器、Obsidian 以及 AI 导学的"找基础 / 小练"都直接读这个文件。
+ * 播放器、Obsidian、知识点总结与练习都可读取这个文件。
  */
 import { markRaw } from 'vue'
 import type { VideoEntry } from '~/types/course'
@@ -35,6 +37,12 @@ const refineJobs = new Map<string, AbortController>()
 const loads = new Map<string, Promise<void>>()
 const runs = new Map<string, Promise<void>>()
 const jobCount = ref(0)
+const cache = retainedCache(states, {
+  entries: 12, weight: 6_000_000,
+  measure: state => state.segments.reduce((size, segment) => size + segment.text.length, 0),
+  disposable: (key, state) => !loads.has(key) && !runs.has(key) && !refineJobs.has(key)
+    && !state.refining && ['idle', 'none', 'ready'].includes(state.status),
+})
 
 function key(courseId: string, path: string) {
   return `${courseId}:${path}`
@@ -61,8 +69,10 @@ function ensure(k: string): TranscriptState {
   if (!s) {
     s = blank()
     states.set(k, s)
+    cache.touch(k); cache.prune(k)
   }
-  return s
+  cache.touch(k)
+  return states.get(k)!
 }
 
 export function useTranscripts() {
@@ -76,7 +86,7 @@ export function useTranscripts() {
   async function load(courseId: string, video: VideoEntry) {
     const k = key(courseId, video.path)
     if (loads.has(k)) return loads.get(k)
-    const loading = read(courseId, video).finally(() => loads.delete(k))
+    const loading = read(courseId, video).finally(() => { loads.delete(k); cache.prune(k) })
     loads.set(k, loading)
     return loading
   }
@@ -112,7 +122,7 @@ export function useTranscripts() {
   async function transcribe(courseId: string, video: VideoEntry, duration: number) {
     const k = key(courseId, video.path)
     if (runs.has(k)) return runs.get(k)
-    const running = run(courseId, video, duration).finally(() => runs.delete(k))
+    const running = run(courseId, video, duration).finally(() => { runs.delete(k); cache.prune(k) })
     runs.set(k, running)
     return running
   }
@@ -214,32 +224,31 @@ export function useTranscripts() {
     s.refineError = ''
 
     try {
-      const batches = batchTranscriptSegments(s.segments)
+      const original = s.segments.map(segment => ({ ...segment }))
+      const batches = batchTranscriptSegments(original)
+      const submittedSettings = { ...settings }
+      const identity = { kind: 'transcript-refinement', promptVersion: 1, courseId, path: video.path,
+        title: video.title, original, settings: aiTaskSettings(submittedSettings) }
+      const results = await runAiBatches({
+        identity,
+        batches, signal: controller.signal,
+        progress: (done, total) => { s.refineProgress = `已完成 ${done} / ${total} 批` },
+        request: batch => requestGuideJson(submittedSettings, refineTranscriptPrompt(video.title, batch), controller.signal),
+        validate: (raw, batch) => validateTranscriptCorrections(raw, batch),
+      })
       let totalChanged = 0
-      let currentSegments = [...s.segments]
-
-      for (const [index, batch] of batches.entries()) {
-        if (controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
-        s.refineProgress = `${index + 1} / ${batches.length}`
-
-        const raw = await requestGuideJson(
-          settings,
-          refineTranscriptPrompt(video.title, batch),
-          controller.signal,
-        )
-        if (controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
-
-        const corrections = validateTranscriptCorrections(raw, batch)
+      let currentSegments = original
+      for (const corrections of results) {
         const { updatedSegments, changedCount } = applyTranscriptCorrections(currentSegments, corrections)
-        currentSegments = updatedSegments
-        totalChanged += changedCount
-        s.segments = currentSegments
+        currentSegments = updatedSegments; totalChanged += changedCount
       }
-
+      controller.signal.throwIfAborted()
       const fileName = s.fileName || `${video.title}.srt`
-      await writeTextFile(video.parent, fileName, toSrt(s.segments))
+      await writeTextFile(video.parent, fileName, toSrt(currentSegments))
+      s.segments = currentSegments
       s.fileName = fileName
       s.refineProgress = ''
+      await completeAiBatches(identity)
       return { total: s.segments.length, changed: totalChanged }
     } catch (err) {
       if (controller.signal.aborted) {
@@ -253,6 +262,7 @@ export function useTranscripts() {
     } finally {
       s.refining = false
       refineJobs.delete(k)
+      cache.prune(k)
     }
   }
 
@@ -270,5 +280,11 @@ export function useTranscripts() {
   })
   const activeJobs = computed(() => jobCount.value)
 
-  return { get, load, prepare, transcribe, cancel, reset, refine, cancelRefine, activeJobs, tasks, asr }
+  function retain(courseId: string, path: string) {
+    const k = key(courseId, path)
+    const release = cache.retain(k)
+    ensure(k)
+    return release
+  }
+  return { get, load, prepare, transcribe, cancel, reset, refine, cancelRefine, activeJobs, tasks, asr, retain }
 }

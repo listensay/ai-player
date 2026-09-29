@@ -145,3 +145,18 @@ test('损坏的课节信息、观看进度和计划快照仅影响所属课程',
     assert.equal(reviewDay([healthy, row], '2026-09-26').details.length, 0)
   }
 })
+
+test('旧版疑问不会再生成任务或占用视频预算，已完成视频仍然保留', () => {
+  const c = context(), date = '2026-09-28'
+  c.questions = [{ id: 'old', path: 'a.mp4', text: '旧疑问', seconds: 10, status: 'still-confused', createdAt: 1 }]
+  c.today = { date, minutes: 30, override: null, items: [
+    { id: 'old-question', kind: 'question', questionId: 'old', path: 'a.mp4', start: 10, end: 10, seconds: 300, done: true },
+    { id: 'watched', kind: 'lesson', path: 'a.mp4', start: 0, end: 600, seconds: 600, done: true },
+  ] }
+  const result = calculateDay(c, date)
+  assert.ok(result.today.items.every(item => item.kind !== 'question'))
+  assert.equal(result.today.items.reduce((n, item) => n + item.seconds, 0), 1800)
+  assert.ok(result.today.items.find(item => item.id === 'watched' && item.done))
+  assert.equal(c.questions.length, 1)
+  assert.ok(daySnapshot(c, date).tasks.every(item => item.kind !== 'question'))
+})
