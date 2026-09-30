@@ -19,6 +19,8 @@ interface PracticeQuestionBase {
   criteria: string[]
   referenceAnswer: string
   sourceIds: string[]
+  /** 与 criteria 一一对应，合计 100 分；旧题按验收项均分。 */
+  criterionPoints?: number[]
   /** 旧练习没有学习目标，保持未分类；新题必须提供。 */
   knowledge?: PracticeKnowledge
 }
@@ -32,7 +34,28 @@ export interface PracticeFeedback {
   gaps: string[]
   nextStep: string
   sourceIds: string[]
+  grade?: PracticeGrade
 }
+export interface PracticeGrade {
+  score: number
+  items: Array<{
+    criterionIndex: number
+    score: number
+    status: 'implemented' | 'partial' | 'missing' | 'unverified'
+    evidence: string
+    improvement: string
+  }>
+}
+/** 文件内容单独保存在本地，练习与每次提交只保存不可变的文件引用。 */
+export interface PracticeAttachment {
+  id: string
+  name: string
+  kind: 'code' | 'image'
+  size: number
+  characters?: number
+}
+export type PracticeAttachmentContent = { kind: 'code'; text: string }
+  | { kind: 'image'; mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string }
 export interface PracticeRecord {
   id: string
   path: string
@@ -41,7 +64,8 @@ export interface PracticeRecord {
   sources: PracticeSource[]
   question: PracticeQuestion
   draft: string
-  attempts: Array<{ answer: string; feedback: PracticeFeedback; at: number }>
+  attachments?: PracticeAttachment[]
+  attempts: Array<{ answer: string; attachments?: PracticeAttachment[]; feedback: PracticeFeedback; at: number }>
 }
 export interface PlaybackSample {
   seconds: number

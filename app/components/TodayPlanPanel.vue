@@ -7,6 +7,7 @@ import TodayWorkList from '~/components/TodayWorkList.vue'
 import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import UiButton from '~/components/UiButton.vue'
 import PlanAdjustment from '~/components/PlanAdjustment.vue'
+import ContinueStudyButton from '~/components/ContinueStudyButton.vue'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
 import { BUDGET_LABELS, formatMinutes } from '~/utils/studyProgram'
@@ -18,6 +19,7 @@ watch(() => today.value?.minutes, value => { minutes.value = value ?? 30 }, { im
 const done = computed(() => today.value?.items.filter(i => i.done) ?? [])
 const next = computed(() => today.value?.items.find(i => !i.done))
 const totalSeconds = computed(() => today.value?.items.reduce((n, i) => n + i.seconds, 0) ?? 0)
+const extraMinutes = computed(() => today.value?.extraDays?.reduce((sum, entry) => sum + entry.minutes, 0) ?? 0)
 function start(item: TodayItem) {
   emit('segment', item)
 }
@@ -87,7 +89,7 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
         </div>
         <UiButton v-if="next" variant="dark" size="sm" @click="start(next)">开始下一项</UiButton>
       </div>
-      <p v-if="totalSeconds > (today?.minutes ?? 30) * 60" class="mt-3 text-caption text-stone">已学课节时长已达今日看课计划，今日不再新增视频。</p>
+      <p v-if="extraMinutes" class="mt-3 text-caption text-stone">已加入后续 {{ today?.extraDays?.length }} 天的课程（{{ formatMinutes(extraMinutes) }}），今日打卡目标不变。</p>
       <ol class="mt-3 divide-y divide-linen">
         <li v-for="(item, index) in today?.items" :key="item.id" class="flex items-start gap-3 py-4" :data-today-id="item.id">
           <VCheckbox :model-value="item.done" :aria-label="`完成今日第 ${index + 1} 项`" class="shrink-0"
@@ -101,9 +103,10 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
           </div>
         </li>
       </ol>
-      <p v-if="!next && today?.items.length" class="py-4 text-body-sm font-bold text-forest">
-        今日视频已全部学完。{{ guide.program.value && guide.todayWork.value.length ? '可继续完成下方的实践任务。' : '' }}
+      <p v-if="!next && today?.items.length" class="py-4 text-body-sm font-bold text-study-complete">
+        当前安排的视频已全部学完。{{ guide.program.value && guide.todayWork.value.length ? '可继续完成下方的实践任务。' : '' }}
       </p>
+      <ContinueStudyButton @segment="start" />
       <div v-if="!today?.items.length" class="py-6 text-center">
         <p class="text-body-sm text-stone">{{ guide.state.plan ? '暂无待学课节。' : '请先生成学习路线。' }}</p>
         <UiButton v-if="!guide.state.plan" class="mt-3" size="sm" @click="emit('plan')">定制学习路线</UiButton>

@@ -23,6 +23,8 @@ registerHooks({
 
 const { useLessonPractice } = await import('../app/composables/useLessonPractice.ts')
 const { appendPracticeRecord, restorePractice, isRepeatedPracticeQuestion, practiceAnswerText } = await import('../app/utils/practice.ts')
+const { readPracticeFile, validateAttachments } = await import('../app/utils/practiceAttachments.ts')
+const { criterionPoints, validatePracticeGrade } = await import('../app/utils/practiceGrading.ts')
 const note = '变量用于给数据命名，列表可以保存多个值。访问列表元素使用索引，从零开始计数。列表推导式可以筛选和转换数据，避免重复编写循环。'
 const sources = [{ id: 's1', kind: 'note', text: note }]
 const question = (prompt = '列表的第一个元素使用哪个索引？') => ({
@@ -67,7 +69,7 @@ function harness(t, overrides = {}) {
   const app = renderer.createApp({ setup() { practice = useLessonPractice(activeCourse, settings, available); return () => null } })
   app.mount({})
   t.after(() => app.unmount())
-  return { practice, saves, calls, io, settings, available, course: activeCourse }
+  return { practice, saves, calls, io, settings, available, course: activeCourse, checkpoints }
 }
 async function open(h, path = 'a.mp4') { await h.practice.open(video(path), null, note) }
 
@@ -285,4 +287,125 @@ test('生成失败后保留历史、草稿及下一次重试能力', async t => 
   await h.practice.generate()
   assert.equal(h.practice.history.value.length, 2)
   assert.equal(h.practice.state.error, '')
+})
+
+const assignment = () => ({ ...record('assignment'), question: {
+  kind: 'code', prompt: '完成一个学习清单工具。', concepts: ['列表', '切片'], criteria: ['实现清单读取和筛选', '处理空清单'], criterionPoints: [70, 30],
+  referenceAnswer: '先检查空清单，再用索引和切片读取。', sourceIds: ['s1'],
+  knowledge: { category: 'application', level: 'proficiency', reason: '组合列表操作完成一个工具。' },
+} })
+const gradeReply = () => ({ result: 'solid', strengths: ['清单读取和筛选已实现。'], gaps: ['空清单处理不完整。'], nextStep: '补充空清单处理。', sourceIds: ['s1'],
+  grade: { items: [{ criterionIndex: 0, score: 70, status: 'implemented', evidence: 'main.py 使用索引与切片。', improvement: '无需补充。' },
+    { criterionIndex: 1, score: 15, status: 'partial', evidence: '空清单分支没有返回值。', improvement: '补全空清单返回值。' }] } })
+
+test('读取代码保留全部内容，拒绝二进制、伪图片、压缩包和过大文本', async () => {
+  const text = 'def plan(items):\n    return items[:3]\n'
+  const parsed = await readPracticeFile(new File([text], 'main.py'))
+  assert.equal(parsed.content.text, text)
+  assert.equal(parsed.attachment.characters, text.length)
+  for (const file of [new File(['zip'], 'source.zip'), new File(['\0binary'], 'main.py'), new File(['not png'], 'screen.png'),
+    new File(['a'.repeat(40001)], 'large.js'), new File([''], 'empty.py'), new File([new Uint8Array([255, 255])], 'bad.txt')]) {
+    await assert.rejects(readPracticeFile(file))
+  }
+  assert.throws(() => validateAttachments(Array.from({ length: 9 }, (_, i) => ({ ...parsed.attachment, id: `file-${i}` }))), /8/)
+})
+
+test('上传代码可单独提交评分，文件单独持久化，替换附件不覆盖上次提交', async t => {
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': [assignment()] }), requestGuideJson: async (...args) => { h.calls.push(args); return gradeReply() } })
+  await open(h)
+  await h.practice.addAttachments([new File(['def plan(items):\n    return items[:3]\n'], 'main.py')])
+  assert.equal(h.practice.attachments.value.length, 1)
+  assert.equal(h.practice.canReview.value, true)
+  const firstFile = { ...h.practice.attachments.value[0] }
+  assert.ok([...h.checkpoints.keys()].some(key => key.startsWith('practice-file:')))
+  assert.ok(!JSON.stringify(h.saves.at(-1)).includes('def plan'))
+  await h.practice.review()
+  const current = h.practice.current.value
+  assert.equal(current.attempts[0].answer, '')
+  assert.equal(current.attempts[0].feedback.grade.score, 85)
+  assert.equal(h.practice.answerSubmitted.value, true)
+  const prompt = h.calls[0][1][0]
+  assert.match(prompt.content, /def plan/)
+  assert.match(prompt.content, /只按这些标准评分/)
+  assert.equal(prompt.images, undefined)
+  await h.practice.review()
+  assert.equal(h.calls.length, 1)
+  h.practice.removeAttachment(firstFile.id)
+  await h.practice.addAttachments([new File(['def plan(items):\n    return items[:3] if items else []\n'], 'main.py')])
+  assert.equal(h.practice.canReview.value, true)
+  assert.equal(current.attempts[0].attachments[0].id, firstFile.id)
+  h.practice.close(); await open(h)
+  assert.equal((await h.practice.loadAttachment(firstFile)).text, 'def plan(items):\n    return items[:3]\n')
+  assert.match((await h.practice.loadAttachment(h.practice.attachments.value[0])).text, /if items/)
+  const stored = structuredClone(h.saves.at(-1)[2])
+  const restored = restorePractice(stored, ['a.mp4'])
+  assert.equal(restored[0].attempts[0].feedback.grade.score, 85)
+  assert.equal(restored[0].attempts[0].attachments[0].id, firstFile.id)
+  assert.equal(restored[0].attachments[0].id, h.practice.attachments.value[0].id)
+})
+
+test('图片作业以真正的图像提交，截图无法证明的功能标为待验证', async t => {
+  const file = { id: 'picture', name: 'screen.png', kind: 'image', size: 3 }
+  const saved = { ...assignment(), attachments: [file] }
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': [saved] }), requestGuideJson: async (...args) => {
+    h.calls.push(args)
+    const reply = gradeReply()
+    reply.grade.items[0] = { criterionIndex: 0, score: 0, status: 'unverified', evidence: '截图未展示筛选交互。', improvement: '补充筛选实现代码。' }
+    return reply
+  } })
+  h.checkpoints.set(`practice-file:${JSON.stringify(['one', 'assignment', 'picture'])}`, { version: 1, attachment: file, content: { kind: 'image', mediaType: 'image/png', data: 'AQID' } })
+  await open(h)
+  assert.equal(h.practice.canReview.value, true)
+  await h.practice.review()
+  const sent = h.calls[0][1][0]
+  assert.deepEqual(sent.images, [{ name: 'screen.png', mediaType: 'image/png', data: 'AQID' }])
+  assert.match(sent.content, /仅凭静态截图不能确认/)
+  assert.equal(h.practice.current.value.attempts[0].feedback.grade.score, 15)
+  assert.equal(h.practice.current.value.attempts[0].feedback.result, 'retry')
+})
+
+test('作业文件写入失败不添加引用，文件丢失时不忽略附件进行评分', async t => {
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': [assignment()] }) })
+  await open(h)
+  h.io.databaseRequest = async () => { throw Error('磁盘不可写') }
+  await h.practice.addAttachments([new File(['print(1)'], 'main.py')])
+  assert.equal(h.practice.attachments.value.length, 0)
+  assert.match(h.practice.state.error, /磁盘不可写/)
+  h.practice.current.value.attachments = [{ id: 'lost', name: 'lost.py', kind: 'code', size: 8, characters: 8 }]
+  await h.practice.review()
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.practice.current.value.attempts.length, 0)
+  assert.equal(h.practice.attachments.value.length, 1)
+})
+
+test('文件读取中切换课节，迟到结果不会附到新课节', async t => {
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': [assignment()] }) })
+  await open(h)
+  const pending = deferred(), file = new File(['print(1)'], 'main.py')
+  file.arrayBuffer = () => pending.promise
+  const uploading = h.practice.addAttachments([file])
+  await open(h, 'b.mp4')
+  pending.resolve(new TextEncoder().encode('print(1)').buffer)
+  await uploading
+  assert.equal(h.practice.state.path, 'b.mp4')
+  assert.ok(!h.practice.state.records[0].attachments?.length)
+  assert.equal(h.checkpoints.size, 0)
+})
+
+test('评分要求覆盖全部功能，拒绝超分、重复项、总分错误及无依据给分', () => {
+  const q = assignment().question
+  assert.deepEqual(criterionPoints({ criteria: ['一', '二', '三'] }), [34, 33, 33])
+  assert.throws(() => criterionPoints({ criteria: ['一', '二'], criterionPoints: [60, 60] }), /100/)
+  assert.equal(validatePracticeGrade(gradeReply().grade, q).score, 85)
+  const invalid = [
+    { items: gradeReply().grade.items.slice(0, 1) },
+    { items: [gradeReply().grade.items[0], gradeReply().grade.items[0]] },
+    { ...gradeReply().grade, score: 100 },
+    { items: [{ ...gradeReply().grade.items[0], score: 71 }, gradeReply().grade.items[1]] },
+    { items: [{ ...gradeReply().grade.items[0], status: 'unverified' }, gradeReply().grade.items[1]] },
+  ]
+  for (const raw of invalid) assert.throws(() => validatePracticeGrade(raw, q))
+  const old = restorePractice([record('legacy')], ['a.mp4'])[0]
+  assert.equal(old.question.criterionPoints, undefined)
+  assert.equal(old.attachments, undefined)
 })

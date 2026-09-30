@@ -4,48 +4,88 @@ import { useGuide } from '~/composables/useLearningGuide'
 import AiProfileSelector from '~/components/AiProfileSelector.vue'
 import UiButton from '~/components/UiButton.vue'
 import { VSnackbar } from 'vuetify/components/VSnackbar'
+import { VCombobox } from 'vuetify/components/VCombobox'
 import AppIcon from '~/components/AppIcon.vue'
 import { testAiConnection } from '~/utils/aiConnectionTest'
 import { emptyAiSettings } from '~/utils/aiSettings'
+import { fetchAiModels } from '~/utils/aiModels'
 const guide = useGuide()
 const { ai } = guide
 const editingId = ref('')
-const draft = reactive({ ...emptyAiSettings(), name: '' })
+const draft = reactive({ ...emptyAiSettings(), name: '', modelIds: [] as string[] })
 const notice = reactive({ open: false, success: true, title: '', detail: '' })
 const testing = ref(false)
+const loadingModels = ref(false)
+const modelIds = ref<string[]>([])
+const modelError = ref('')
+const testReport = ref<{ success: boolean; detail: string } | null>(null)
 let testController: AbortController | undefined
+let modelsController: AbortController | undefined
 let disposed = false
 function notify(success: boolean, title: string, detail: string) {
   notice.open = false
   Object.assign(notice, { open: true, success, title, detail })
 }
-onBeforeUnmount(() => { disposed = true; testController?.abort() })
+onBeforeUnmount(() => { disposed = true; testController?.abort(); modelsController?.abort() })
+async function loadModels() {
+  if (disabled.value) return
+  loadingModels.value = true; modelError.value = ''; modelIds.value = []
+  const controller = new AbortController()
+  modelsController = controller
+  try {
+    const ids = await fetchAiModels({ ...draft }, controller.signal)
+    if (!disposed && !controller.signal.aborted) modelIds.value = ids
+  } catch (err) {
+    if (!disposed && !controller.signal.aborted) modelError.value = `${(err as Error).message} 可手动填写服务提供的模型 ID。`
+  } finally {
+    if (modelsController === controller) { loadingModels.value = false; modelsController = undefined }
+  }
+}
 async function testConnection() {
   if (disabled.value) return
   testing.value = true
   notice.open = false
-  testController = new AbortController()
+  testReport.value = null
+  const controller = new AbortController()
+  testController = controller
   const settings = { ...draft }
   try {
-    const result = await testAiConnection(settings, testController.signal)
-    if (!disposed) notify(true, '连接测试通过', `模型 ${settings.model.trim()} 已返回有效结果，耗时 ${(result.milliseconds / 1000).toFixed(1)} 秒。${editingId.value ? '修改后的配置需保存才会用于后续请求。' : '点击「保存并使用」即可启用此配置。'}`)
+    const result = await testAiConnection(settings, controller.signal)
+    if (!disposed && !controller.signal.aborted) testReport.value = { success: true, detail: `模型 ${settings.model.trim()} 已生成 ${result.lessonCount} 节样例路线并通过导学校验，耗时 ${(result.milliseconds / 1000).toFixed(1)} 秒。` }
   } catch (err) {
-    if (!disposed) notify(false, testController.signal.aborted ? '测试已取消' : '连接测试失败', (err as Error).message)
+    if (!disposed) testReport.value = { success: false, detail: controller.signal.aborted ? '测试已取消。' : (err as Error).message }
   } finally { testing.value = false; testController = undefined }
 }
 const error = ref('')
 const confirmingDelete = ref(false)
-const disabled = computed(() => !ai.state.ready || ai.state.saving || !!guide.state.busy || testing.value)
+const disabled = computed(() => !ai.state.ready || ai.state.saving || !!guide.state.busy || testing.value || loadingModels.value)
+const usesDraft = computed(() => {
+  const active = ai.state.collection.profiles.find(p => p.id === ai.state.collection.activeId)
+  return !!active && active.id === editingId.value && active.baseUrl === draft.baseUrl.trim()
+    && active.model === draft.model.trim() && active.apiKey === draft.apiKey.trim()
+    && (active.provider ?? 'openai') === draft.provider && (active.contextWindow ?? 'default') === draft.contextWindow
+    && active.timeoutMinutes === draft.timeoutMinutes
+})
+watch(() => [draft.provider, draft.baseUrl, draft.apiKey], () => {
+  modelsController?.abort(); modelIds.value = []; modelError.value = ''
+}, { flush: 'sync' })
+watch(() => [editingId.value, draft.provider, draft.contextWindow, draft.baseUrl, draft.model, draft.apiKey, draft.timeoutMinutes],
+  () => { testController?.abort(); testReport.value = null }, { flush: 'sync' })
 
 function edit(id = '') {
   const profile = ai.state.collection.profiles.find(p => p.id === id)
   editingId.value = profile?.id ?? ''
-  Object.assign(draft, emptyAiSettings(), { name: '' }, profile ? {
+  Object.assign(draft, emptyAiSettings(), { name: '', modelIds: [] }, profile ? {
     provider: profile.provider ?? 'openai',
     contextWindow: profile.contextWindow ?? 'default',
     name: profile.name, baseUrl: profile.baseUrl, model: profile.model, apiKey: profile.apiKey, timeoutMinutes: profile.timeoutMinutes,
+    modelIds: [...(profile.modelIds ?? [profile.model])].filter(Boolean),
   } : {})
   notice.open = false; error.value = ''; confirmingDelete.value = false
+}
+function setModels(ids: string[]) {
+  draft.modelIds = [...new Set(ids.map(id => id.trim()).filter(Boolean))]
+  if (!draft.modelIds.includes(draft.model)) draft.model = draft.modelIds[0] ?? ''
 }
 watch(() => ai.state.ready, ready => { if (ready) edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id) }, { immediate: true })
 
@@ -53,7 +93,11 @@ async function save() {
   if (disabled.value) return
   error.value = ''; notice.open = false
   try {
-    editingId.value = await ai.saveProfile({ ...draft }, editingId.value || undefined)
+    const savedId = await ai.saveProfile({ ...draft, modelIds: [...draft.modelIds] }, editingId.value || undefined)
+    // 保存同一份已测试表单时保留测试结果；切换编辑目标才清空。
+    const report = testReport.value
+    editingId.value = savedId
+    testReport.value = report
     notify(true, 'AI 配置已保存并启用', `「${draft.name.trim()}」已设为当前配置。后续 AI 请求将使用模型 ${draft.model.trim()}。`)
     confirmingDelete.value = false
   } catch (err) { error.value = (err as Error).message; notify(false, '保存配置失败', error.value) }
@@ -103,7 +147,17 @@ async function remove() {
           :placeholder="draft.provider === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.example.com/v1'" label="服务地址" />
         <p v-if="draft.provider === 'anthropic'" class="text-caption text-stone">官方地址：https://api.anthropic.com/v1；也可填写兼容 Anthropic 的服务地址。</p>
         <p v-else class="text-caption text-stone">本机 Ollama 可使用 http://localhost:11434/v1。</p>
-        <VTextField v-model="draft.model" required autocomplete="off" placeholder="填写服务支持的模型名称"  label="模型名称" />
+        <div class="flex flex-wrap items-start gap-3">
+          <VCombobox :model-value="draft.modelIds" :items="modelIds" :return-object="false" :disabled="disabled"
+            multiple chips closable-chips autocomplete="off" label="可选模型 ID" hide-no-data
+            variant="outlined" density="comfortable" hide-details="auto" color="secondary" bg-color="surface" rounded="lg"
+            class="min-w-0 flex-1 basis-64" @update:model-value="setModels($event)" />
+          <UiButton :disabled="disabled || !draft.baseUrl.trim()" @click="loadModels">{{ loadingModels ? '读取中…' : '读取模型列表' }}</UiButton>
+        </div>
+        <p class="text-caption text-stone">可从列表多选，或输入模型 ID 后按回车添加。配置名称仅用于区分配置。</p>
+        <VSelect v-if="draft.modelIds.length" v-model="draft.model" :items="draft.modelIds" label="当前模型 ID" :disabled="disabled" />
+        <p v-if="modelError" role="alert" class="text-caption text-error">{{ modelError }}</p>
+        <p v-else-if="modelIds.length" role="status" class="text-caption text-stone">已读取 {{ modelIds.length }} 个模型。<template v-if="draft.model && !modelIds.includes(draft.model.trim())">当前 ID 不在返回列表中，请核对模型权限；部分服务只返回部分模型。</template></p>
         <VSelect v-if="draft.provider === 'anthropic'" v-model="draft.contextWindow" label="模型上下文" :disabled="disabled"
           :items="[{ title: '默认', value: 'default' }, { title: '1M（100 万 token）', value: '1m' }]" />
         <p v-if="draft.provider === 'anthropic' && draft.contextWindow === '1m'" class="text-caption text-stone">需所选模型和服务支持 1M 上下文。</p>
@@ -111,7 +165,7 @@ async function remove() {
         <VTextField v-model.number="draft.timeoutMinutes" type="number" min="1" max="30" step="1" required  label="响应时限（分钟）" />
         <p class="text-caption text-stone">配置与密钥保存在本地，切换配置仅影响新请求。</p>
         <div class="flex flex-wrap gap-2">
-          <UiButton @click="testConnection">{{ testing ? '测试中…' : '测试连接' }}</UiButton>
+          <UiButton @click="testConnection">{{ testing ? '测试中…' : '测试导学' }}</UiButton>
           <UiButton type="submit" variant="primary">{{ ai.state.saving ? '保存中…' : '保存并使用' }}</UiButton>
           <UiButton v-if="editingId" variant="text" @click="confirmingDelete = !confirmingDelete">删除配置</UiButton>
           <UiButton v-if="!editingId && ai.state.collection.profiles.length" variant="text" @click="edit(ai.state.collection.activeId || ai.state.collection.profiles[0]?.id)">取消新增</UiButton>
@@ -123,10 +177,15 @@ async function remove() {
       </fieldset>
       <p v-if="error" role="alert" class="text-body-sm text-error">{{ error }}</p>
       <div v-if="testing" role="status" class="flex items-center justify-between gap-3 rounded-xl bg-page-cream p-3 text-body-sm">
-        <span>正在验证服务地址、密钥和模型响应…</span>
+        <span>正在生成样例学习路线并校验结果…</span>
         <UiButton size="sm" variant="text" @click="testController?.abort()">取消测试</UiButton>
       </div>
-      <p class="text-caption text-stone">测试使用当前表单发送一条简短请求，不会保存配置或发送课程资料。</p>
+      <div v-if="testReport" :role="testReport.success ? 'status' : 'alert'" class="rounded-xl border border-linen p-4 text-body-sm">
+        <p class="font-bold" :class="testReport.success ? 'text-deep-indigo' : 'text-error'">{{ testReport.success ? '导学测试通过' : '导学测试未通过' }}</p>
+        <p class="mt-2 break-words">{{ testReport.detail }}</p>
+        <p v-if="testReport.success" class="mt-2 text-caption text-stone">{{ usesDraft ? '此配置已启用。' : '点击「保存并使用」后，导学才会使用这份配置。' }}实际课程较大时仍可能受服务额度、上下文或网关时限影响。</p>
+      </div>
+      <p class="text-caption text-stone">测试使用当前表单和两节虚拟课，沿用响应时限，不会保存配置或发送你的课程资料。</p>
     </form>
     <p class="mt-4 text-caption leading-relaxed text-stone">使用 AI 时，相关课程信息、疑问、字幕、笔记或作答会发送至所选服务，视频与截图不会上传。</p>
     <VSnackbar v-model="notice.open" location="top right" :timeout="notice.success ? 6000 : -1" color="surface" rounded="xl" max-width="460">

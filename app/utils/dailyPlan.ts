@@ -2,7 +2,8 @@ import type { ConceptMastery, LearningPlan, LearningQuestion, LessonMetadata, St
 import type { VideoProgress } from '../types/course'
 import { buildSchedule, orderedRoute } from './guide.ts'
 import { buildTodayPlan } from './learningFeedback.ts'
-import { arrangeWork, budgetForDay, budgetTotal, emptyBudget, isLightDay, programDay, stageForDay } from './studyProgram.ts'
+import { dailyPracticeItems } from './dailyPracticeScope.ts'
+import { addDays, arrangeWork, budgetForDay, budgetTotal, emptyBudget, isLightDay, programDay, programDate, stageForDay } from './studyProgram.ts'
 
 export interface DailyContext {
   plan: LearningPlan | null
@@ -35,12 +36,43 @@ export function calculateDay(context: DailyContext, date: string, override?: num
   if (context.enabled !== false && budgetTotal(base) > 0 && selected !== null) budget.video = selected
   const durations = Object.fromEntries([...new Set([...route.map(l => l.path), ...Object.keys(context.metadata)])]
     .map(path => [path, progress[path]?.duration || context.metadata[path]?.duration || null]))
-  const today = buildTodayPlan(route, durations, progress, context.mastery, context.questions, budget.video, date, previous, selected)
+  const extraDays = previous?.extraDays ?? []
+  const extraMinutes = context.enabled !== false && budgetTotal(base) > 0
+    ? extraDays.reduce((sum, entry) => sum + entry.minutes, 0) : 0
+  const today = buildTodayPlan(route, durations, progress, context.mastery, context.questions, budget.video + extraMinutes, date, previous, selected)
+  // 提前学习只扩展视频列表，不提高今日打卡目标或改动后续日期的预算。
+  today.minutes = budget.video
+  if (extraDays.length) {
+    today.extraDays = extraDays.map(entry => ({ ...entry }))
+    today.practiceItemIds = dailyPracticeItems(previous, date).map(item => item.id)
+  }
   const light = program && day <= program.days && isLightDay(program, day) && budget.recap > 0 && budget.video === 0
     ? { title: program.lightTask?.title ?? '轻量复盘日', instructions: program.lightTask?.instructions ?? '回顾本周内容，整理疑问并安排下周任务。', minutes: budget.recap } : undefined
   const work = program && day >= 1 ? arrangeWork({ date, moduleId: module?.id ?? '', stage: module?.practice, budget, light }, records)
     : records.entries.filter(e => e.date === date)
   return { today, work, budget, module, route, durations, schedule: buildSchedule(route, durations, progress, plan?.dailyMinutes ?? 30) }
+}
+
+/** 当前视频全部完成后，按下一次有看课安排的日期追加课程。 */
+export function nextStudyDay(context: DailyContext, date: string) {
+  const current = context.today
+  const items = current?.items.filter(item => item.kind !== 'question') ?? []
+  if (!context.plan || context.enabled === false || current?.date !== date || !items.length || items.some(item => !item.done)) return null
+  if (budgetTotal(calculateDay(context, date).budget) <= 0) return null
+  const program = context.plan.program
+  let nextDate = addDays(current.extraDays?.at(-1)?.date ?? date, 1)
+  const lastDate = program ? programDate(program, program.days) : nextDate
+  for (; nextDate <= lastDate; nextDate = addDays(nextDate, 1)) {
+    const day = program ? programDay(program, nextDate) : 0
+    const minutes = program ? budgetForDay(program, stageForDay(context.plan.modules, day)?.practice, day).video : context.plan.dailyMinutes
+    if (minutes <= 0) continue
+    const extraDays = [...(current.extraDays ?? []), { date: nextDate, minutes }]
+    const practiceItemIds = dailyPracticeItems(current, date).map(item => item.id)
+    const today = calculateDay({ ...context, today: { ...current, extraDays, practiceItemIds } }, date).today
+    const next = today.items.find(item => !item.done)
+    return next ? { date: nextDate, minutes, today, next } : null
+  }
+  return null
 }
 
 export interface DaySnapshot {

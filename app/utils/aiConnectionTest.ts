@@ -1,19 +1,19 @@
 import type { GuideSettings } from '../types/guide'
-import { requestGuideJson } from './guideAi.ts'
-import { isRecord } from './guide.ts'
+import { planPrompt, requestGuideJson } from './guideAi.ts'
+import { validateLearningPlan } from './guide.ts'
 
-/** Exercise the same authenticated model/JSON path used by AI features, using only a fixed probe. */
+const SAMPLE_CATALOG = [
+  { path: 'demo/01.mp4', title: '变量与数据类型', duration: 600, done: false },
+  { path: 'demo/02.mp4', title: '条件判断', duration: 900, done: false },
+]
+
+/** 使用虚拟课程走完导学的提示词、模型请求与路线校验，不读写用户课程。 */
 export async function testAiConnection(settings: GuideSettings, signal: AbortSignal) {
-  const timeout = new AbortController()
-  const timer = setTimeout(() => timeout.abort(), 30_000)
   const start = performance.now()
-  try {
-    const result = await requestGuideJson({ ...settings }, [{ role: 'user', content: '这是连接测试。请只返回 JSON：{"ok":true}。' }], AbortSignal.any([signal, timeout.signal]))
-    if (!isRecord(result) || result.ok !== true) throw new Error('服务已响应，但未返回预期的 JSON 结果。请检查模型是否支持指令与 JSON 输出。')
-    return { milliseconds: Math.round(performance.now() - start) }
-  } catch (error) {
-    if (signal.aborted) throw new DOMException('测试已取消', 'AbortError')
-    if (timeout.signal.aborted) throw new Error('连接测试超过 30 秒，请检查服务状态、网络或模型加载情况后重试。')
-    throw error
-  } finally { clearTimeout(timer) }
+  const result = await requestGuideJson({ ...settings }, planPrompt(SAMPLE_CATALOG,
+    '零基础，每日学习 30 分钟，请安排这两节样例课程。', 30, null), signal)
+  signal.throwIfAborted()
+  try { validateLearningPlan(result, SAMPLE_CATALOG.map(lesson => lesson.path)) }
+  catch (error) { throw new Error(`服务已响应，但导学结果未通过校验：${(error as Error).message}`) }
+  return { milliseconds: Math.round(performance.now() - start), lessonCount: SAMPLE_CATALOG.length }
 }

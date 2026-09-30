@@ -23,12 +23,25 @@ const { useDailyPractice } = await import('../app/composables/useDailyPractice.t
 const { materialBatches, transcriptSources, validateSummaryPoints, dailyPlanComplete, dailyPlanSignature, validateWholeSummary, restoreSummary } = await import('../app/utils/knowledge.ts')
 const { crossedSegmentEnd } = await import('../app/utils/segmentReminder.ts')
 const { useLessonPractice } = await import('../app/composables/useLessonPractice.ts')
+const { practicePrompt, validateDailyPracticeQuestion, restorePractice } = await import('../app/utils/practice.ts')
+const { calculateDay, nextStudyDay } = await import('../app/utils/dailyPlan.ts')
+const { restoreFeedback } = await import('../app/utils/learningFeedback.ts')
+const { emptyStudyRecords } = await import('../app/utils/studyProgram.ts')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 const cue = (id, start, end) => ({ id, start, end, text: '列表通过索引访问元素，第一个元素索引为零，索引越界会报错；切片可以获取列表中一段元素。'.repeat(3) })
 const videos = ['a.mp4', 'b.mp4'].map(path => ({ path, title: path, parent: { getFileHandle: async () => { throw new Error('none') } } }))
 const today = (date = '2026-09-25') => ({ date, minutes: 1, override: null, items: videos.map(v => ({ id: v.path, kind: 'lesson', path: v.path, start: 0, end: 30, seconds: 30, estimated: false, done: true })) })
+function continuationContext(today) {
+  return { today, plan: { dailyMinutes: 1, modules: [{ id: 'm' }],
+    lessons: videos.map(v => ({ path: v.path, moduleId: 'm', status: 'required', concepts: [], prerequisites: [] })) },
+    metadata: Object.fromEntries(videos.map(v => [v.path, { duration: 60 }])), progress: {},
+    includeOptional: false, mastery: {}, questions: [], records: emptyStudyRecords() }
+}
 const question = (id, sourceId) => ({ kind: 'single-choice', prompt: `练习 ${id}：列表第一个元素的索引是什么？`, concepts: ['列表索引'], criteria: ['选择一个答案'], referenceAnswer: '索引为零。', sourceIds: [sourceId], knowledge: { category: 'concept', level: 'awareness', reason: '辨认索引即可。' }, options: [{ id: 'A', text: '0' }, { id: 'B', text: '1' }], correctOptionIds: ['A'] })
+const comprehensive = sources => ({ kind: 'task', prompt: '整理一份学习清单：\n1. 用列表保存条目并读取首项。\n2. 用切片提取需要复习的部分，说明如何避免越界。',
+  concepts: ['列表索引', '切片与边界'], criteria: ['完成清单读取与筛选', '说明边界条件'], referenceAnswer: '使用索引零读取首项，使用切片读取一段元素；先判断列表是否为空。',
+  sourceIds: sources.map(s => s.id), knowledge: { category: 'application', level: 'proficiency', reason: '综合运用列表访问与切片完成学习清单。' } })
 function harness(t, overrides = {}) {
   const database = new Map(), requests = [], saves = [], cues = new Map(videos.map(v => [v.path, [cue(1, 0, 10), cue(2, 10, 20), cue(3, 20, 30)]]))
   let sequence = 0
@@ -52,6 +65,11 @@ function harness(t, overrides = {}) {
       const data = JSON.parse(prompt.slice(prompt.lastIndexOf('输入数据：') + 5))
       if (prompt.startsWith('依据逐字稿')) return { points: data.sources.map(s => ({ title: `知识点 ${s.id}`, text: s.text.slice(0, 1500), sourceIds: [s.id] })) }
       if (prompt.startsWith('综合教学材料')) return { overview: '本课围绕列表的索引与切片，说明读取元素的方法和边界条件。', points: [{ title: '索引与切片的联系', text: data.sources.map(s => s.text).join('\n').slice(0, 1000), sourceIds: data.sources.map(s => s.id) }] }
+      if (prompt.startsWith('为一道')) return { points: [{ text: data.sources.map(s => s.text.slice(0, 30)).join('\n'), sourceIds: data.sources.map(s => s.id) }] }
+      if (prompt.includes('生成 1 道「今日巩固」综合练习大题')) return comprehensive(data.sources)
+      if (prompt.startsWith('请按功能')) return { result: 'solid', strengths: ['完成了清单功能。'], gaps: [], nextStep: '增加更多使用场景。', sourceIds: data.sources.map(s => s.id),
+        grade: { items: data.rubric.map(item => ({ criterionIndex: item.criterionIndex, score: item.points, status: 'implemented', evidence: '代码实现了要求的操作。', improvement: '无需补充。' })) } }
+      if (prompt.startsWith('请给')) return { result: 'solid', strengths: ['完成了清单读取与切片筛选。'], gaps: [], nextStep: '用空列表检查边界条件。', sourceIds: data.sources.map(s => s.id) }
       const count = Number(prompt.match(/生成 (\d+) 道/)?.[1] ?? 1)
       const qs = Array.from({ length: count }, (_, i) => question(++sequence, data.sources[i % data.sources.length].id))
       return count === 1 ? qs[0] : { questions: qs }
@@ -159,21 +177,23 @@ test('总结读取失败时不调用 AI 或覆盖存储', async t => {
   assert.equal(h.saves.length, 0)
 })
 
-test('今日巩固汇总所有计划课节，自动生成五题并保存作答、稍后继续', async t => {
+test('今日巩固汇总所有计划课节，只生成一道综合题并保存作答、稍后继续', async t => {
   const h = harness(t)
   await tick()
   assert.equal(h.daily.shouldPrompt.value, true)
   await h.daily.open()
-  assert.equal(h.daily.practice.history.value.length, 5)
+  assert.equal(h.daily.practice.history.value.length, 1)
+  assert.equal(h.daily.practice.state.questionCount, 1)
+  assert.equal(h.daily.practice.current.value.question.kind, 'task')
   assert.equal(h.daily.shouldPrompt.value, false)
   assert.deepEqual([...new Set(h.daily.practice.sources.value.map(s => s.path))], ['a.mp4', 'b.mp4'])
-  h.daily.practice.updateDraft('["A"]')
+  h.daily.practice.updateDraft('先检查清单不为空，再用索引零读取首项，用切片筛选待复习条目。')
   await h.daily.practice.review()
   assert.equal(h.daily.answered.value, 1)
   h.daily.practice.close()
   await h.daily.open()
-  assert.equal(h.daily.practice.history.value.length, 5)
-  assert.equal(h.daily.practice.current.value.draft, '["A"]')
+  assert.equal(h.daily.practice.history.value.length, 1)
+  assert.match(h.daily.practice.current.value.draft, /清单不为空/)
   await tick()
   assert.ok(h.database.get('daily-practice:course'))
   await h.daily.flush()
@@ -185,9 +205,188 @@ test('今日巩固汇总所有计划课节，自动生成五题并保存作答�
   assert.equal(h.daily.shouldPrompt.value, false)
   const requestsBefore = h.requests.length
   await h.daily.open()
-  assert.equal(h.daily.practice.history.value.length, 5)
-  assert.equal(h.daily.practice.current.value.draft, '["A"]')
+  assert.equal(h.daily.practice.history.value.length, 1)
+  assert.match(h.daily.practice.current.value.draft, /清单不为空/)
   assert.equal(h.requests.length, requestsBefore)
+})
+
+test('追加次日课程未学完时今日巩固仍可开始，材料只包含原计划片段', async t => {
+  const h = harness(t)
+  await tick()
+  const signature = dailyPlanSignature(h.plan.value, h.date.value)
+  h.plan.value = nextStudyDay(continuationContext(h.plan.value), h.date.value).today
+  await tick()
+  assert.ok(h.plan.value.items.some(item => !item.done))
+  assert.equal(h.daily.complete.value, true)
+  assert.equal(h.daily.shouldPrompt.value, true)
+  assert.equal(dailyPlanSignature(h.plan.value, h.date.value), signature)
+  await h.daily.open()
+  assert.equal(h.daily.practice.history.value.length, 1)
+  assert.deepEqual(h.daily.items.value.map(item => [item.path, item.start, item.end]), [['a.mp4', 0, 30], ['b.mp4', 0, 30]])
+  assert.ok(h.daily.practice.sources.value.every(source => source.end <= 30))
+})
+
+test('已生成的巩固作业追加课程后不关闭、不丢失草稿，刷新和重新进入仍复用原题', async t => {
+  const h = harness(t)
+  await h.daily.open()
+  h.daily.practice.updateDraft('原计划的综合作业草稿')
+  const recordId = h.daily.practice.current.value.id, requests = h.requests.length
+  h.plan.value = nextStudyDay(continuationContext(h.plan.value), h.date.value).today
+  await tick()
+  assert.equal(h.daily.practice.state.open, true)
+  assert.equal(h.daily.records.value[0].id, recordId)
+  h.daily.practice.close()
+  h.plan.value.items.at(-1).done = true
+  h.plan.value = calculateDay(continuationContext(h.plan.value), h.date.value).today
+  h.plan.value = restoreFeedback(JSON.parse(JSON.stringify({ today: h.plan.value })), videos.map(v => v.path)).today
+  await h.daily.flush()
+  const original = h.course.value
+  h.course.value = null; await tick()
+  h.course.value = original; await tick()
+  assert.equal(h.daily.complete.value, true)
+  await h.daily.open()
+  assert.equal(h.daily.practice.current.value.id, recordId)
+  assert.equal(h.daily.practice.current.value.draft, '原计划的综合作业草稿')
+  assert.equal(h.requests.length, requests)
+})
+
+test('旧版追加记录也能使用原计划巩固，额外课程全部完成不改变原题', async t => {
+  const h = harness(t)
+  await h.daily.open()
+  const recordId = h.daily.practice.current.value.id
+  const extra = h.plan.value.items.map(item => ({ ...item, id: `extra:${item.id}`, start: 30, end: 60, done: false }))
+  h.plan.value = { ...h.plan.value, extraDays: [{ date: '2026-09-26', minutes: 1 }], items: [...h.plan.value.items, ...extra] }
+  await tick()
+  assert.equal(h.daily.complete.value, true)
+  assert.equal(h.daily.records.value[0].id, recordId)
+  h.plan.value.items.forEach(item => { item.done = true })
+  await tick()
+  assert.equal(h.daily.records.value[0].id, recordId)
+  assert.equal(h.daily.items.value.length, 2)
+})
+
+const dailySources = () => Array.from({ length: 15 }, (_, i) => ({ id: `s${i + 1}`, kind: 'summary',
+  path: i < 8 ? 'a.mp4' : 'b.mp4', start: 0, end: 30, text: `主题-${i}：${'索引和切片。'.repeat(200)}` }))
+
+test('今日长材料先完整汇总再统一出一道题，不能用每组题数或追加入口绕过', async t => {
+  const h = harness(t), sources = dailySources()
+  await h.daily.practice.openSources('daily:2026-09-25:long', '今日全部课节', async () => sources)
+  h.daily.practice.state.questionCount = 8
+  await h.daily.practice.generate(8)
+  assert.equal(h.daily.practice.state.error, '')
+  assert.equal(h.daily.practice.history.value.length, 1)
+  const materialRequests = h.requests.filter(m => m[0].content.startsWith('为一道'))
+  const input = messages => JSON.parse(messages[0].content.split('输入数据：')[1])
+  assert.equal(materialRequests.length, 2)
+  assert.deepEqual(materialRequests.flatMap(m => input(m).sources.map(s => s.id)), sources.map(s => s.id))
+  const generated = h.requests.filter(m => m[0].content.includes('生成 1 道「今日巩固」综合练习大题'))
+  assert.equal(generated.length, 1)
+  assert.match(input(generated[0]).sources.map(s => s.text).join('\n'), /主题-0/)
+  assert.match(input(generated[0]).sources.map(s => s.text).join('\n'), /主题-14/)
+  const record = h.daily.practice.current.value
+  assert.equal(restorePractice([JSON.parse(JSON.stringify(record))], [record.path], 1000, ['a.mp4', 'b.mp4']).length, 1)
+  const calls = h.requests.length
+  await h.daily.practice.generate(); await h.daily.practice.generate(5)
+  assert.equal(h.daily.practice.history.value.length, 1)
+  assert.equal(h.requests.length, calls)
+})
+
+test('今日汇总后续批次失败时不保存半道题，重试复用已完成汇总', async t => {
+  const h = harness(t), normal = h.io.requestGuideJson, sources = dailySources()
+  let summaries = 0
+  h.io.requestGuideJson = async (...args) => {
+    if (args[1][0].content.startsWith('为一道') && ++summaries === 2) throw Error('汇总断网')
+    return normal(...args)
+  }
+  await h.daily.practice.openSources('daily:2026-09-25:retry', '今日全部课节', async () => sources)
+  await h.daily.practice.generate()
+  assert.match(h.daily.practice.state.error, /断网/)
+  assert.equal(h.daily.practice.history.value.length, 0)
+  await h.daily.practice.generate()
+  assert.equal(summaries, 3)
+  assert.equal(h.daily.practice.history.value.length, 1)
+})
+
+test('今日材料需要多层汇总时，每次请求有界，最终综合题仍包含首尾知识', async t => {
+  const h = harness(t), normal = h.io.requestGuideJson
+  const sources = Array.from({ length: 70 }, (_, i) => ({ ...dailySources()[0], id: `s${i}`, text: `主题-${i}：`.padEnd(1200, '学') }))
+  const summaryLevels = new Set()
+  h.io.requestGuideJson = async (...args) => {
+    const prompt = args[1][0].content, input = JSON.parse(prompt.split('输入数据：')[1])
+    assert.ok(input.sources.length <= 100)
+    assert.ok(input.sources.reduce((sum, s) => sum + s.text.length, 0) <= 12000)
+    if (prompt.startsWith('为一道')) {
+      summaryLevels.add(input.sources[0].id.startsWith('d') ? 'merged' : 'original')
+      const topics = [...new Set(input.sources.flatMap(s => s.text.match(/主题-\d+/g) ?? []))].join('、')
+      return { points: Array.from({ length: 3 }, () => ({ text: topics.padEnd(1190, '学'), sourceIds: input.sources.map(s => s.id) })) }
+    }
+    assert.match(input.sources.map(s => s.text).join(''), /主题-0/)
+    assert.match(input.sources.map(s => s.text).join(''), /主题-69/)
+    return normal(...args)
+  }
+  await h.daily.practice.openSources('daily:2026-09-25:multi-level', '今日全部知识', async () => sources)
+  await h.daily.practice.generate()
+  assert.equal(h.daily.practice.state.error, '')
+  assert.equal(summaryLevels.size, 2)
+  assert.equal(h.daily.practice.history.value.length, 1)
+})
+
+test('今日汇总漏掉材料时拒绝继续出题，取消后迟到的结果不保存', async t => {
+  const h = harness(t), sources = dailySources()
+  h.io.requestGuideJson = async () => ({ points: [{ text: '只整理第一课。', sourceIds: ['s1'] }] })
+  await h.daily.practice.openSources('daily:2026-09-25:invalid', '今日全部课节', async () => sources)
+  await h.daily.practice.generate()
+  assert.match(h.daily.practice.state.error, /遗漏/)
+  assert.equal(h.daily.practice.history.value.length, 0)
+  const pending = deferred()
+  h.io.requestGuideJson = () => pending.promise
+  const generating = h.daily.practice.generate()
+  await tick(); h.daily.practice.cancel()
+  pending.resolve({ points: [{ text: '迟到的结果。', sourceIds: sources.map(s => s.id) }] })
+  await generating
+  assert.equal(h.daily.practice.history.value.length, 0)
+})
+
+test('今日综合题校验拒绝小题、多题和遗漏材料，课后练习提示仍保留原规则', () => {
+  const sources = dailySources().slice(0, 2)
+  const valid = comprehensive(sources)
+  assert.equal(validateDailyPracticeQuestion(valid, sources).kind, 'task')
+  assert.throws(() => validateDailyPracticeQuestion(question('choice', 's1'), sources), /综合/)
+  assert.throws(() => validateDailyPracticeQuestion({ questions: [valid, valid] }, sources), /一道/)
+  assert.throws(() => validateDailyPracticeQuestion({ ...valid, sourceIds: ['s1'] }, sources), /覆盖全部/)
+  const daily = practicePrompt('今天', sources, null, [], 8, true)[0].content
+  assert.match(daily, /生成 1 道/)
+  assert.doesNotMatch(daily, /每题 2–5 分钟|每道题聚焦一个主题|多题分散/)
+  assert.match(practicePrompt('课后', sources, null, [], 3)[0].content, /生成 3 道「课后练习」/)
+})
+
+test('新的单题安排不沿用旧五题，旧题和作答仍保存在原位置', async t => {
+  const h = harness(t)
+  await h.daily.open(); await h.daily.flush()
+  const current = h.daily.practice.current.value
+  const oldPath = `daily:${h.date.value}:${dailyPlanSignature(h.plan.value, h.date.value)}`
+  const oldRecords = Array.from({ length: 5 }, (_, i) => ({ ...JSON.parse(JSON.stringify(current)),
+    id: `legacy-${i}`, path: oldPath, draft: '保留旧版作答' }))
+  const originalCourse = h.course.value
+  h.course.value = null; await tick()
+  h.database.set('daily-practice:course', { [oldPath]: oldRecords })
+  h.course.value = originalCourse; await tick()
+  assert.equal(h.daily.records.value.length, 0)
+  await h.daily.open(); await h.daily.flush()
+  assert.equal(h.daily.records.value.length, 1)
+  assert.deepEqual(h.database.get('daily-practice:course')[oldPath], oldRecords)
+})
+
+test('旧版仅有文字反馈的综合作业，可不改答案直接补评功能分数', async t => {
+  const h = harness(t)
+  await h.daily.open()
+  h.daily.practice.updateDraft('用索引读取首项，用切片获取复习清单，空列表返回空结果。')
+  await h.daily.practice.review()
+  delete h.daily.practice.current.value.attempts[0].feedback.grade
+  assert.equal(h.daily.practice.canReview.value, true)
+  await h.daily.practice.review()
+  assert.equal(h.daily.practice.current.value.attempts.at(-1).feedback.grade.score, 100)
+  assert.equal(h.daily.practice.canReview.value, false)
 })
 
 test('练习一组多题原子保存，任一题无效都保留已有记录', async t => {

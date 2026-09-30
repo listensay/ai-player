@@ -5,6 +5,7 @@ import type { GuideLesson } from '~/types/guide'
 import type { GuideWorkspaceState } from '~/types/guideWorkspace'
 import type { useProgress } from '~/composables/useProgress'
 import { planPrompt, practicePrompt, requestGuideJson } from '~/utils/guideAi'
+import { adjustmentPrompt, applyPlanAdjustment, canAdjustPlan } from '~/utils/guidePlanAdjustment'
 import { retainPrerequisites, validateLearningPlan } from '~/utils/guide'
 import { applyMastery } from '~/utils/learningFeedback'
 import { applyPractice, inheritProgram, parsePracticeImport } from '~/utils/studyProgram'
@@ -62,14 +63,23 @@ export function useGuideAi(state: GuideWorkspaceState, options: {
     request = controller
     state.busy = 'plan'; state.error = ''; state.notice = ''
     try {
-      const previous = state.plan
-      const raw = await requestGuideJson({ ...state.settings }, planPrompt(current.videos.map(v => ({
+      const previous = state.plan ? JSON.parse(JSON.stringify(state.plan)) as typeof state.plan : null
+      const catalog = current.videos.map(v => ({
         path: v.path, title: v.title, duration: durations.value[v.path] ?? null, done: !!progress.get(current.id, v.path)?.done,
-      })), text.trim(), dailyMinutes, previous, { mastery: Object.values(state.mastery) }, todayDate.value), controller.signal)
+      }))
+      const adjustment = previous && canAdjustPlan(previous, catalog)
+      const feedback = { mastery: Object.values(state.mastery) }
+      const messages = adjustment
+        ? adjustmentPrompt(catalog, text.trim(), dailyMinutes, previous, feedback, todayDate.value)
+        : planPrompt(catalog, text.trim(), dailyMinutes, previous, feedback, todayDate.value)
+      const raw = await requestGuideJson({ ...state.settings }, messages, controller.signal)
       if (controller.signal.aborted || current.id !== activeId()) return false
-      const plan = inheritProgram(validateLearningPlan(raw, current.videos.map(v => v.path)), previous)
-      const promoted = retainPrerequisites(plan.lessons, false, masteredPaths.value)
-      applyMastery(plan.lessons, state.mastery)
+      const adjusted = adjustment ? applyPlanAdjustment(raw, previous, catalog, dailyMinutes) : null
+      const plan = adjusted?.plan ?? inheritProgram(validateLearningPlan(raw, catalog.map(v => v.path)), previous)
+      // 明确略过的课节保留依赖关系，在预览中提示风险，不能静默重新加入路线。
+      const excluded = new Set(adjusted ? plan.lessons.filter(l => l.status === 'skipped').map(l => l.path) : [])
+      const promoted = retainPrerequisites(plan.lessons, false, new Set([...masteredPaths.value, ...excluded]))
+      applyMastery(plan.lessons, state.mastery, excluded)
       plan.messages = [...(previous?.messages ?? []).slice(-18), { role: 'user', content: text.trim() }, { role: 'assistant', content: plan.summary }]
       const notice = promoted.length ? `已保留 ${promoted.length} 节必要的前置课。` : '学习路线已生成，可根据掌握程度调整课节。'
       if (previous) {
@@ -93,7 +103,7 @@ export function useGuideAi(state: GuideWorkspaceState, options: {
   }
 
   watch(() => [state.settings.provider, state.settings.contextWindow, state.settings.baseUrl, state.settings.model,
-    state.settings.apiKey, configured.value], cancel, { flush: 'sync' })
+    state.settings.apiKey, state.settings.timeoutMinutes, configured.value], cancel, { flush: 'sync' })
   onBeforeUnmount(cancel)
   return { generate, generatePractice, cancel }
 }

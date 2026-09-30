@@ -1,4 +1,13 @@
 import type { PlaybackSample } from '../types/practice'
+import type { VideoProgress } from '../types/course'
+import type { TodayItem } from '../types/guide'
+
+/** 计划片段保持不变，重新打开未完成的普通课程时仍从片段内的观看进度续播。 */
+export function segmentPlaybackStart(item: TodayItem, progress?: VideoProgress): number {
+  const time = progress?.time ?? item.start
+  return item.kind === 'lesson' && !item.done && Number.isFinite(time) && time > item.start && time < item.end
+    ? time : item.start
+}
 
 /** 只接受连续播放跨越终点；跳转、暂停和切课由事件采样断开。 */
 export function crossedSegmentEnd(previous: PlaybackSample | null, current: PlaybackSample, end: number): boolean {

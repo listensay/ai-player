@@ -34,11 +34,13 @@ function cancel() { if (course.value && video.value) knowledge.cancel(course.val
       <p class="text-body-sm">{{ progress }}</p>
       <UiButton variant="text" size="sm" class="mt-2" @click="cancel">取消</UiButton>
     </div>
-    <div v-if="state?.error" class="mb-4 space-y-2">
+    <div v-if="state?.error" class="mb-4 flex flex-col gap-2">
       <p role="alert" class="text-body-sm text-error">{{ state.error }}</p>
-      <UiButton v-if="!guide.configured.value" size="sm" @click="openGuide('settings')">AI 设置</UiButton>
-      <UiButton v-else size="sm" :disabled="busy" @click="retry()">继续整理</UiButton>
-      <UiButton v-if="guide.configured.value" variant="text" size="sm" :disabled="busy" @click="retry(true)">从头整理</UiButton>
+      <div class="flex flex-wrap items-center gap-2">
+        <UiButton v-if="!guide.configured.value" size="sm" @click="openGuide('settings')">AI 设置</UiButton>
+        <UiButton v-else size="sm" :disabled="busy" @click="retry()">继续整理</UiButton>
+        <UiButton v-if="guide.configured.value" variant="text" size="sm" :disabled="busy" @click="retry(true)">从头整理</UiButton>
+      </div>
     </div>
     <div v-if="state?.storageError" class="mb-4">
       <p role="alert" class="text-body-sm text-error">{{ state.storageError }}</p>

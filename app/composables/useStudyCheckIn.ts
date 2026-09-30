@@ -15,6 +15,8 @@ export const CHECK_IN_KEY: InjectionKey<StudyCheckInInstance> = Symbol('study-ch
 export interface CheckInPlan {
   today: TodayPlan | null
   dailyMinutes: number
+  startDate?: string | null
+  endDate?: string | null
   /** 设置完整学习计划后，当日目标为全部时间分配之和（看课 + 实践）。 */
   targetMinutes?: number | null
   /** 各日期记录的实践时间（秒），计入当日学习时长。 */
@@ -37,6 +39,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   const isAchieved = computed(() => !!current.value?.checkedAt)
   const targetSeconds = computed(() => current.value?.targetSeconds ?? minutesFor(state.date) * 60)
   const includesWork = computed(() => plan.value.targetMinutes != null)
+  const startDate = computed(() => plan.value.startDate ?? null)
+  const endDate = computed(() => plan.value.endDate ?? null)
   const workFor = (date: string) => plan.value.workSeconds?.[date] ?? 0
   /** 当日学习时长：有效看课时长 + 记录的实践时间。 */
   const secondsFor = (date: string) => Math.min(86400, (state.days[date]?.seconds ?? 0) + workFor(date))
@@ -50,7 +54,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
 
   function minutesFor(date: string) {
     if (date === state.date && plan.value.targetMinutes != null) return plan.value.targetMinutes
-    if (date >= state.date && plan.value.budgetForDate) return plan.value.budgetForDate(date)
+    if (date < state.date && state.days[date]) return state.days[date]!.targetSeconds / 60
+    if (plan.value.budgetForDate) return plan.value.budgetForDate(date)
     return plan.value.today?.date === date ? plan.value.today.minutes : plan.value.dailyMinutes
   }
 
@@ -156,6 +161,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     minutesFor,
     secondsFor,
     includesWork,
+    startDate,
+    endDate,
     ensureDay,
     sample,
     resetPlayback,

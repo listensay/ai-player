@@ -12,16 +12,12 @@ defineProps<{
   done?: number
   /** 当前视图：仪表盘或播放器 */
   currentView?: 'dashboard' | 'player'
-  /** 播放器目录开关，适用于侧栏和窄窗口抽屉。 */
-  showTreeToggle?: boolean
-  treeVisible?: boolean
 }>()
 
 const emit = defineEmits<{
   companion: []
   help: []
   close: []
-  toggleTree: []
   guide: []
 }>()
 </script>
@@ -82,10 +78,6 @@ const emit = defineEmits<{
       <UiButton v-if="courseName" variant="ghost" size="sm" title="AI 导学" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('guide')">
         <AppIcon name="sparkles" :size="17" class="text-deep-indigo" />
         <span class="hidden sm:inline">AI 导学</span>
-      </UiButton>
-      <UiButton v-if="showTreeToggle && currentView === 'player'" variant="text" size="sm" :title="treeVisible ? '收起目录' : '展开目录'" aria-label="目录" :aria-expanded="treeVisible" aria-controls="player-course-directory" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('toggleTree')">
-        <AppIcon name="menu" :size="18" />
-        <span class="hidden sm:inline">目录</span>
       </UiButton>
       <UiButton variant="text" size="sm" title="打开桌面挂件" aria-label="桌面挂件" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('companion')">
         <AppIcon name="pip" :size="18" />

@@ -2,14 +2,17 @@ import { onBeforeUnmount, computed, reactive, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { GuideSettings, SubtitleCue } from '~/types/guide'
-import type { PracticeRecord, PracticeScope, PracticeSource } from '~/types/practice'
+import type { PracticeAttachment, PracticeRecord, PracticeScope, PracticeSource } from '~/types/practice'
 import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
 import { materialBatches } from '~/utils/knowledge'
+import { prepareDailyPracticeSources } from '~/utils/dailyPractice'
 import { isRecord } from '~/utils/guide'
 import { loadLessonSubtitles } from '~/utils/guideMedia'
 import { requestGuideJson } from '~/utils/guideAi'
-import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validatePracticeFeedback, restorePractice, isChoiceQuestion, practiceAnswerText, reviewPracticeChoice, appendPracticeRecord, isRepeatedPracticeQuestion, PRACTICE_ATTEMPT_LIMIT } from '~/utils/practice'
+import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validateDailyPracticeQuestion, validatePracticeFeedback, restorePractice, isChoiceQuestion, practiceAnswerText, reviewPracticeChoice, appendPracticeRecord, isRepeatedPracticeQuestion, PRACTICE_ATTEMPT_LIMIT } from '~/utils/practice'
 import { dbFetchPractice, dbSavePractice, dbFetchNote } from '~/utils/dbClient'
+import { createPracticeAttachmentStore, readPracticeFile, validateAttachments } from '~/utils/practiceAttachments'
+import { assignmentReviewPrompt } from '~/utils/practiceGrading'
 
 
 interface PracticeOptions {
@@ -27,14 +30,15 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     open: false, path: '', title: '', scope: null as PracticeScope | null,
     note: '', cues: [] as SubtitleCue[], supplement: '',
     records: [] as PracticeRecord[], selectedId: '', historyReady: false,
-    busy: '' as '' | 'loading' | 'generate' | 'review', error: '', storageError: '', materialNotice: '',
-    mode, preparedSources: null as PracticeSource[] | null, questionCount: mode === 'daily' ? 5 : 3, generationProgress: '', retryGenerationCount: 0,
+    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload', error: '', storageError: '', materialNotice: '',
+    mode, preparedSources: null as PracticeSource[] | null, questionCount: mode === 'daily' ? 1 : 3, generationProgress: '', retryGenerationCount: 0,
   })
   let activeId = ''
   let request: AbortController | null = null
   let historyLoad: Promise<void> = Promise.resolve()
   let courseRevision = 0
   let saveRevision = 0
+  const attachmentStore = createPracticeAttachmentStore()
   const current = computed(() => state.records.find(r => r.id === state.selectedId && r.path === state.path))
   const history = computed(() => state.records.filter(r => r.path === state.path))
   const sources = computed(() => {
@@ -45,8 +49,15 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   const hasMaterial = computed(() => enoughPracticeMaterial(sources.value))
   const configured = computed(() => available.value && !!settings.baseUrl.trim() && !!settings.model.trim())
   const answer = computed(() => current.value ? practiceAnswerText(current.value.question, current.value.draft) : '')
-  const answerSubmitted = computed(() => !!answer.value && current.value?.attempts.at(-1)?.answer === answer.value)
-  const canReview = computed(() => state.historyReady && !!current.value && !!answer.value && !answerSubmitted.value && !state.busy
+  const attachments = computed(() => current.value?.attachments ?? [])
+  const hasSubmission = computed(() => !!answer.value || attachments.value.length > 0)
+  const answerSubmitted = computed(() => {
+    const previous = current.value?.attempts.at(-1)
+    return hasSubmission.value && !!previous && previous.answer === answer.value
+      && (mode !== 'daily' || !!previous.feedback.grade)
+      && JSON.stringify((previous.attachments ?? []).map(file => file.id).sort()) === JSON.stringify(attachments.value.map(file => file.id).sort())
+  })
+  const canReview = computed(() => state.historyReady && !!current.value && hasSubmission.value && !answerSubmitted.value && !state.busy
     && current.value.attempts.length < PRACTICE_ATTEMPT_LIMIT && (isChoiceQuestion(current.value.question) || configured.value))
 
   function persist() {
@@ -60,9 +71,39 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     })
   }
   function cancel() { request?.abort(); request = null; state.busy = '' }
-  function close() { cancel(); persist(); state.open = false }
+  function close() { cancel(); persist(); state.open = false; attachmentStore.clear() }
   function select(id: string) { if (state.busy) return; state.selectedId = id; state.error = '' }
   function updateDraft(answer: string) { if (current.value && !state.busy) { current.value.draft = answer.slice(0, 8000); state.error = ''; persist() } }
+
+  async function addAttachments(files: File[]) {
+    const record = current.value
+    if (!record || state.busy || !state.open || !state.historyReady || isChoiceQuestion(record.question) || !files.length) return
+    if ((record.attachments?.length ?? 0) + files.length > 8) { state.error = '每次作业最多上传 8 个文件。'; return }
+    const id = activeId, revision = courseRevision
+    const controller = new AbortController(); request = controller; state.busy = 'upload'; state.error = ''
+    try {
+      for (const file of files) {
+        const { attachment, content } = await readPracticeFile(file)
+        controller.signal.throwIfAborted()
+        const next = validateAttachments([...(record.attachments ?? []), attachment])
+        await attachmentStore.save(id, record.id, attachment, content)
+        controller.signal.throwIfAborted()
+        if (courseRevision !== revision || current.value?.id !== record.id) return
+        record.attachments = next
+        await persist()
+      }
+    } catch (error) { if (!controller.signal.aborted) state.error = `作业文件未添加：${(error as Error).message}` }
+    finally { if (request === controller) { request = null; state.busy = '' } }
+  }
+  function removeAttachment(id: string) {
+    if (!current.value || state.busy) return
+    current.value.attachments = attachments.value.filter(file => file.id !== id)
+    state.error = ''; persist()
+  }
+  function loadAttachment(file: PracticeAttachment, recordId = current.value?.id) {
+    if (!activeId || !recordId) return Promise.reject(new Error('当前作业不可用。'))
+    return attachmentStore.load(activeId, recordId, file)
+  }
 
   async function open(video: VideoEntry, scope: PracticeScope | null, noteSnapshot?: string) {
     if (!activeId) return
@@ -130,6 +171,11 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
 
   async function generate(count = 1) {
     if (state.busy || !state.open || !activeId || !state.historyReady) return
+    if (mode === 'daily') {
+      if (history.value.length) return
+      count = 1
+      state.questionCount = 1
+    }
     state.error = ''
     if (!hasMaterial.value) { state.error = '学习材料不足，请补充本课概念、示例或代码后生成练习。'; return }
     if (!configured.value) { state.error = '请先在 AI 设置中填写服务地址和模型。'; return }
@@ -141,13 +187,19 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     const scope = state.scope ? { ...state.scope } : null
     const path = state.path
     try {
-      const allBatches = materialBatches(submitted)
-      // 单题续练轮换材料批次，保证按钮始终只新增一题；整组练习覆盖全部批次。
-      const batches = count === 1 ? [allBatches[history.value.length % allBatches.length]!] : allBatches
-      if (batches.length * count > historyLimit) throw new Error(`知识点较多，请减少每组题数（本次最多保留 ${historyLimit} 题）。`)
       const submittedSettings = { ...settings }
+      const dailyMaterial = mode === 'daily' ? await prepareDailyPracticeSources({
+        identity: { courseId: activeId, path, settings: aiTaskSettings(submittedSettings) },
+        title: state.title, sources: submitted, signal: controller.signal,
+        request: messages => requestGuideJson(submittedSettings, messages, controller.signal),
+        progress: message => { state.generationProgress = message },
+      }) : null
+      const allBatches = materialBatches(dailyMaterial?.sources ?? submitted)
+      // 单题续练轮换材料批次，保证按钮始终只新增一题；整组练习覆盖全部批次。
+      const batches = mode === 'daily' ? allBatches : count === 1 ? [allBatches[history.value.length % allBatches.length]!] : allBatches
+      if (batches.length * count > historyLimit) throw new Error(`知识点较多，请减少每组题数（本次最多保留 ${historyLimit} 题）。`)
       const previous = history.value.map(r => r.question)
-      const identity = { kind: 'practice', promptVersion: 1, courseId: activeId, path, title: state.title, scope,
+      const identity = { kind: 'practice', promptVersion: mode === 'daily' ? 3 : 1, courseId: activeId, path, title: state.title, scope,
         count, mode, batches, previous, settings: aiTaskSettings(submittedSettings) }
       const results = await runAiBatches({
         identity,
@@ -161,7 +213,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
           if (questions.length !== count) throw new Error('AI 返回的题目数量不完整，请重试。')
           const validated: ReturnType<typeof validatePracticeQuestion>[] = []
           for (const item of questions) {
-            const question = validatePracticeQuestion(item, batch, true)
+            const question = mode === 'daily' ? validateDailyPracticeQuestion(item, batch) : validatePracticeQuestion(item, batch, true)
             if (isRepeatedPracticeQuestion(question, [...previous, ...completed.flat(), ...validated])) {
               throw new Error('AI 返回了已有题目，请重试或补充学习材料。')
             }
@@ -176,7 +228,10 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
       })))
       for (const record of pending) state.records = appendPracticeRecord(state.records, record, historyLimit)
       state.selectedId = pending[0]?.id ?? ''; state.retryGenerationCount = 0
-      if (await persist()) await completeAiBatches(identity)
+      if (await persist()) {
+        await completeAiBatches(identity)
+        for (const task of dailyMaterial?.identities ?? []) await completeAiBatches(task)
+      }
     } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
     finally { if (request === controller) { request = null; state.busy = '' } }
   }
@@ -186,16 +241,23 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     if (!state.open || !state.historyReady || !record || state.busy || record.attempts.length >= PRACTICE_ATTEMPT_LIMIT || answerSubmitted.value) return
     state.error = ''
     const answer = practiceAnswerText(record.question, record.draft)
-    if (!answer) { state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容后提交。'; return }
+    const submittedFiles = (record.attachments ?? []).map(file => ({ ...file }))
+    if (!answer && !submittedFiles.length) { state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容或上传代码、图片后提交。'; return }
     if (isChoiceQuestion(record.question)) {
       record.attempts.push({ answer, feedback: reviewPracticeChoice(record.question, record.draft), at: Date.now() }); persist(); return
     }
     if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return }
     const controller = new AbortController(); request = controller; state.busy = 'review'
     try {
-      const raw = await requestGuideJson({ ...settings }, practiceReviewPrompt(record, answer), controller.signal)
+      const settingsSnapshot = { ...settings }
+      const files = await Promise.all(submittedFiles.map(async attachment => ({ attachment, content: await loadAttachment(attachment, record.id) })))
+      controller.signal.throwIfAborted()
+      const graded = mode === 'daily' || files.length > 0
+      const messages = graded ? assignmentReviewPrompt(record, answer, files) : practiceReviewPrompt(record, answer)
+      const raw = await requestGuideJson(settingsSnapshot, messages, controller.signal)
       if (controller.signal.aborted) return
-      record.attempts.push({ answer, feedback: validatePracticeFeedback(raw, record.sources), at: Date.now() }); persist()
+      record.attempts.push({ answer, ...(submittedFiles.length ? { attachments: submittedFiles } : {}),
+        feedback: validatePracticeFeedback(raw, record.sources, record.question, graded), at: Date.now() }); persist()
     } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
     finally { if (request === controller) { request = null; state.busy = '' } }
   }
@@ -216,7 +278,7 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     }
   }
   watch(() => course.value?.id, () => {
-    persist(); cancel(); courseRevision++
+    persist(); cancel(); attachmentStore.clear(); courseRevision++
     state.open = false; state.records = []; state.selectedId = ''; state.path = ''; state.note = ''; state.cues = []; state.supplement = ''; state.storageError = ''; state.error = ''; state.historyReady = false; state.preparedSources = null
     activeId = course.value?.id ?? ''
     historyLoad = loadHistory()
@@ -225,6 +287,6 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     if (state.busy !== 'generate' && state.busy !== 'review') return
     cancel(); state.error = 'AI 配置已变更，请重新提交请求。'
   }, { flush: 'sync' })
-  onBeforeUnmount(() => { cancel(); persist(); courseRevision++ })
-  return { persist, state, current, history, sources, hasMaterial, configured, answerSubmitted, canReview, open, openSources, close, cancel, select, updateDraft, generate, review }
+  onBeforeUnmount(() => { cancel(); persist(); attachmentStore.clear(); courseRevision++ })
+  return { persist, state, current, history, sources, hasMaterial, configured, answerSubmitted, canReview, attachments, addAttachments, removeAttachment, loadAttachment, open, openSources, close, cancel, select, updateDraft, generate, review }
 }

@@ -1,6 +1,7 @@
 import type { ConceptMastery, GuideLesson, LearningQuestion, MasteryLevel, TodayItem, TodayPlan } from '../types/guide'
 import type { VideoProgress } from '../types/course'
 import { isRecord, retainPrerequisites } from './guide.ts'
+import { validDate } from './studyProgram.ts'
 
 export const MASTERY_LABELS: Record<MasteryLevel, string> = {
   mastered: '已掌握', uncertain: '不确定', 'needs-review': '需要补学',
@@ -18,7 +19,7 @@ export function lessonMastery(lesson: GuideLesson, records: Record<string, Conce
 }
 
 /** 掌握程度只来自显式反馈，观看记录不参与推断。 */
-export function applyMastery(lessons: GuideLesson[], records: Record<string, ConceptMastery>) {
+export function applyMastery(lessons: GuideLesson[], records: Record<string, ConceptMastery>, excludedPrerequisites = new Set<string>()) {
   const mastered = new Set<string>()
   for (const lesson of lessons) {
     // 重排后保留已反馈的知识点；AI 新增的知识点仍需单独确认。
@@ -29,7 +30,7 @@ export function applyMastery(lessons: GuideLesson[], records: Record<string, Con
     else if (level === 'needs-review') lesson.status = 'required'
     else if (level === 'uncertain' && lesson.status === 'skipped') lesson.status = 'optional'
   }
-  retainPrerequisites(lessons, false, mastered)
+  retainPrerequisites(lessons, false, new Set([...mastered, ...excludedPrerequisites]))
   return mastered
 }
 
@@ -43,23 +44,32 @@ export function buildTodayPlan(
   mastery: Record<string, ConceptMastery>, _legacyQuestions: LearningQuestion[], minutes: number,
   date: string, previous: TodayPlan | null = null, override: number | null = null,
 ): TodayPlan {
-  const items: TodayItem[] = previous?.date === date ? previous.items.filter(i => i.done && i.kind !== 'question').map(i => ({ ...i })) : []
+  const previousItems = previous?.date === date ? previous.items.filter(i => i.kind !== 'question') : []
+  const reviewPaths = new Set(lessons.filter(lesson => lessonMastery(lesson, mastery) === 'needs-review').map(lesson => lesson.path))
+  const routePaths = new Set(lessons.map(lesson => lesson.path))
+  // 播放进度可能先于片段提醒写入；已安排且看完的课节必须留下，不能在重排时直接跳过。
+  const items: TodayItem[] = previousItems.filter(item => item.done || (item.kind === 'lesson'
+    && routePaths.has(item.path) && !reviewPaths.has(item.path)
+    && (progress[item.path]?.done || (progress[item.path]?.time ?? 0) >= item.end)))
+    .map(item => ({ ...item, done: true }))
   let available = Math.max(0, minutes * 60 - items.reduce((sum, i) => sum + i.seconds, 0))
   const known = Object.values(durations).filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0).sort((a, b) => a - b)
   const estimate = known.length ? known[Math.floor(known.length / 2)]! : 1200
   for (const lesson of lessons) {
     if (available <= 0) break
-    const review = lessonMastery(lesson, mastery) === 'needs-review'
+    const review = reviewPaths.has(lesson.path)
+    const kind = review ? 'review' : 'lesson'
     const p = progress[lesson.path]
     if (p?.done && !review) continue
     const raw = durations[lesson.path]
     const duration = typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : estimate
     const completedEnd = Math.max(0, ...items.filter(i => i.path === lesson.path && i.kind !== 'question').map(i => i.end))
-    const start = Math.min(duration, Math.max(completedEnd, review ? 0 : p?.time || 0))
+    const pending = previousItems.find(item => item.path === lesson.path && item.kind === kind && !item.done && item.end > completedEnd)
+    // 同一天刷新沿用原片段起点，已投入的观看时间仍占预算，避免边看边补入后续课程。
+    const start = Math.min(duration, Math.max(completedEnd, pending?.start ?? (review ? 0 : p?.time || 0)))
     const seconds = Math.min(available, Math.max(0, duration - start))
     if (!seconds) continue
-    const kind = review ? 'review' : 'lesson'
-    items.push({ id: `${date}:${kind}:${lesson.path}:${start}`, kind, path: lesson.path,
+    items.push({ id: pending?.start === start ? pending.id : `${date}:${kind}:${lesson.path}:${start}`, kind, path: lesson.path,
       start, end: start + seconds, seconds, estimated: duration !== raw, done: false })
     available -= seconds
   }
@@ -112,6 +122,20 @@ export function restoreFeedback(raw: Record<string, unknown>, paths: string[]) {
     }
     const override = typeof t.override === 'number' && Number.isInteger(t.override) && t.override >= 5 && t.override <= 1440 ? t.override : null
     today = { date: t.date, minutes: t.minutes, override, items }
+    if (Array.isArray(t.extraDays)) {
+      const extraDays: NonNullable<TodayPlan['extraDays']> = []
+      for (const entry of t.extraDays.slice(0, 1095)) {
+        if (!isRecord(entry) || !validDate(entry.date) || entry.date <= (extraDays.at(-1)?.date ?? t.date)
+          || typeof entry.minutes !== 'number' || !Number.isInteger(entry.minutes) || entry.minutes <= 0 || entry.minutes > 1440) continue
+        extraDays.push({ date: entry.date, minutes: entry.minutes })
+      }
+      if (extraDays.length) today.extraDays = extraDays
+    }
+    if (today.extraDays?.length && Array.isArray(t.practiceItemIds) && t.practiceItemIds.length
+      && t.practiceItemIds.every(id => typeof id === 'string' && items.some(item => item.id === id && item.kind !== 'question'))
+      && new Set(t.practiceItemIds).size === t.practiceItemIds.length) {
+      today.practiceItemIds = [...t.practiceItemIds] as string[]
+    }
   }
   return { mastery, questions, today }
 }

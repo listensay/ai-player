@@ -16,7 +16,7 @@ onMounted(() => { void pruneAiBatchCache() })
 const progress = useProgress()
 const router = useRouter()
 const {
-  stats, transcripts, helpOpen, guideOpen, guideTab, treeVisible, toggleTree, reminderLinks, companion,
+  stats, transcripts, helpOpen, guideOpen, guideTab, reminderLinks, companion,
   currentView, toast, course, video, practice, daily, openDailyPractice, openPractice, openGuide, startSegment, selectGuideVideo,
 } = provideCourseWorkspace()
 </script>
@@ -31,11 +31,8 @@ const {
       :total="stats.total"
       :done="stats.done"
       :current-view="currentView"
-      :show-tree-toggle="!!course && currentView === 'player'"
-      :tree-visible="treeVisible"
       @help="helpOpen = true"
       @close="router.push('/')"
-      @toggle-tree="toggleTree"
       @guide="openGuide()"
       @companion="companion.openMini()"
     />

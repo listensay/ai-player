@@ -76,6 +76,7 @@ export interface GuideLesson {
 export interface GuideMessage {
   role: 'user' | 'assistant'
   content: string
+  images?: Array<{ name: string; mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string }>
 }
 
 export interface LearningPlan {
@@ -105,6 +106,7 @@ export interface GuideSettings {
   /** Anthropic 长上下文请求选项；未指定时沿用模型默认容量。 */
   contextWindow?: AiContextWindow
   baseUrl: string
+  /** 服务端实际接受的模型 ID，与配置显示名称无关。 */
   model: string
   apiKey: string
   timeoutMinutes?: number
@@ -113,6 +115,8 @@ export interface GuideSettings {
 export interface AiProfile extends GuideSettings {
   id: string
   name: string
+  /** 同一服务下可切换的模型；旧配置按当前 model 恢复。 */
+  modelIds?: string[]
 }
 
 export interface AiSettingsCollection {
@@ -174,4 +178,8 @@ export interface TodayPlan {
   minutes: number
   override: number | null
   items: TodayItem[]
+  /** 当天主动加入的后续日期看课额度；实际用时仍记在 date。 */
+  extraDays?: Array<{ date: string; minutes: number }>
+  /** 首次提前学习前的巩固任务范围，后续追加和进度更新不改变已解锁的作业。 */
+  practiceItemIds?: string[]
 }

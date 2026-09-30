@@ -6,11 +6,12 @@ import { formatTime } from '~/utils/time'
 
 /** Note commands capture their lesson and playhead before loading the editor. */
 export function useNoteWorkspace(key: Ref<string>, rightTab: Ref<'knowledge' | 'notes' | 'transcript'>,
-  player: ReturnType<typeof usePlayer>, notify: (message: string) => void) {
+  player: ReturnType<typeof usePlayer>, notify: (message: string) => void, reveal: () => void = () => {}) {
   const noteEditor = shallowRef<NoteEditorHandle | null>(null)
   async function ready(expected: string) {
     if (!expected || key.value !== expected) throw new Error('课节已切换，请重新操作。')
     rightTab.value = 'notes'
+    reveal()
     await nextTick()
     const editor = noteEditor.value
     if (!editor) throw new Error('笔记编辑器尚未就绪，请重试。')

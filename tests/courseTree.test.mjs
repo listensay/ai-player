@@ -4,13 +4,15 @@ import { readFileSync } from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import { createRenderer, reactive, ref, computed, nextTick } from 'vue'
+import { calculateDay, nextStudyDay } from '../app/utils/dailyPlan.ts'
+import { emptyStudyRecords } from '../app/utils/studyProgram.ts'
 
 const { descriptor } = parse(readFileSync(new URL('../app/components/CourseTree.vue', import.meta.url), 'utf8'))
 const code = compileScript(descriptor, { id: 'course-tree-test' }).content
   .replace(/import \{ useCourseStore \} from [^\n]+/, 'const useCourseStore = () => globalThis.treeIO.store')
   .replace(/import \{ useGuide \} from [^\n]+/, 'const useGuide = () => globalThis.treeIO.guide')
   .replace(/import \{ useProgress \} from [^\n]+/, 'const useProgress = () => globalThis.treeIO.progress')
-  .replace(/import (AppIcon|CourseTreeNode) from [^\n]+/g, 'const $1 = {}')
+  .replace(/import (AppIcon|CourseTreeNode|ContinueStudyButton) from [^\n]+/g, 'const $1 = {}')
   .replaceAll("from 'vue'", `from '${import.meta.resolve('vue')}'`)
 const { outputText } = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } })
 const { default: Component } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
@@ -46,6 +48,33 @@ test('路线默认只显示当天视频，保留路线顺序、已完成课节�
   const { tree } = mount(t)
   assert.equal(tree.showAllRoute.value, false)
   assert.deepEqual(tree.visibleRoute.value.map(v => v.path), ['b.mp4', 'a.mp4'])
+})
+
+test('今日路线在追加次日课程、播放刷新和完成筛选后仍可查看已学课程', t => {
+  const { tree, guide, store } = mount(t)
+  const date = guide.todayDate.value
+  const videos = Array.from({ length: 9 }, (_, i) => ({ kind: 'video', path: `${i + 1}.mp4`, title: `第 ${i + 1} 节` }))
+  guide.routeVideos.value = videos
+  const context = { plan: { dailyMinutes: 30, modules: [{ id: 'm' }],
+    lessons: videos.map(video => ({ path: video.path, moduleId: 'm', status: 'required', concepts: [], prerequisites: [] })) },
+    metadata: Object.fromEntries(videos.map(video => [video.path, { duration: 600 }])),
+    includeOptional: false, progress: globalThis.treeIO.progress.state.map, mastery: {}, questions: [], records: emptyStudyRecords(), today: null }
+  context.today = calculateDay(context, date).today
+  context.today.items.forEach(item => { item.done = true })
+  context.today = nextStudyDay(context, date).today
+  guide.state.today = context.today
+  const expected = videos.slice(0, 6).map(video => video.path)
+  assert.deepEqual(tree.visibleRoute.value.map(video => video.path), expected)
+  context.progress['4.mp4'] = { time: 600, duration: 600, done: true }
+  context.progress['5.mp4'] = { time: 600, duration: 600, done: true }
+  context.progress['6.mp4'] = { time: 240, duration: 600, done: false }
+  guide.state.today = calculateDay(context, date).today
+  assert.deepEqual(tree.visibleRoute.value.map(video => video.path), expected)
+  assert.equal(tree.nextTodayItem.value.path, '6.mp4')
+  store.state.filter = 'done'
+  assert.deepEqual(tree.visibleRoute.value.map(video => video.path), ['4.mp4', '5.mp4'])
+  store.state.filter = 'all'
+  assert.deepEqual(tree.visibleRoute.value.map(video => video.path), expected)
 })
 
 test('显示全部可恢复整条路线，搜索和完成筛选仍作用于当前范围', t => {

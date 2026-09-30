@@ -5,6 +5,13 @@ import { isRecord } from './guide.ts'
 export const emptyAiSettings = (): GuideSettings => ({ provider: 'openai', contextWindow: 'default', baseUrl: '', model: '', apiKey: '', timeoutMinutes: 15 })
 export const emptyAiCollection = (): AiSettingsCollection => ({ version: 2, profiles: [], activeId: '' })
 
+function readModelIds(value: unknown, model: string): string[] {
+  if (value !== undefined && (!Array.isArray(value) || value.some(id => typeof id !== 'string'))) {
+    throw new Error('AI 模型列表格式无效，请检查配置。')
+  }
+  return [...new Set([...(value as string[] | undefined ?? []), model].map(id => id.trim()).filter(Boolean))]
+}
+
 function readSettings(value: Record<string, unknown>): GuideSettings {
   if (value.provider !== undefined && value.provider !== 'openai' && value.provider !== 'anthropic') {
     throw new Error('AI 接口格式无效，请选择 OpenAI 兼容或 Anthropic。')
@@ -29,7 +36,7 @@ export function restoreAiSettings(value: unknown): AiSettingsCollection {
   if (!isRecord(value)) throw new Error('AI 配置格式异常，请检查本地配置。')
   if (!('version' in value) && ('baseUrl' in value || 'model' in value)) {
     const settings = readSettings(value)
-    const profile = { ...settings, id: 'legacy-default', name: '原有配置' }
+    const profile = { ...settings, modelIds: readModelIds(value.modelIds, settings.model), id: 'legacy-default', name: '原有配置' }
     return { version: 2, profiles: [profile], activeId: profile.id }
   }
   if (value.version !== 2 || !Array.isArray(value.profiles) || typeof value.activeId !== 'string') {
@@ -43,19 +50,20 @@ export function restoreAiSettings(value: unknown): AiSettingsCollection {
       throw new Error('AI 配置列表异常，请检查本地配置。')
     }
     ids.add(item.id)
-    return { ...readSettings(item), id: item.id, name: item.name }
+    const settings = readSettings(item)
+    return { ...settings, modelIds: readModelIds(item.modelIds, settings.model), id: item.id, name: item.name }
   })
   if (value.activeId && !ids.has(value.activeId)) throw new Error('当前 AI 配置不存在，请检查本地配置。')
   return { version: 2, profiles, activeId: value.activeId }
 }
 
-export function validateAiProfile(value: GuideSettings & { name: string }, id: string): AiProfile {
+export function validateAiProfile(value: GuideSettings & { name: string; modelIds?: string[] }, id: string): AiProfile {
   const name = value.name.trim()
   if (!name || name.length > 60) throw new Error('请填写 1–60 字的配置名称。')
   const settings = readSettings(value as unknown as Record<string, unknown>)
   completionUrl(settings.baseUrl, settings.provider)
-  if (!settings.model) throw new Error('请填写模型名称。')
-  return { ...settings, id, name }
+  if (!settings.model) throw new Error('请填写模型 ID。')
+  return { ...settings, modelIds: readModelIds(value.modelIds, settings.model), id, name }
 }
 
 export function removeAiProfile(collection: AiSettingsCollection, id: string): AiSettingsCollection {

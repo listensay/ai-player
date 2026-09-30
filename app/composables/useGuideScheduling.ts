@@ -1,11 +1,11 @@
-import type { Ref } from 'vue'
+import { computed, type Ref } from 'vue'
 import type { Course } from '~/types/course'
 import type { KnowledgeModule, LearningPlan, StudyProgram, WorkEntry } from '~/types/guide'
 import type { GuideWorkspaceState } from '~/types/guideWorkspace'
 import type { buildSchedule } from '~/utils/guide'
 import { budgetTotal, checkKey, parseProgram } from '~/utils/studyProgram'
 import { localDayKey } from '~/utils/learningFeedback'
-import { calculateDay } from '~/utils/dailyPlan'
+import { calculateDay, nextStudyDay } from '~/utils/dailyPlan'
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 export function useGuideScheduling(state: GuideWorkspaceState, options: {
@@ -170,5 +170,20 @@ export function useGuideScheduling(state: GuideWorkspaceState, options: {
     persist()
   }
 
-  return { snapshot, undo, applySchedule, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, planForScheduling, refreshToday, completeTodayItem }
+  const nextStudy = computed(() => guideReady.value && recordsReady.value && !state.busy
+    ? nextStudyDay(dayContext.value, todayDate.value) : null)
+
+  function continueNextDay() {
+    // 午夜后旧页面上的入口不能把前一天的任务加入新的一天。
+    if (todayDate.value !== localDayKey()) { refreshToday(); return null }
+    const next = nextStudy.value
+    if (!next) return null
+    state.today = next.today
+    state.error = ''
+    state.notice = `已加入 ${next.date} 的课程，学习用时计入今天。`
+    persist()
+    return next.next
+  }
+
+  return { snapshot, undo, applySchedule, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, planForScheduling, refreshToday, completeTodayItem, nextStudy, continueNextDay }
 }

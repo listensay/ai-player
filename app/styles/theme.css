@@ -42,6 +42,7 @@
 
   /* 功能色：DESIGN.md 未定义错误色，这里补一个低饱和的暖红，仅用于错误提示 */
   --color-error: #b3261e;
+  --color-study-complete: #15803d; /* 学习日历的达标勾号与完成状态 */
 
   /* 常用的衍生色：奶油纸上的悬停/按压，以及蓝色按钮的按压态 */
   --color-cream-deep: #f1ebe6;

@@ -11,6 +11,8 @@ import RoutePreview from '~/components/RoutePreview.vue'
 import GuideModuleCard from '~/components/GuideModuleCard.vue'
 import TodayPlanPanel from '~/components/TodayPlanPanel.vue'
 import UiButton from '~/components/UiButton.vue'
+import PrerequisitePanel from '~/components/PrerequisitePanel.vue'
+import DependencyCourseList from '~/components/DependencyCourseList.vue'
 import type { DependencyRisk, GuideLesson, LessonStatus, TodayItem } from '~/types/guide'
 import { formatStudyDuration, LESSON_STATUS_LABELS } from '~/utils/guide'
 import { conciseLessonTitle, conciseSource } from '~/utils/studyProgram'
@@ -168,19 +170,7 @@ function confirmStatus() {
               </div>
             </header>
 
-            <div v-if="risks.length" role="alert" class="rounded-xl border border-brand-orange/30 bg-pure-white p-4">
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <p class="text-body-sm font-bold">{{ risks.length }} 节前置课未加入路线</p>
-                <UiButton size="sm" :disabled="!!state.busy" @click="guide.repairDependencies()">补齐前置课</UiButton>
-              </div>
-              <VExpansionPanels class="mt-3">
-                <VExpansionPanel title="查看前置关系">
-                  <VExpansionPanelText>
-                    <p v-for="risk in risks" :key="risk.prerequisite" class="mt-2 text-caption leading-relaxed">「{{ title(risk.prerequisite) }}」是「{{ risk.dependents.map(title).join('、') }}」的前置课。</p>
-                  </VExpansionPanelText>
-                </VExpansionPanel>
-              </VExpansionPanels>
-            </div>
+            <PrerequisitePanel @select="emit('select', $event); emit('close')" />
           </template>
 
           <section v-if="state.plan && planView === 'overview'" class="pane p-5 sm:p-6" aria-label="学习顺序">
@@ -263,7 +253,7 @@ function confirmStatus() {
             </div>
             <div v-if="pending" ref="pendingAlert" role="alert" class="mt-4 rounded-xl border border-brand-orange/40 bg-pure-white p-4">
               <p class="text-body-sm font-bold">调整后将缺少前置课</p>
-              <p class="mt-2 text-body-sm">{{ pending.risks.map(r => `「${title(r.prerequisite)}」`).join('、') }}是后续课节的前置课。</p>
+              <DependencyCourseList class="mt-3" :paths="pending.risks.map(r => r.prerequisite)" label="受影响的前置课" @select="emit('select', $event); emit('close')" />
               <div class="mt-3 flex flex-wrap gap-2"><UiButton size="sm" @click="pending = null">保留当前安排</UiButton><UiButton variant="text" size="sm" @click="confirmStatus">确认调整</UiButton></div>
             </div>
             <nav v-if="pageCount > 1" aria-label="课节分页" class="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -286,7 +276,7 @@ function confirmStatus() {
                       <UiButton variant="text" size="sm" @click="emit('select', lesson.path); emit('close')"><AppIcon name="play" :size="16" />播放课节</UiButton>
                     </div>
                     <p class="mt-4 text-body-sm leading-relaxed text-graphite">{{ lesson.reason }}</p>
-                    <p v-if="lesson.prerequisites.length" class="mt-2 text-caption leading-relaxed text-deep-indigo">前置课：{{ lesson.prerequisites.map(title).join('、') }}</p>
+                    <DependencyCourseList v-if="lesson.prerequisites.length" class="mt-3 rounded-lg bg-page-cream p-3" :paths="lesson.prerequisites" label="本课的直接前置课" @select="emit('select', $event); emit('close')" />
                     <ConceptMastery :lesson="lesson" />
                     <p class="mt-2 text-caption leading-relaxed text-stone">全部知识点标为“已掌握”时跳过本课；“需要补学”时加入必修；“不确定”时保留查漏。观看进度独立记录。</p>
                   </template>

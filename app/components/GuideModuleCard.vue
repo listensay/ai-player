@@ -9,6 +9,7 @@ import LessonBadge from './LessonBadge.vue'
 import StagePanel from './StagePanel.vue'
 import StageProgressBars from './StageProgressBars.vue'
 import UiButton from './UiButton.vue'
+import DependencyCourseList from './DependencyCourseList.vue'
 
 const props = defineProps<{ module: KnowledgeModule; lessons: GuideLesson[]; index: number }>()
 defineEmits<{ select: [path: string] }>()
@@ -47,7 +48,7 @@ function title(path: string) { return conciseLessonTitle(guide.videoMap.value.ge
             <li v-for="lesson in visible" :key="lesson.path" :data-map-lesson="lesson.path" class="py-3">
               <div class="flex items-start gap-2"><button class="min-w-0 flex-1 text-left text-body-sm hover:text-deep-indigo" @click="$emit('select', lesson.path)">{{ title(lesson.path) }}</button><LessonBadge :status="lesson.status" compact /></div>
               <ConceptMastery :lesson="lesson" />
-              <p v-if="lesson.prerequisites.length" class="mt-1 text-caption text-deep-indigo">前置课程：{{ lesson.prerequisites.map(title).join('、') }}</p>
+              <DependencyCourseList v-if="lesson.prerequisites.length" class="mt-3 rounded-lg bg-page-cream p-3" :paths="lesson.prerequisites" label="本课的直接前置课" @select="$emit('select', $event)" />
             </li>
           </ul>
           <nav v-if="pages > 1" aria-label="知识点分页" class="mt-3 flex items-center justify-between gap-2">

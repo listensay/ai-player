@@ -7,6 +7,9 @@ import AiProfileSelector from '~/components/AiProfileSelector.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 import PracticeText from '~/components/PracticeText.vue'
+import PracticeAttachmentList from '~/components/PracticeAttachmentList.vue'
+import { PRACTICE_FILE_ACCEPT } from '~/utils/practiceAttachments'
+import { criterionPoints, GRADE_STATUS_LABELS } from '~/utils/practiceGrading'
 import { PRACTICE_KIND_LABELS, KNOWLEDGE_LEVEL_LABELS, KNOWLEDGE_CATEGORY_LABELS, PRACTICE_HISTORY_LIMIT, PRACTICE_ATTEMPT_LIMIT, isChoiceQuestion, selectedPracticeOptions } from '~/utils/practice'
 import type { MasteryLevel } from '~/types/guide'
 import type { PracticeScope } from '~/types/practice'
@@ -20,6 +23,7 @@ const contentEl = ref<HTMLElement>()
 const feedbackEl = ref<HTMLElement>()
 const questionEl = ref<HTMLElement>()
 const materialEl = ref<HTMLElement>()
+const uploadInput = ref<HTMLInputElement>()
 const materialPanel = ref<string>()
 const view = ref<'question' | 'feedback' | 'materials'>('question')
 const detailPanel = ref<string>()
@@ -29,7 +33,8 @@ const choice = computed(() => current.value && isChoiceQuestion(current.value.qu
 const selected = computed(() => current.value ? selectedPracticeOptions(current.value.question, current.value.draft) : [])
 const selectionItems = [{ title: '未标记', value: '' }, { title: '已掌握', value: 'mastered' }, { title: '不确定', value: 'uncertain' }, { title: '需要补学', value: 'needs-review' }]
 const results = { solid: '回答正确', partial: '部分正确', retry: '需要复习' }
-const sourceLabels = { note: '本课笔记', subtitle: '字幕', supplement: '补充材料', summary: '知识点总结' }
+const daily = state.mode === 'daily'
+const sourceLabels = { note: '本课笔记', subtitle: '字幕', supplement: daily ? '今日知识汇总' : '补充材料', summary: '知识点总结' }
 const historyItems = computed(() => [...history.value].reverse().map((record, index) => ({
   value: record.id,
   title: `第 ${index + 1} 题 · ${PRACTICE_KIND_LABELS[record.question.kind]}`,
@@ -37,13 +42,15 @@ const historyItems = computed(() => [...history.value].reverse().map((record, in
 })))
 const questionNumber = computed(() => historyItems.value.findIndex(item => item.value === current.value?.id) + 1)
 const reachedLimit = computed(() => (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT)
-const canGenerate = computed(() => state.historyReady && !state.busy && configured.value && hasMaterial.value)
-const submitLabel = computed(() => answerSubmitted.value ? '已提交' : current.value?.attempts.length ? '重新提交' : '提交作答')
-const daily = state.mode === 'daily'
+const canGenerate = computed(() => state.historyReady && !state.busy && configured.value && hasMaterial.value && (!daily || !history.value.length))
+const submitLabel = computed(() => answerSubmitted.value ? '已提交' : daily || props.practice.attachments.value.length
+  ? current.value?.attempts.length ? '重新评分' : '提交作业并评分' : current.value?.attempts.length ? '重新提交' : '提交作答')
 const titleId = `practice-${state.mode}-title`
 const completedCount = computed(() => history.value.filter(r => r.attempts.length).length)
 const correctCount = computed(() => history.value.filter(r => r.attempts.at(-1)?.feedback.result === 'solid').length)
-const busyText = computed(() => state.busy === 'loading' ? '正在准备知识点…' : state.busy === 'generate' ? `正在生成练习 ${state.generationProgress}…` : '正在评估作答…')
+const latestScore = computed(() => current.value?.attempts.at(-1)?.feedback.grade?.score)
+const points = computed(() => current.value ? criterionPoints(current.value.question) : [])
+const busyText = computed(() => state.busy === 'loading' ? '正在准备知识点…' : state.busy === 'generate' ? `正在生成练习 ${state.generationProgress}…` : state.busy === 'upload' ? '正在保存作业文件…' : daily || props.practice.attachments.value.length ? '正在逐项评阅作业并评分…' : '正在评估作答…')
 const shownScope = computed(() => current.value ? current.value.scope : state.scope)
 function scopeText(scope: PracticeScope | null) {
   return scope ? `${formatTime(scope.start, true)}–${formatTime(scope.end, true)}` : '本课内容'
@@ -90,6 +97,12 @@ watch(view, async () => {
 function mark(concept: string, value: string) {
   if (current.value) guide.setPracticeMastery(current.value.path, [concept], value as MasteryLevel | '')
 }
+async function upload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  await props.practice.addAttachments(files)
+}
 </script>
 
 <template>
@@ -104,12 +117,12 @@ function mark(concept: string, value: string) {
           <UiButton variant="text" size="sm" icon title="关闭练习" @click="practice.close()"><AppIcon name="close" :size="20" /></UiButton>
         </div>
         <div class="practice-toolbar mt-4 flex flex-wrap items-center gap-2">
-          <VSelect v-if="history.length" :model-value="state.selectedId" aria-label="切换练习"
+          <VSelect v-if="history.length && !daily" :model-value="state.selectedId" aria-label="切换练习"
             :items="historyItems" :readonly="!!state.busy" class="practice-picker" @update:model-value="practice.select($event)">
             <template #selection><span class="font-bold">第 {{ questionNumber || '—' }} 题 <span class="ml-1 font-normal text-stone">/ {{ history.length }}</span></span></template>
             <template #item="{ props: itemProps, item }"><VListItem v-bind="itemProps" :subtitle="item.raw.subtitle" /></template>
           </VSelect>
-          <div v-if="history.length > 1 && current" class="flex shrink-0">
+          <div v-if="!daily && history.length > 1 && current" class="flex shrink-0">
             <UiButton variant="text" size="sm" icon title="上一题" :disabled="!!state.busy || questionNumber <= 1" @click="navigateQuestion(-1)"><AppIcon name="chevron-right" class="rotate-180" :size="18" /></UiButton>
             <UiButton variant="text" size="sm" icon title="下一题" :disabled="!!state.busy || questionNumber >= history.length" @click="navigateQuestion(1)"><AppIcon name="chevron-right" :size="18" /></UiButton>
           </div>
@@ -124,11 +137,11 @@ function mark(concept: string, value: string) {
 
       <div ref="contentEl" class="scroll-soft practice-content min-h-0 flex-1 overflow-y-auto">
         <div class="practice-reading">
-        <section v-if="daily && history.length" role="status" class="mb-6 rounded-xl border border-linen bg-pure-white px-4 py-3 text-body-sm">{{ completedCount === history.length ? '今日练习已完成' : '作答进度' }} · {{ completedCount }} / {{ history.length }} 题<span v-if="completedCount"> · 回答正确 {{ correctCount }} 题</span></section>
+        <section v-if="daily && history.length" role="status" class="mb-6 rounded-xl border border-linen bg-pure-white px-4 py-3 text-body-sm">一道综合应用作业 · {{ completedCount ? '已提交' : '待提交' }}<span v-if="latestScore !== undefined"> · 最新评分 {{ latestScore }} / 100</span><span v-else-if="completedCount"> · {{ correctCount ? '回答正确' : '查看反馈后可修改作答' }}</span></section>
         <section v-if="current && view !== 'materials'" :key="current.id" class="space-y-7" aria-label="当前练习">
           <div v-if="view === 'question'" class="space-y-6">
             <div class="flex items-center gap-3">
-              <h3 ref="questionEl" tabindex="-1" class="practice-section-title rounded outline-none focus-visible:ring-2 focus-visible:ring-deep-indigo">{{ PRACTICE_KIND_LABELS[current.question.kind] }}</h3>
+              <h3 ref="questionEl" tabindex="-1" class="practice-section-title rounded outline-none focus-visible:ring-2 focus-visible:ring-deep-indigo">{{ daily ? '综合练习' : PRACTICE_KIND_LABELS[current.question.kind] }}</h3>
               <span v-if="current.question.knowledge" class="text-body-sm text-stone">{{ KNOWLEDGE_LEVEL_LABELS[current.question.knowledge.level] }}</span>
             </div>
             <PracticeText :text="current.question.prompt" class="practice-question-text" />
@@ -148,30 +161,50 @@ function mark(concept: string, value: string) {
               </VRadioGroup>
             </fieldset>
             <template v-else>
-              <label :for="`${titleId}-answer`" class="block text-body font-bold">你的答案</label>
+              <label :for="`${titleId}-answer`" class="block text-body font-bold">{{ daily ? '作业说明或代码' : '你的答案' }}</label>
               <VTextField v-if="current.question.kind === 'fill-blank'" :id="`${titleId}-answer`" :model-value="current.draft" aria-label="填空答案" maxlength="8000" :readonly="!!state.busy"
                 @update:model-value="practice.updateDraft($event ?? '')" />
               <VTextarea v-else :id="`${titleId}-answer`" :model-value="current.draft" aria-label="作答内容" maxlength="8000" rows="6" :readonly="!!state.busy"
                 :class="{ 'practice-answer-code': current.question.kind === 'code' }"
                 :placeholder="current.question.kind === 'code' ? '输入代码，仅评阅，不执行。' : undefined" @update:model-value="practice.updateDraft($event ?? '')" />
+              <section aria-label="上传作业" class="space-y-3">
+                <input ref="uploadInput" type="file" multiple :accept="PRACTICE_FILE_ACCEPT" aria-label="上传作业文件" class="hidden" :disabled="!!state.busy" @change="upload" />
+                <UiButton variant="ghost" size="sm" :disabled="!!state.busy || reachedLimit" @click="uploadInput?.click()">添加代码或图片</UiButton>
+                <p class="text-caption leading-relaxed text-stone">支持多份代码文件和 PNG、JPEG、WebP 图片，可只上传文件，也可补充说明。每次最多 8 个文件，其中最多 4 张图片；代码为 UTF-8，图片会适当缩小。</p>
+                <PracticeAttachmentList v-if="practice.attachments.value.length" :attachments="practice.attachments.value" :record-id="current.id" :load="practice.loadAttachment" removable :disabled="!!state.busy || reachedLimit" @remove="practice.removeAttachment" />
+                <p class="text-caption text-stone">提交时，作业文字和所选文件会发送给当前 AI 进行评阅。图片需使用支持识图的模型。</p>
+              </section>
             </template>
           </form>
           <button v-if="attempt" type="button" class="practice-feedback-link" @click="view = 'feedback'">
-            <span>{{ results[attempt.feedback.result] }}</span><span class="inline-flex items-center gap-1">查看反馈<AppIcon name="chevron-right" :size="16" /></span>
+            <span>{{ attempt.feedback.grade ? `作业评分 ${attempt.feedback.grade.score} / 100` : results[attempt.feedback.result] }}</span><span class="inline-flex items-center gap-1">查看反馈<AppIcon name="chevron-right" :size="16" /></span>
           </button>
           </div>
 
           <section v-if="attempt && view === 'feedback'" ref="feedbackEl" tabindex="-1" aria-label="答题反馈" class="practice-feedback space-y-6 outline-none">
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <h3 class="practice-section-title flex items-center gap-3"><span class="practice-result-icon"><AppIcon :name="attempt.feedback.result === 'solid' ? 'check' : 'note'" :size="22" /></span>{{ results[attempt.feedback.result] }}</h3>
+              <h3 class="practice-section-title flex items-center gap-3"><span class="practice-result-icon"><AppIcon :name="attempt.feedback.result === 'solid' ? 'check' : 'note'" :size="22" /></span>{{ attempt.feedback.grade ? '作业评分' : results[attempt.feedback.result] }}</h3>
               <VSelect v-if="current.attempts.length > 1" v-model="attemptIndex" aria-label="切换反馈"
                 :items="current.attempts.map((_, index) => ({ title: `第 ${index + 1} 次反馈`, value: index }))" class="w-36 max-w-40 flex-none" />
               <span v-else class="text-body-sm text-stone">第 {{ attemptIndex + 1 }} 次反馈</span>
             </div>
             <p v-if="attemptIndex !== current.attempts.length - 1 || !answerSubmitted" class="text-body-sm text-stone">以下为第 {{ attemptIndex + 1 }} 次提交的反馈。</p>
+            <section v-if="attempt.feedback.grade" aria-label="功能评分" class="space-y-4">
+              <p class="text-heading font-bold text-deep-indigo">{{ attempt.feedback.grade.score }}<span class="ml-2 text-body text-stone">/ 100 分</span></p>
+              <p class="text-caption text-stone">根据代码静态分析和图片可见内容评分；“待验证”表示需要补充实现证据。</p>
+              <ol class="space-y-3">
+                <li v-for="item in attempt.feedback.grade.items" :key="item.criterionIndex" class="rounded-xl border border-linen p-4">
+                  <div class="flex flex-wrap items-start justify-between gap-2"><h4 class="text-body-sm font-bold">{{ current.question.criteria[item.criterionIndex] }}</h4><strong class="text-body-sm text-deep-indigo">{{ item.score }} / {{ points[item.criterionIndex] }} 分</strong></div>
+                  <p class="mt-1 text-caption font-bold" :class="item.status === 'implemented' ? 'text-study-complete' : 'text-error'">{{ GRADE_STATUS_LABELS[item.status] }}</p>
+                  <PracticeText :text="item.evidence" class="mt-2 text-body-sm" />
+                  <p class="mt-2 text-caption text-stone">建议：{{ item.improvement }}</p>
+                </li>
+              </ol>
+            </section>
             <div class="practice-submitted">
               <h4 class="mb-2 text-body-sm font-bold text-stone">本次作答</h4>
-              <pre class="whitespace-pre-wrap break-words">{{ attempt.answer }}</pre>
+              <pre v-if="attempt.answer" class="whitespace-pre-wrap break-words">{{ attempt.answer }}</pre>
+              <PracticeAttachmentList v-if="attempt.attachments?.length" class="mt-3" :attachments="attempt.attachments" :record-id="current.id" :load="practice.loadAttachment" />
             </div>
             <div v-if="attempt.feedback.gaps.length" class="practice-feedback-group">
               <h4 class="mb-3 text-body font-bold">需要调整</h4>
@@ -197,10 +230,10 @@ function mark(concept: string, value: string) {
               <VExpansionPanelText><PracticeText :text="current.question.referenceAnswer" /></VExpansionPanelText>
             </VExpansionPanel>
             <VExpansionPanel v-if="current.question.criteria.length || current.question.knowledge" value="requirements">
-              <VExpansionPanelTitle>知识点与作答要求</VExpansionPanelTitle>
+              <VExpansionPanelTitle>{{ daily ? '功能要求与评分标准（100 分）' : '知识点与作答要求' }}</VExpansionPanelTitle>
               <VExpansionPanelText>
                 <p class="mb-4 font-medium">{{ current.question.concepts.join(' · ') }}</p>
-                <ul class="list-outside list-disc space-y-1 pl-5 text-body-sm"><li v-for="criterion in current.question.criteria" :key="criterion"><PracticeText :text="criterion" /></li></ul>
+                <ul class="list-outside list-disc space-y-1 pl-5 text-body-sm"><li v-for="(criterion, index) in current.question.criteria" :key="criterion"><PracticeText :text="criterion" /><span v-if="daily || current.question.criterionPoints" class="text-caption font-bold text-deep-indigo">{{ points[index] }} 分</span></li></ul>
                 <p v-if="current.question.knowledge" class="mt-3 text-body-sm text-stone">{{ KNOWLEDGE_CATEGORY_LABELS[current.question.knowledge.category] }} · {{ current.question.knowledge.reason }}</p>
               </VExpansionPanelText>
             </VExpansionPanel>
@@ -236,7 +269,8 @@ function mark(concept: string, value: string) {
                   <div class="flex flex-wrap items-center gap-3"><AiProfileSelector class="min-w-0 flex-1" :disabled="!!state.busy || !!guide.state.busy" /><UiButton variant="text" size="sm" @click="practice.close(); emit('settings')">AI 设置</UiButton></div>
                   <p class="text-caption text-stone">出题范围：{{ daily ? state.title : scopeText(state.scope) }} · {{ sources.filter(s => s.kind === 'summary').length }} 个知识点</p>
                   <p v-if="state.materialNotice" class="text-body-sm text-stone">{{ state.materialNotice }}</p>
-                  <VSelect v-model="state.questionCount" label="每组题数" :items="[3, 5, 8]" :disabled="!!state.busy" />
+                  <p v-if="daily" class="text-body-sm font-medium">今日只生成一道综合大题，将当天所学运用于同一个完整任务，可按步骤统一作答。</p>
+                  <VSelect v-else v-model="state.questionCount" label="每组题数" :items="[3, 5, 8]" :disabled="!!state.busy" />
                   <VTextarea v-if="!daily" v-model="state.supplement" label="补充学习内容" maxlength="4000" rows="4" :disabled="!!state.busy" placeholder="本课概念、示例或代码" />
                   <VExpansionPanels v-if="sources.length">
                     <VExpansionPanel value="preview">
@@ -244,7 +278,8 @@ function mark(concept: string, value: string) {
                       <VExpansionPanelText><div v-for="source in sources" :key="source.id" class="mb-4 last:mb-0"><p class="text-caption font-bold">{{ sourceLabels[source.kind] }} {{ source.start !== undefined ? formatTime(source.start, true) : '' }}</p><p class="mt-2 whitespace-pre-wrap break-words text-body-sm text-graphite">{{ source.text }}</p></div></VExpansionPanelText>
                     </VExpansionPanel>
                   </VExpansionPanels>
-                  <p class="text-caption leading-relaxed text-stone">{{ daily ? '今日计划片段的知识点' : '知识点、笔记与补充材料（含未保存笔记）' }}将分批发送至所选 AI，每批最多 12000 字，不含视频和图片。选择与判断题在本地核对，其他题型需发送题目与作答进行评估。</p>
+                  <p v-if="daily" class="text-caption leading-relaxed text-stone">依据今日全部计划片段的知识点出一道综合题，材料较多时先汇总。作答后由 AI 按验收要求反馈，每题最多反馈 {{ PRACTICE_ATTEMPT_LIMIT }} 次。</p>
+                  <p v-else class="text-caption leading-relaxed text-stone">知识点、笔记与补充材料（含未保存笔记）将分批发送至所选 AI，每批最多 12000 字，不含视频和图片。选择与判断题在本地核对，其他题型需发送题目与作答进行评估。</p>
                   <p v-if="!daily" class="text-caption text-stone">每个课节保留最近 {{ PRACTICE_HISTORY_LIMIT }} 道练习，每题最多反馈 {{ PRACTICE_ATTEMPT_LIMIT }} 次。</p>
                 </div>
               </VExpansionPanelText>
@@ -263,12 +298,12 @@ function mark(concept: string, value: string) {
           <UiButton variant="text" size="sm" @click="showMaterials">{{ !configured ? '配置 AI' : '查看材料' }}</UiButton>
         </div>
         <div v-if="!state.busy" class="flex flex-wrap items-center justify-between gap-3">
-          <span class="text-caption text-stone">{{ current ? reachedLimit ? '本题反馈已达上限，可继续练习' : `本题反馈 ${current.attempts.length} / ${PRACTICE_ATTEMPT_LIMIT} 次` : `每组 ${state.questionCount} 题` }}</span>
+          <span class="text-caption text-stone">{{ current ? reachedLimit ? daily ? '本题反馈已达上限，可查看参考解答' : '本题反馈已达上限，可继续练习' : `本题反馈 ${current.attempts.length} / ${PRACTICE_ATTEMPT_LIMIT} 次` : daily ? '一道综合练习' : `每组 ${state.questionCount} 题` }}</span>
           <div class="ml-auto flex flex-wrap gap-2">
             <UiButton v-if="daily" variant="text" :disabled="!!state.busy" @click="practice.close()">{{ completedCount === history.length && history.length ? '完成' : '稍后继续' }}</UiButton>
             <UiButton v-if="state.error && !hasMaterial && !state.busy" variant="ghost" @click="emit('retry')">重试准备</UiButton>
             <UiButton v-if="state.error && state.retryGenerationCount" variant="ghost" :disabled="!canGenerate" @click="practice.generate(state.retryGenerationCount)">继续上次出题</UiButton>
-            <VMenu v-if="current">
+            <VMenu v-if="current && !daily">
               <template #activator="{ props: menuProps }"><UiButton v-bind="menuProps" variant="ghost" :disabled="!canGenerate">继续出题<AppIcon name="chevron-down" :size="16" /></UiButton></template>
               <VList aria-label="继续出题"><VListItem title="再练一题" @click="practice.generate()" /><VListItem :title="`再练一组（每组 ${state.questionCount} 题）`" @click="practice.generate(state.questionCount)" /></VList>
             </VMenu>

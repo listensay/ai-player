@@ -13,7 +13,7 @@ import UiButton from '~/components/UiButton.vue'
 import VideoStage from '~/components/VideoStage.vue'
 import { formatStudyClock, formatStudyHours } from '~/utils/checkIn'
 const {
-  player, noteEditor, stage, treeOpen, desktopTreeOpen, rightTab,
+  player, noteEditor, stage, treeOpen, desktopTreeOpen, treeVisible, toggleTree, rightPanelOpen, rightTab,
   transcripts, course, video, guide, segment, checkIn, hasPrev, hasNext,
   onVideoSample, navigateEpisode, openGuide, openPractice,
   practiceSegment, completeSegment, noteAfterSegment,
@@ -26,28 +26,32 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
 </script>
 
 <template>
-    <main
-      v-if="course"
-      class="scroll-soft relative grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:overflow-hidden"
-      :class="desktopTreeOpen
-        ? 'lg:grid-cols-[280px_minmax(0,1fr)_400px] xl:grid-cols-[300px_minmax(0,1fr)_440px]'
-        : 'lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_440px]'"
-    >
+    <main v-if="course" class="relative flex min-h-0 flex-1 overflow-hidden">
+      <div
+        class="player-layout scroll-soft grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:overflow-hidden"
+        :class="{ 'directory-collapsed': !desktopTreeOpen, 'right-panel-collapsed': !rightPanelOpen }"
+      >
       <!-- 目录：大屏可收起侧栏，小屏作为抽屉；隐藏时保留筛选状态。 -->
       <div
         id="player-course-directory"
-        class="min-h-0 lg:static"
-        :class="[treeOpen ? 'fixed inset-x-4 top-[72px] bottom-4 z-30' : 'max-lg:hidden', desktopTreeOpen ? 'lg:contents' : 'lg:hidden']"
+        class="min-h-0 min-w-0 lg:static"
+        :class="[treeOpen ? 'fixed inset-x-4 top-[72px] bottom-4 z-30' : 'max-lg:hidden', desktopTreeOpen ? 'lg:flex lg:flex-col' : 'lg:hidden']"
       >
         <CourseTree
           :course="course"
           :current-path="video?.path ?? null"
-          class="h-full lg:h-auto"
+          class="h-full"
           @select="selectVideo"
           @guide="openGuide()"
           @start="selectGuideVideo($event)"
           @start-today="startSegment"
-        />
+        >
+          <template #header-actions>
+            <button type="button" class="sidebar-toggle" title="收起左侧目录" aria-label="收起左侧目录" :aria-expanded="treeVisible" aria-controls="player-course-directory" @click="toggleTree">
+              <AppIcon name="panel-left-close" :size="18" />
+            </button>
+          </template>
+        </CourseTree>
       </div>
       <div
         v-if="treeOpen"
@@ -105,52 +109,54 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
             </section>
           </template>
         </VideoStage>
-        <div v-if="video" class="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <p v-if="segment.active.value" class="text-caption text-stone">本次片段 {{ formatTime(segment.active.value.start, true) }}–{{ formatTime(player.state.duration > 0 ? Math.min(segment.active.value.end, player.state.duration) : segment.active.value.end, true) }}</p>
-          <UiButton variant="ghost" size="sm" class="ml-auto" @click="openPractice()">课后练习</UiButton>
-        </div>
+        <p v-if="video && segment.active.value" class="mt-3 shrink-0 text-caption text-stone">本次片段 {{ formatTime(segment.active.value.start, true) }}–{{ formatTime(player.state.duration > 0 ? Math.min(segment.active.value.end, player.state.duration) : segment.active.value.end, true) }}</p>
       </div>
 
       <!-- 笔记 / 逐字稿 -->
-      <div class="pane flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0">
-        <div v-if="video" class="flex shrink-0 items-center gap-1 border-b border-linen px-3 pt-3 pb-2" role="tablist" aria-label="右侧面板">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="rightTab === 'notes'"
-            class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors duration-100 ease-soft"
-            :class="rightTab === 'notes' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
-            @click="rightTab = 'notes'"
-          >
-            <AppIcon name="note" :size="15" />
-            笔记
-          </button>
-          <button type="button" role="tab" :aria-selected="rightTab === 'knowledge'"
-            class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors"
-            :class="rightTab === 'knowledge' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'"
-            @click="rightTab = 'knowledge'">知识点</button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="rightTab === 'transcript'"
-            class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors duration-100 ease-soft"
-            :class="rightTab === 'transcript' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
-            @click="rightTab = 'transcript'"
-          >
-            逐字稿
-            <span
-              v-if="transcripts.get(course.id, video.path).status === 'transcribing'"
-              class="tabular rounded-full bg-sunbeam-yellow px-1.5 text-caption text-charcoal-ink"
-              :title="'转写中'"
+      <div v-show="rightPanelOpen" id="player-learning-panel" class="pane flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0">
+        <div class="flex shrink-0 items-center gap-1 border-b border-linen px-3 pt-3 pb-2">
+          <div v-if="video" class="flex min-w-0 flex-1 flex-wrap items-center gap-1" role="tablist" aria-label="右侧面板">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="rightTab === 'notes'"
+              class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors duration-100 ease-soft"
+              :class="rightTab === 'notes' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
+              @click="rightTab = 'notes'"
             >
-              {{ transcripts.get(course.id, video.path).progress === null ? '…' : `${Math.round((transcripts.get(course.id, video.path).progress ?? 0) * 100)}%` }}
-            </span>
-            <span
-              v-else-if="transcripts.get(course.id, video.path).status === 'ready'"
-              class="h-1.5 w-1.5 rounded-full"
-              :class="rightTab === 'transcript' ? 'bg-sunbeam-yellow' : 'bg-charcoal-ink'"
-              aria-hidden="true"
-            />
+              <AppIcon name="note" :size="15" />
+              笔记
+            </button>
+            <button type="button" role="tab" :aria-selected="rightTab === 'knowledge'"
+              class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors"
+              :class="rightTab === 'knowledge' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'"
+              @click="rightTab = 'knowledge'">知识点</button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="rightTab === 'transcript'"
+              class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors duration-100 ease-soft"
+              :class="rightTab === 'transcript' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
+              @click="rightTab = 'transcript'"
+            >
+              逐字稿
+              <span
+                v-if="transcripts.get(course.id, video.path).status === 'transcribing'"
+                class="tabular rounded-full bg-sunbeam-yellow px-1.5 text-caption text-charcoal-ink"
+                :title="'转写中'"
+              >
+                {{ transcripts.get(course.id, video.path).progress === null ? '…' : `${Math.round((transcripts.get(course.id, video.path).progress ?? 0) * 100)}%` }}
+              </span>
+              <span
+                v-else-if="transcripts.get(course.id, video.path).status === 'ready'"
+                class="h-1.5 w-1.5 rounded-full"
+                :class="rightTab === 'transcript' ? 'bg-sunbeam-yellow' : 'bg-charcoal-ink'"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+          <button type="button" class="sidebar-toggle ml-auto" title="收起右侧面板" aria-label="收起右侧面板" :aria-expanded="true" aria-controls="player-learning-panel" @click="rightPanelOpen = false">
+            <AppIcon name="panel-right-close" :size="18" />
           </button>
         </div>
 
@@ -158,7 +164,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
         <LazyNoteEditor
           v-if="video"
           v-show="rightTab === 'notes'"
-          :active="rightTab === 'notes'"
+          :active="rightPanelOpen && rightTab === 'notes'"
           :ref="bindNoteEditor"
           :key="`${course.id}:${video.path}`"
           :video="video"
@@ -184,13 +190,86 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           :key="`t:${course.id}:${video.path}`"
           :video="video"
           :course-id="course.id"
-          :active="rightTab === 'transcript'"
+          :active="rightPanelOpen && rightTab === 'transcript'"
           :ai-settings="guide.state.settings"
           :ai-configured="guide.configured.value"
           @quote="quoteToNote"
           @toast="showToast"
         />
       </div>
+      </div>
+      <button v-if="!treeVisible" type="button" class="sidebar-edge-toggle sidebar-edge-left" title="展开左侧目录" aria-label="展开左侧目录" :aria-expanded="false" aria-controls="player-course-directory" @click="toggleTree">
+        <span class="sidebar-edge-icon"><AppIcon name="chevron-right" :size="12" /></span>
+      </button>
+      <button v-if="!rightPanelOpen" type="button" class="sidebar-edge-toggle sidebar-edge-right" title="展开右侧面板" aria-label="展开右侧面板" :aria-expanded="false" aria-controls="player-learning-panel" @click="rightPanelOpen = true">
+        <span class="sidebar-edge-icon"><AppIcon name="chevron-right" :size="12" class="rotate-180" /></span>
+      </button>
     </main>
 
 </template>
+
+<style scoped>
+.sidebar-toggle {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--color-stone);
+}
+.sidebar-toggle:hover { background: var(--color-cream-deep); color: var(--color-charcoal-ink); }
+.sidebar-toggle:focus-visible { outline: 2px solid var(--color-deep-indigo); outline-offset: 2px; }
+.sidebar-edge-toggle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  display: inline-flex;
+  /* 整条页面边缘都能触发，宽度限制在 1rem 留白内，不遮挡视频。 */
+  width: 1rem;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.sidebar-edge-icon {
+  display: inline-flex;
+  width: 14px;
+  max-width: 100%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-linen);
+  background: var(--color-pure-white);
+  color: var(--color-stone);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.sidebar-edge-toggle:hover .sidebar-edge-icon,
+.sidebar-edge-toggle:focus-visible .sidebar-edge-icon { opacity: 1; }
+.sidebar-edge-toggle:focus-visible { outline: none; }
+.sidebar-edge-toggle:focus-visible .sidebar-edge-icon {
+  outline: 2px solid var(--color-deep-indigo);
+  outline-offset: -2px;
+}
+.sidebar-edge-left { left: 0; justify-content: flex-start; }
+.sidebar-edge-right { right: 0; justify-content: flex-end; }
+.sidebar-edge-left .sidebar-edge-icon { border-left: 0; border-radius: 0 7px 7px 0; }
+.sidebar-edge-right .sidebar-edge-icon { border-right: 0; border-radius: 7px 0 0 7px; }
+@media (min-width: 1024px) {
+  .player-layout {
+    --directory-width: 280px;
+    --learning-panel-width: 400px;
+    grid-template-columns: var(--directory-width) minmax(0, 1fr) var(--learning-panel-width);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .player-layout.directory-collapsed { grid-template-columns: minmax(0, 1fr) var(--learning-panel-width); }
+  .player-layout.right-panel-collapsed { grid-template-columns: var(--directory-width) minmax(0, 1fr); }
+  .player-layout.directory-collapsed.right-panel-collapsed { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 1280px) {
+  .player-layout { --directory-width: 300px; --learning-panel-width: 440px; }
+}
+</style>

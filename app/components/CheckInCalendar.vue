@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useCheckIn } from '~/composables/useStudyCheckIn'
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
-import { calendarDays, formatStudyClock, formatStudyHours } from '~/utils/checkIn'
+import { calendarDays, formatStudyClock, formatStudyHours, isMissedStudyDay } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 
 const props = withDefaults(defineProps<{
@@ -58,34 +58,27 @@ const monthLabel = computed(() => {
   return `${viewYear.value} 年 ${viewMonth.value + 1} 月`
 })
 
-const days = computed(() => {
-  return calendarDays(viewYear.value, viewMonth.value).map((cell) => {
-    const record = checkIn?.state.days[cell.date]
-    const isChecked = record?.checkedAt != null
-    const isToday = cell.date === todayKey.value
-    const isSelected = cell.date === selectedDate.value
-    const seconds = checkIn?.secondsFor(cell.date) ?? record?.seconds ?? 0
-    const targetSeconds = record?.targetSeconds ?? ((checkIn?.minutesFor(cell.date) ?? 120) * 60)
-    return {
-      ...cell,
-      record,
-      isChecked,
-      isToday,
-      isSelected,
-      seconds,
-      targetSeconds,
-    }
-  })
-})
+function detailFor(date: string) {
+  const record = checkIn?.state.days[date]
+  const isChecked = record?.checkedAt != null
+  const isToday = date === todayKey.value
+  const seconds = checkIn?.secondsFor(date) ?? record?.seconds ?? 0
+  const targetSeconds = record?.targetSeconds ?? ((checkIn?.minutesFor(date) ?? 0) * 60)
+  const isMissed = isMissedStudyDay({ date, today: todayKey.value, seconds, targetSeconds,
+    startDate: checkIn?.startDate.value, endDate: checkIn?.endDate.value, checkedAt: record?.checkedAt })
+  const status = isChecked ? '已打卡' : isMissed ? '时长未达标' : date > todayKey.value ? '尚未开始'
+    : targetSeconds === 0 ? '无学习目标' : seconds > 0 ? '已学习' : '未学习'
+  return { date, record, isChecked, isToday, isMissed, status, seconds, targetSeconds }
+}
+
+const days = computed(() => calendarDays(viewYear.value, viewMonth.value).map(cell => ({
+  ...cell, ...detailFor(cell.date), isSelected: cell.date === selectedDate.value,
+})))
 
 const selectedDetail = computed(() => {
   if (!selectedDate.value) return null
-  const cell = days.value.find(d => d.date === selectedDate.value)
-  const record = checkIn?.state.days[selectedDate.value]
-  const isChecked = record?.checkedAt != null
-  const seconds = checkIn?.secondsFor(selectedDate.value) ?? record?.seconds ?? 0
-  const targetSeconds = record?.targetSeconds ?? ((checkIn?.minutesFor(selectedDate.value) ?? 120) * 60)
-  const isToday = selectedDate.value === todayKey.value
+  const detail = detailFor(selectedDate.value)
+  const { record, seconds, targetSeconds } = detail
 
   let checkedTimeStr = ''
   if (record?.checkedAt) {
@@ -94,9 +87,7 @@ const selectedDetail = computed(() => {
   }
 
   return {
-    date: selectedDate.value,
-    isToday,
-    isChecked,
+    ...detail,
     checkedTimeStr,
     seconds,
     targetSeconds,
@@ -137,13 +128,13 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
         </p>
       </div>
 
-      <div class="min-w-0 rounded-2xl border border-linen p-3 text-center sm:p-4" :class="checkIn?.isAchieved.value ? 'bg-emerald-50 border-emerald-300' : 'bg-page-cream'">
-        <p class="text-caption font-medium" :class="checkIn?.isAchieved.value ? 'text-emerald-700 font-bold' : 'text-stone'">
+      <div class="min-w-0 rounded-2xl border border-linen p-3 text-center sm:p-4" :class="checkIn?.isAchieved.value ? 'bg-study-complete/5 border-study-complete/30' : 'bg-page-cream'">
+        <p class="text-caption font-medium" :class="checkIn?.isAchieved.value ? 'text-study-complete font-bold' : 'text-stone'">
           今日打卡
         </p>
         <div class="mt-1 flex items-center justify-center gap-1">
-          <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 text-body-sm font-bold text-emerald-700">
-            <span class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-pure-white">
+          <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 text-body-sm font-bold text-study-complete">
+            <span class="flex h-5 w-5 items-center justify-center rounded-full bg-study-complete text-pure-white">
               <AppIcon name="check" :size="13" />
             </span>
             已打卡
@@ -172,7 +163,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           </span>
         </div>
         <div>
-          <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-caption font-bold text-emerald-800">
+          <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 rounded-full bg-study-complete/10 px-2.5 py-0.5 text-caption font-bold text-study-complete">
             <AppIcon name="check" :size="12" /> 今日目标已完成
           </span>
           <span v-else class="text-caption text-stone">
@@ -184,7 +175,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       <div class="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-linen">
         <div
           class="h-full rounded-full transition-all duration-300"
-          :class="checkIn?.isAchieved.value ? 'bg-emerald-600' : 'bg-charcoal-ink'"
+          :class="checkIn?.isAchieved.value ? 'bg-study-complete' : 'bg-charcoal-ink'"
           :style="{ width: `${checkIn?.percent.value ?? 0}%` }"
         />
       </div>
@@ -225,9 +216,9 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             !cell.currentMonth ? 'text-stone/40 opacity-50' : 'text-charcoal-ink',
             cell.isSelected ? 'ring-2 ring-charcoal-ink' : 'hover:bg-page-cream',
             cell.isToday ? 'border border-deep-indigo/40 bg-page-cream/60' : '',
-            cell.isChecked ? 'bg-emerald-50/70 border border-emerald-200' : 'border border-transparent'
+            cell.isChecked ? 'bg-study-complete/5 border border-study-complete/20' : 'border border-transparent'
           ]"
-          :aria-label="`${cell.date} ${cell.isChecked ? '已打卡' : '未打卡'}`"
+          :aria-label="`${cell.date} ${cell.status}`"
           @click="selectedDate = cell.date"
         >
           <!-- 顶部：日期数字和今日标 -->
@@ -248,12 +239,18 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             <!-- 打卡达标：显著绿色打勾图标 -->
             <div
               v-if="cell.isChecked"
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-pure-white shadow-xs"
+              class="flex h-5 w-5 items-center justify-center rounded-full bg-study-complete text-pure-white shadow-xs"
               title="已打卡"
             >
               <AppIcon name="check" :size="13" />
             </div>
-            <!-- 未达标但有学习时间 -->
+            <div
+              v-else-if="cell.isMissed"
+              class="flex h-5 w-5 items-center justify-center rounded-full bg-error/10 text-error shadow-xs"
+              title="时长未达标"
+            >
+              <AppIcon name="close" :size="13" />
+            </div>
             <span
               v-else-if="cell.seconds > 0"
               class="text-[11px] font-medium text-stone"
@@ -266,7 +263,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
 
       <!-- 选中日期详情卡片 -->
       <div v-if="compact && selectedDetail" class="mt-4 rounded-xl bg-page-cream p-3 text-caption leading-relaxed">
-        <p class="flex flex-wrap justify-between gap-2"><strong>{{ selectedDetail.date }}{{ selectedDetail.isToday ? ' · 今天' : '' }}</strong><span>{{ selectedDetail.isChecked ? '已打卡' : selectedDetail.seconds > 0 ? '学习中' : '未学习' }}</span></p>
+        <p class="flex flex-wrap justify-between gap-2"><strong>{{ selectedDetail.date }}{{ selectedDetail.isToday ? ' · 今天' : '' }}</strong><span :class="selectedDetail.isMissed ? 'text-error' : ''">{{ selectedDetail.status }}</span></p>
         <p class="mt-1 text-stone">已学 {{ formatStudyClock(selectedDetail.seconds) }} · 目标 {{ formatStudyHours(selectedDetail.targetSeconds) }}</p>
       </div>
       <div v-else-if="selectedDetail" class="mt-4 rounded-xl border border-linen bg-page-cream p-3.5 text-body-sm">
@@ -276,15 +273,15 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             <span v-if="selectedDetail.isToday" class="rounded bg-deep-indigo text-pure-white px-1.5 py-0.5 text-caption font-bold">今天</span>
             <span
               v-if="selectedDetail.isChecked"
-              class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-caption font-bold text-emerald-800"
+              class="inline-flex items-center gap-1 rounded-full bg-study-complete/10 px-2 py-0.5 text-caption font-bold text-study-complete"
             >
               <AppIcon name="check" :size="12" /> 已打卡
               <span v-if="selectedDetail.checkedTimeStr">({{ selectedDetail.checkedTimeStr }})</span>
             </span>
-            <span v-else-if="selectedDetail.seconds > 0" class="rounded-full bg-stone/15 px-2 py-0.5 text-caption text-stone">
-              未达标
+            <span v-else-if="selectedDetail.isMissed" class="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-caption font-bold text-error">
+              <AppIcon name="close" :size="12" /> 时长未达标
             </span>
-            <span v-else class="text-caption text-stone">未学习</span>
+            <span v-else class="text-caption text-stone">{{ selectedDetail.status }}</span>
           </div>
           <span class="text-caption text-stone">学习目标：{{ formatStudyHours(selectedDetail.targetSeconds) }}</span>
         </div>
@@ -294,13 +291,14 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           <span v-if="!selectedDetail.isChecked && selectedDetail.remainingSeconds > 0" class="text-stone">
             距学习目标还需 {{ formatStudyHours(selectedDetail.remainingSeconds) }}
           </span>
-          <span v-else-if="selectedDetail.isChecked" class="text-emerald-700 font-medium">
+          <span v-else-if="selectedDetail.isChecked" class="text-study-complete font-medium">
             当日目标已完成
           </span>
         </div>
       </div>
 
       <!-- 规则说明 -->
+      <p class="mt-4 text-caption leading-relaxed text-stone">绿色勾号表示已打卡；从计划开始当天起，截至今天未达时长目标的日期显示红叉。未来日期和休息日不标叉。</p>
       <p v-if="!compact" class="mt-4 text-caption leading-relaxed text-stone">
         <strong>打卡规则</strong>：{{ checkIn?.includesWork.value ? '当日有效观看时长与记录的实践时长合计达标后自动打卡。' : '当日有效学习时长达标后自动打卡。' }}倍速按实际播放时间计时，暂停、缓冲和跳转不计时。
       </p>

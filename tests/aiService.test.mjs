@@ -29,7 +29,7 @@ const call = (overrides = {}, signal = new AbortController().signal) => requestG
 function transport(body, status = 200) {
   const calls = []
   globalThis.aiServiceIO = { fetch: async (url, init) => {
-    calls.push({ url, ...init, body: JSON.parse(init.body) })
+    calls.push({ url, ...init, headers: Object.fromEntries(new Headers(init.headers)), body: JSON.parse(init.body) })
     return Response.json(body, { status })
   } }
   return calls
@@ -60,7 +60,7 @@ test('原生 Anthropic 请求使用专属认证、顶层 system 和默认 max_to
   const request = calls[0]
   assert.equal(request.url, 'https://api.example.test/v1/messages')
   assert.equal(request.method, 'POST')
-  assert.deepEqual(request.headers, { 'Content-Type': 'application/json', 'x-api-key': 'test-key', 'anthropic-version': '2023-06-01' })
+  assert.deepEqual(request.headers, { 'content-type': 'application/json', 'x-api-key': 'test-key', 'anthropic-version': '2023-06-01', origin: '' })
   assert.equal(request.body.model, 'test-model')
   assert.equal(request.body.max_tokens, 4096)
   assert.match(request.body.system, /只输出 JSON/)
@@ -74,7 +74,7 @@ test('旧配置和显式 OpenAI 配置保持原有请求与响应格式', async 
     const calls = transport(openaiReply())
     assert.deepEqual(await call({ provider }), { ok: true })
     assert.equal(calls[0].url, 'https://api.example.test/v1/chat/completions')
-    assert.deepEqual(calls[0].headers, { 'Content-Type': 'application/json', Authorization: 'Bearer test-key' })
+    assert.deepEqual(calls[0].headers, { 'content-type': 'application/json', authorization: 'Bearer test-key', origin: '' })
     assert.equal(calls[0].body.messages[0].role, 'system')
     assert.deepEqual(calls[0].body.messages.slice(1), conversation)
     assert.equal('max_tokens' in calls[0].body, false)
@@ -82,12 +82,33 @@ test('旧配置和显式 OpenAI 配置保持原有请求与响应格式', async 
   }
 })
 
+test('作业图片按两种协议发送图像块，保留代码文字、图片名与认证', async () => {
+  const images = [{ name: '实现截图.png', mediaType: 'image/png', data: 'AQID' }]
+  for (const provider of ['openai', 'anthropic']) {
+    const calls = transport(provider === 'anthropic' ? nativeReply() : openaiReply())
+    await requestGuideJson({ ...settings, provider }, [{ role: 'user', content: '按代码和图片评分。', images }], new AbortController().signal)
+    const message = calls[0].body.messages.at(-1)
+    assert.equal(message.images, undefined)
+    assert.deepEqual(message.content[0], { type: 'text', text: '按代码和图片评分。' })
+    assert.equal(message.content[1].text, '作业图片：实现截图.png')
+    assert.deepEqual(message.content[2], provider === 'anthropic'
+      ? { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AQID' } }
+      : { type: 'image_url', image_url: { url: 'data:image/png;base64,AQID' } })
+  }
+})
+
+test('不支持图片的服务明确报错，不回退成仅文件名或无图评分', async () => {
+  const calls = transport({}, 400)
+  await assert.rejects(requestGuideJson(settings, [{ role: 'user', content: '评阅', images: [{ name: '图.png', mediaType: 'image/png', data: 'AQID' }] }], new AbortController().signal), /支持图片.*本次未评分/)
+  assert.equal(calls.length, 1)
+})
+
 test('旧输出长度配置不再控制请求，两种格式仍支持免密兼容服务', async () => {
   for (const provider of ['openai', 'anthropic']) {
     const calls = transport(provider === 'anthropic' ? nativeReply() : openaiReply())
     await call({ provider, apiKey: '', maxTokens: 8192 })
     assert.equal(calls[0].body.max_tokens, provider === 'anthropic' ? 4096 : undefined)
-    assert.equal('Authorization' in calls[0].headers, false)
+    assert.equal('authorization' in calls[0].headers, false)
     assert.equal('x-api-key' in calls[0].headers, false)
   }
   const calls = transport(nativeReply())
@@ -144,10 +165,10 @@ test('不兼容结构、缺失文本、超长文本及非法 JSON 都报错', as
   }
 })
 
-test('常见 HTTP 错误不暴露服务响应和密钥', async () => {
-  for (const [status, message] of [[400, /参数无效/], [401, /密钥无效/], [403, /拒绝访问/], [404, /找不到/], [429, /过于频繁/], [529, /繁忙/], [503, /HTTP 503/]]) {
+test('常见 HTTP 错误保留状态码与原因，不暴露服务响应和密钥', async () => {
+  for (const [status, message] of [[400, /参数无效/], [401, /密钥无效/], [402, /余额/], [403, /拒绝访问/], [404, /模型 ID/], [413, /请求大小/], [422, /参数不受支持/], [429, /过于频繁/], [529, /繁忙/], [503, /不可用/], [504, /网关.*超时/], [520, /网关未收到有效响应/], [524, /网关.*超时/]]) {
     transport({ error: { message: 'private response: test-key' } }, status)
-    await assert.rejects(call({ provider: 'anthropic' }), error => message.test(error.message) && !error.message.includes('test-key'))
+    await assert.rejects(call({ provider: 'anthropic' }), error => error.message.includes(`HTTP ${status}`) && message.test(error.message) && !error.message.includes('test-key'))
   }
 })
 
@@ -265,36 +286,118 @@ test('保存、切换和重新加载保留上下文选项并清理旧输出长�
 })
 
 const { testAiConnection } = await import('../app/utils/aiConnectionTest.ts')
-test('连接测试使用当前配置与固定探针，两种协议均验证模型输出且不修改配置', async () => {
+const samplePlan = () => ({summary:'按基础顺序学习',profile:'零基础',dailyMinutes:30,
+  modules:[{id:'m1',title:'基础语法',description:'掌握变量与条件判断'}],
+  lessons:[
+    {path:'demo/01.mp4',moduleId:'m1',concepts:['变量'],prerequisites:[],status:'required',reason:'学习基础'},
+    {path:'demo/02.mp4',moduleId:'m1',concepts:['条件判断'],prerequisites:['demo/01.mp4'],status:'required',reason:'应用变量'},
+  ]})
+function planReply(provider, plan=samplePlan()) {
+  return provider==='anthropic' ? nativeReply({content:[{type:'text',text:JSON.stringify(plan)}]})
+    : openaiReply({message:{content:JSON.stringify(plan)}})
+}
+test('导学测试使用当前配置与真实路线提示词，两种协议都校验完整路线且不修改配置', async () => {
   for (const provider of ['openai', 'anthropic']) {
     const draft = { ...settings, provider, contextWindow: '1m' }
     const before = structuredClone(draft)
-    const calls = transport(provider === 'anthropic' ? nativeReply() : openaiReply())
+    const calls = transport(planReply(provider))
     const result = await testAiConnection(draft, new AbortController().signal)
     assert.equal(calls.length, 1)
     assert.equal(calls[0].body.model, 'test-model')
-    assert.equal(calls[0].body.messages.at(-1).content, '这是连接测试。请只返回 JSON：{"ok":true}。')
+    const prompt=calls[0].body.messages.at(-1).content
+    assert.match(prompt,/请为整个课程生成结构化知识图谱和定制学习路线/)
+    assert.match(prompt,/demo\/01.mp4/)
+    assert.match(prompt,/demo\/02.mp4/)
     assert.deepEqual(draft, before)
     assert.ok(result.milliseconds >= 0)
+    assert.equal(result.lessonCount,2)
   }
 })
-test('连接测试不能将鉴权失败或错误响应视为成功', async () => {
+test('导学测试不能将鉴权失败、简单 JSON、缺课或虚构依赖视为成功', async () => {
   transport({}, 401)
   await assert.rejects(testAiConnection(settings, new AbortController().signal), /密钥/)
-  transport(openaiReply({ message: { content: '{"ok":false}' } }))
-  await assert.rejects(testAiConnection(settings, new AbortController().signal), /预期的 JSON/)
+  for(const provider of ['openai','anthropic']) {
+    const missing=samplePlan();missing.lessons.pop()
+    const invalid=samplePlan();invalid.lessons[1].prerequisites=['outside.mp4']
+    for(const plan of [{ok:true},missing,invalid]) {
+      transport(planReply(provider,plan))
+      await assert.rejects(testAiConnection({...settings,provider}, new AbortController().signal), /导学结果未通过校验/)
+    }
+  }
 })
-test('连接测试可手动取消并在三十秒超时后终止请求', async t => {
+test('导学测试可手动取消，响应时限与正式导学一致而不在三十秒提前中断', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   globalThis.aiServiceIO = { fetch: async (_, { signal }) => new Promise((_, reject) => {
     if (signal.aborted) { reject(signal.reason); return }
     signal.addEventListener('abort', () => reject(signal.reason), { once: true })
   }) }
   const controller = new AbortController()
-  const cancelled = assert.rejects(testAiConnection(settings, controller.signal), /测试已取消/)
+  const cancelled = assert.rejects(testAiConnection(settings, controller.signal), {name:'AbortError'})
   controller.abort()
   await cancelled
-  const timedOut = assert.rejects(testAiConnection(settings, new AbortController().signal), /超过 30 秒/)
+  let settled=false
+  const timedOut = assert.rejects(testAiConnection({...settings,timeoutMinutes:1}, new AbortController().signal), /AI 响应超过 1 分钟/).then(()=>{settled=true})
+  t.mock.timers.tick(30000)
+  await Promise.resolve()
+  assert.equal(settled,false)
   t.mock.timers.tick(30000)
   await timedOut
+})
+
+test('多模型列表兼容旧配置，去重并保留当前模型；保存和切换失败不改变当前模型',async t=>{
+  assert.deepEqual(restoreAiSettings(settings).profiles[0].modelIds,['test-model'])
+  const profile=validateAiProfile({...settings,name:'多模型',modelIds:[' model-b ','model-b','provider/model-c']},'multi')
+  assert.deepEqual(profile.modelIds,['model-b','provider/model-c','test-model'])
+  assert.throws(()=>validateAiProfile({...settings,name:'无效',modelIds:[42]},'bad'),/模型列表/)
+  let stored={version:2,activeId:'multi',profiles:[profile]}
+  globalThis.aiServiceIO={databaseRequest:async()=>structuredClone(stored),dbSaveSetting:async(_,value)=>{stored=structuredClone(value);return true}}
+  let ai
+  const renderer=createRenderer({createComment:()=>({}),insert(){},remove(){},parentNode:()=>null,nextSibling:()=>null})
+  const app=renderer.createApp({setup(){ai=useAiSettings();return()=>null}})
+  app.mount({});t.after(()=>app.unmount())
+  await new Promise(resolve=>setImmediate(resolve))
+  const shared=ai.settings
+  await ai.selectModel('model-b')
+  assert.equal(ai.settings,shared)
+  assert.equal(shared.model,'model-b')
+  assert.equal(stored.profiles[0].model,'model-b')
+  await ai.load()
+  assert.equal(shared.model,'model-b')
+  assert.deepEqual(ai.activeProfile.value.modelIds,profile.modelIds)
+  await assert.rejects(ai.selectModel('outside'),/已保存的模型/)
+  globalThis.aiServiceIO.dbSaveSetting=async()=>false
+  await assert.rejects(ai.selectModel('provider/model-c'),/保存失败/)
+  assert.equal(shared.model,'model-b')
+  assert.equal(stored.profiles[0].model,'model-b')
+})
+
+const {fetchAiModels}=await import('../app/utils/aiModels.ts')
+test('读取两种协议的模型 ID，使用对应认证与代理路径，不泄漏上下文选项或自动切换',async()=>{
+  for(const provider of ['openai','anthropic']) {
+    const calls=[]
+    globalThis.aiServiceIO={fetch:async(url,init)=>{calls.push({url,...init,headers:Object.fromEntries(new Headers(init.headers))});return Response.json({data:[{id:'model-a',display_name:'显示名称'},{id:'model-b'},{id:'model-a'},null,{id:''}]})}}
+    const draft={...settings,provider,baseUrl:`https://example.test/proxy/v1/${provider==='openai'?'chat/completions':'messages'}`,contextWindow:'1m'}
+    assert.deepEqual(await fetchAiModels(draft,new AbortController().signal),['model-a','model-b'])
+    assert.equal(calls[0].url,'https://example.test/proxy/v1/models')
+    assert.equal(calls[0].headers[provider==='openai'?'authorization':'x-api-key'],provider==='openai'?'Bearer test-key':'test-key')
+    assert.equal(calls[0].headers['anthropic-beta'],undefined)
+    assert.equal(draft.model,settings.model)
+  }
+})
+
+test('模型列表请求保留 HTTP 错误，空列表、取消和超时不视为成功',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']})
+  globalThis.aiServiceIO={fetch:async()=>Response.json({}, {status:404})}
+  await assert.rejects(fetchAiModels(settings,new AbortController().signal),/HTTP 404/)
+  globalThis.aiServiceIO.fetch=async()=>Response.json({data:[]})
+  await assert.rejects(fetchAiModels(settings,new AbortController().signal),/列表为空/)
+  globalThis.aiServiceIO.fetch=async(_,{signal})=>new Promise((_,reject)=>{
+    if(signal.aborted){reject(signal.reason);return}
+    signal.addEventListener('abort',()=>reject(signal.reason),{once:true})
+  })
+  const controller=new AbortController()
+  const pending=assert.rejects(fetchAiModels(settings,controller.signal),{name:'AbortError'})
+  controller.abort();await pending
+  const timeout=assert.rejects(fetchAiModels(settings,new AbortController().signal),/超过 30 秒/)
+  t.mock.timers.tick(30000);await timeout
 })

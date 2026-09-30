@@ -43,14 +43,15 @@ export function useAiSettings() {
 
   async function persist(collection: AiSettingsCollection) {
     if (!state.ready || state.saving) throw new Error('AI 配置尚未就绪，请稍后重试。')
+    const snapshot = restoreAiSettings(collection)
     state.saving = true
     try {
-      if (!await dbSaveSetting(SETTINGS_KEY, collection)) throw new Error('AI 配置保存失败，请重试。')
-      apply(collection)
+      if (!await dbSaveSetting(SETTINGS_KEY, snapshot)) throw new Error('AI 配置保存失败，请重试。')
+      apply(snapshot)
     } finally { state.saving = false }
   }
 
-  async function saveProfile(draft: GuideSettings & { name: string }, id?: string) {
+  async function saveProfile(draft: GuideSettings & { name: string; modelIds?: string[] }, id?: string) {
     if (id && !state.collection.profiles.some(p => p.id === id)) throw new Error('该 AI 配置已不存在。')
     const profile = validateAiProfile(draft, id || crypto.randomUUID())
     const profiles: AiProfile[] = id ? state.collection.profiles.map(p => p.id === id ? profile : { ...p })
@@ -69,6 +70,13 @@ export function useAiSettings() {
     await persist(removeAiProfile(state.collection, id))
   }
 
+  async function selectModel(model: string) {
+    const active = activeProfile.value
+    if (!active || !(active.modelIds ?? [active.model]).includes(model)) throw new Error('请选择该配置中已保存的模型 ID。')
+    if (model === active.model) return
+    await persist({ version: 2, activeId: active.id, profiles: state.collection.profiles.map(p => ({ ...p, ...(p.id === active.id ? { model } : {}) })) })
+  }
+
   onMounted(load)
-  return { state, settings, activeProfile, configured, load, saveProfile, selectProfile, deleteProfile }
+  return { state, settings, activeProfile, configured, load, saveProfile, selectProfile, selectModel, deleteProfile }
 }

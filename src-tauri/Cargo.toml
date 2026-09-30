@@ -15,7 +15,8 @@ tauri-build = { version = "2.6.3", features = [] }
 [dependencies]
 tauri = { version = "2.11.6", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-dialog = "2"
-tauri-plugin-http = "~2.6"
+# 允许原生 API 请求通过空 Origin 显式省略 WebView 来源；TLS 校验与 URL 权限仍由插件执行。
+tauri-plugin-http = { version = "~2.6", features = ["unsafe-headers"] }
 tauri-plugin-notification = "2"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

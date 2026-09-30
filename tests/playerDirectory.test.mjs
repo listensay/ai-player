@@ -24,7 +24,7 @@ function mount(t, wide) {
   return { directory, listeners, unmount, resize(wide) { media.matches = wide; listeners.forEach(listener => listener()) } }
 }
 
-test('大窗口目录默认展开，顶部开关可以反复收起和展开，切课关闭抽屉不影响侧栏', t => {
+test('大窗口目录默认展开，侧栏开关可以反复收起和展开，切课关闭抽屉不影响侧栏', t => {
   const { directory } = mount(t, true)
   assert.equal(directory.treeVisible.value, true)
   directory.toggleTree()

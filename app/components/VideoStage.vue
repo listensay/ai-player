@@ -399,6 +399,7 @@ defineExpose({ toggleFullscreen })
           <UiButton variant="text" size="sm" icon title="下一节（Shift+N）" :disabled="!hasNext" @click="emit('next')">
             <AppIcon name="skip-next" :size="18" />
           </UiButton>
+          <UiButton variant="ghost" size="sm" class="ml-1" @click="emit('practice')">课后练习</UiButton>
         </div>
       </div>
     </div>

@@ -16,6 +16,7 @@ import {
 import { formatTime } from '~/utils/time'
 import { formatStudyDuration } from '~/utils/guide'
 import { calculateDay } from '~/utils/dailyPlan'
+import { dailyPlanComplete } from '~/utils/knowledge'
 import UiButton from '~/components/UiButton.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import WelcomeScreen from '~/components/WelcomeScreen.vue'
@@ -243,10 +244,7 @@ function taskTitle(path: string) {
                 <div class="mt-3 flex flex-wrap gap-2">
                   <UiButton size="sm" @click="go(entry.course, 'today')">调整与记录</UiButton
                   ><UiButton
-                    v-if="
-                      day.today.items.some((i) => i.kind !== 'question') &&
-                      day.today.items.filter((i) => i.kind !== 'question').every((i) => i.done)
-                    "
+                    v-if="dailyPlanComplete(day.today, date)"
                     size="sm"
                     variant="ghost"
                     @click="go(entry.course, 'practice')"

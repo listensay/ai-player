@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { createRenderer, reactive, ref } from 'vue'
+import { localDayKey } from '../app/utils/learningFeedback.ts'
 
 const boundaries = {
   '~/composables/useAiSettings': ['useAiSettings'],
@@ -116,6 +117,61 @@ test('没有 AI 路线时可直接按本地目录设置学习计划', async t =>
   assert.equal(h.saves.at(-1).plan.program.budget.video, 30)
 })
 
+test('完成今日课程后主动继续下一天，刷新和重开保留追加安排且重复点击无效', async t => {
+  const saved = stored()
+  saved.metadata = { 'a.mp4': { duration: 7200, size: 1, modified: 1 } }
+  const h = harness(t, { dbFetchGuide: async () => saved }); await tick()
+  assert.equal(h.guide.nextStudy.value, null)
+  const first = h.guide.state.today.items[0]
+  h.guide.completeTodayItem(first.id, true)
+  assert.ok(h.guide.nextStudy.value)
+  const item = h.guide.continueNextDay()
+  assert.equal(item.path, 'a.mp4'); assert.equal(item.start, 1800); assert.equal(item.end, 3600)
+  assert.equal(h.guide.continueNextDay(), null)
+  h.guide.refreshToday(); h.guide.persist(); await tick()
+  const snapshot = h.saves.at(-1)
+  assert.equal(snapshot.today.minutes, 30)
+  assert.equal(snapshot.today.extraDays.length, 1)
+  assert.equal(snapshot.today.items[0].done, true)
+  h.app.unmount()
+  const reopened = harness(t, { dbFetchGuide: async () => snapshot }); await tick()
+  assert.equal(reopened.guide.state.today.extraDays.length, 1)
+  assert.equal(reopened.guide.state.today.items.length, 2)
+  assert.equal(reopened.guide.state.today.items[1].start, 1800)
+  assert.equal(reopened.guide.nextStudy.value, null)
+})
+
+test('追加多节课程后播放进度触发刷新，学完和学到一半的课程在保存重开后仍在今日列表', async t => {
+  const saved = stored()
+  saved.plan.program = { days: 30, startDate: localDayKey(), budget: { video: 30, code: 0, project: 0, recap: 0 }, lightEvery: 0, lightMinutes: 30 }
+  saved.plan.lessons = Array.from({ length: 9 }, (_, i) => ({ ...plan().lessons[0], path: `${i + 1}.mp4` }))
+  const videos = saved.plan.lessons.map(lesson => ({ path: lesson.path, title: lesson.path, size: 1, modified: 1 }))
+  saved.metadata = Object.fromEntries(videos.map(video => [video.path, { duration: 600, size: 1, modified: 1 }]))
+  const progress = reactive({})
+  const useProgress = () => ({ get: (_id, path) => progress[path], courseProgress: () => progress })
+  const h = harness(t, { dbFetchGuide: async () => saved, useProgress })
+  h.active.value = { id: 'many', videos }; await tick()
+  h.guide.state.today.items.forEach(item => h.guide.completeTodayItem(item.id, true))
+  assert.equal(h.guide.continueNextDay().path, '4.mp4')
+  const expectedPaths = h.guide.state.today.items.map(item => item.path)
+  const fifth = JSON.parse(JSON.stringify(h.guide.state.today.items[4]))
+  progress['4.mp4'] = { time: 600, duration: 600, ratio: 1, done: true, updatedAt: 1 }
+  progress['5.mp4'] = { time: 240, duration: 600, ratio: .4, done: false, updatedAt: 2 }
+  await tick()
+  assert.deepEqual(h.guide.state.today.items.map(item => item.path), expectedPaths)
+  assert.equal(h.guide.state.today.items[3].done, true)
+  assert.deepEqual(JSON.parse(JSON.stringify(h.guide.state.today.items[4])), fifth)
+  h.guide.persist(); await tick()
+  const snapshot = h.saves.at(-1)
+  h.app.unmount()
+  const reopened = harness(t, { dbFetchGuide: async () => snapshot, useProgress })
+  reopened.active.value = { id: 'many', videos }; await tick()
+  assert.deepEqual(reopened.guide.state.today.items.map(item => item.path), expectedPaths)
+  assert.equal(reopened.guide.state.today.items[3].done, true)
+  assert.equal(reopened.guide.state.today.items[4].start, 0)
+  assert.equal(reopened.guide.state.today.extraDays.length, 1)
+})
+
 test('移除疑问回溯后保留历史记录，但不再加入今日任务或影响掌握度', async t => {
   const q = { id: 'legacy-question', path: 'a.mp4', seconds: 12, text: '变量为何变化？', status: 'still-confused', createdAt: 1, updatedAt: 1, recommendations: [], reviewedPaths: [] }
   const h = harness(t, { dbFetchGuide: async () => ({ ...stored(), questions: [q] }) }); await tick()
@@ -134,4 +190,44 @@ test('切换 AI 配置取消旧导学请求，迟到结果不会进入路线预�
   h.guide.state.settings.model = 'new-model'
   response.resolve(plan()); assert.equal(await generation, false)
   assert.equal(h.guide.state.pending, null); assert.equal(h.guide.state.plan.summary, '保留这条路线')
+})
+
+test('增量调整先预览后应用，保留未改课节与依赖，随后可撤销', async t => {
+  const original = plan()
+  original.modules.push({ id: 'git', title: 'Git', description: '版本管理' })
+  original.lessons.push({ path: 'git.mp4', moduleId: 'git', status: 'required', reason: '原选课理由', concepts: ['提交'], prerequisites: [] })
+  original.lessons[0].prerequisites = ['git.mp4']
+  let input
+  const h = harness(t, { dbFetchGuide: async () => ({ ...stored(), plan: original }),
+    requestGuideJson: async (_settings, messages) => {
+      input = messages[0].content
+      return { summary: '跳过 Git，保留依赖提示。', changes: [{ moduleId: 'git', status: 'skipped', reason: '用户要求略过' }] }
+    } })
+  h.active.value = { id: 'two', videos: [{ path: 'a.mp4', title: '开发', size: 1, modified: 1 }, { path: 'git.mp4', title: 'Git', size: 1, modified: 1 }] }
+  await tick()
+  assert.equal(await h.guide.generate('删除 Git 学习计划', 30), true)
+  assert.match(input, /只输出变更 JSON/)
+  assert.equal(h.guide.state.plan.lessons[1].status, 'required')
+  assert.equal(h.guide.state.pending.plan.lessons[1].status, 'skipped')
+  assert.deepEqual(h.guide.state.pending.plan.lessons[0], original.lessons[0])
+  assert.equal(h.guide.pendingPreview.value.removed.length, 1)
+  h.guide.applyPending()
+  assert.equal(h.guide.state.plan.lessons[1].status, 'skipped')
+  assert.equal(h.guide.risks.value.length, 1)
+  h.guide.undo()
+  assert.equal(h.guide.state.plan.lessons[1].status, 'required')
+})
+
+test('调整遇到 HTTP 520 或残缺结果不替换已有路线', async t => {
+  const h = harness(t, { requestGuideJson: async () => { throw Error('HTTP 520：网关异常') } })
+  await tick()
+  const original = JSON.stringify(h.guide.state.plan)
+  assert.equal(await h.guide.generate('调整路线', 30), false)
+  assert.match(h.guide.state.error, /HTTP 520/)
+  assert.equal(JSON.stringify(h.guide.state.plan), original)
+  assert.equal(h.guide.state.pending, null)
+  globalThis.guideTestIO.requestGuideJson = async () => ({ changes: [{ ids: ['fake'] }] })
+  assert.equal(await h.guide.generate('调整路线', 30), false)
+  assert.equal(JSON.stringify(h.guide.state.plan), original)
+  assert.equal(h.guide.state.pending, null)
 })

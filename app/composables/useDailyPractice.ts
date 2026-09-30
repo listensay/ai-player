@@ -37,7 +37,8 @@ export function useDailyPractice(course: Ref<Course | null>, today: Ref<TodayPla
   const items = computed(() => dailyVideoItems(today.value, date.value))
   const complete = computed(() => dailyPlanComplete(today.value, date.value))
   const signature = computed(() => dailyPlanSignature(today.value, date.value))
-  const path = computed(() => `daily:${date.value}:${signature.value}`)
+  // 单题版独立存放，已有多题练习及作答仍留在原存储中。
+  const path = computed(() => `daily:${date.value}:comprehensive-v1:${signature.value}`)
   const records = computed(() => practice.state.records.filter(r => r.path === path.value))
   const answered = computed(() => records.value.filter(r => r.attempts.length > 0).length)
   const finished = computed(() => records.value.length > 0 && answered.value === records.value.length)
@@ -79,7 +80,7 @@ export function useDailyPractice(course: Ref<Course | null>, today: Ref<TodayPla
       return result.map((s, i) => ({ ...s, id: `s${i + 1}` }))
     })
     if (practice.state.open && practice.state.path === targetPath && !practice.history.value.length && !practice.state.error) {
-      await practice.generate(practice.state.questionCount)
+      await practice.generate(1)
     }
   }
   async function flush() { practice.persist(); await writes }

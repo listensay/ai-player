@@ -235,7 +235,7 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     catch { state.error = '学习路线导出失败，请重试。' }
   }
 
-  const { snapshot, undo, applySchedule, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, planForScheduling, refreshToday, completeTodayItem } = useGuideScheduling(state, {
+  const { snapshot, undo, applySchedule, applyPending, discardPending, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, planForScheduling, refreshToday, completeTodayItem, nextStudy, continueNextDay } = useGuideScheduling(state, {
     course, guideReady, recordsReady, todayDate, moduleMap, program, planDay, todayBudget, todayWork, dayContext, schedule, restorePlan, persist,
   })
   const { setMastery, setPracticeMastery } = useGuideMastery(state, { lessonMap, videoMap, persist })
@@ -325,7 +325,7 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
 
   const guide = { persist, state, ai, lessonMap, route, routePaths, routeView, routePositions, routeVideos, arrangedLessons, videoMap, durations, schedule, risks, firstLesson, counts, configured,
     generate, cancel, previewStatus, setStatus, setDailyMinutes, repairDependencies, adjacent, exportPlan,
-    masteredPaths, setMastery, setPracticeMastery, refreshToday, completeTodayItem,
+    masteredPaths, setMastery, setPracticeMastery, refreshToday, completeTodayItem, nextStudy, continueNextDay,
     todayDate, program, moduleMap, planDay, practiceModules, scheduledModule, progressModule, activeModule, lightDay, todayBudget, todayTotalMinutes, todayWork,
     workSecondsByDate, courseProgressMap, stageProgressMap, videoFinish, pendingPreview, recordsReady, guideReady,
     undo, applyPending, discardPending, applySchedule, planForScheduling, dayContext, schedulingEnabled, setActiveModule, refreshWork, updateWork, setCheck, setProgram, defaultProgram, generatePractice, importFile }

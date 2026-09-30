@@ -21,8 +21,9 @@ import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 
 import type { ReminderLinkDestination } from '~/utils/reminderLinks'
 import { desktopInvoke } from '~/utils/platform'
 import { flushDatabaseWrites } from '~/utils/database'
-import { calculateDay } from '~/utils/dailyPlan'
-import { budgetTotal } from '~/utils/studyProgram'
+import { budgetForDay, budgetTotal, programDate, programDay, stageForDay } from '~/utils/studyProgram'
+import { localDayKey } from '~/utils/learningFeedback'
+import { segmentPlaybackStart } from '~/utils/segmentReminder'
 import type { VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 import type { PracticeScope } from '~/types/practice'
@@ -45,6 +46,7 @@ export function provideCourseWorkspace() {
   const guideTab = ref<'plan' | 'today' | 'settings'>('plan')
   const pendingSeek = ref<{ path: string; seconds: number } | null>(null)
   const { treeOpen, desktopTreeOpen, treeVisible, toggleTree } = usePlayerDirectory()
+  const rightPanelOpen = ref(true)
   /** 笔记优先展示；切页签不打断转写与笔记编辑。 */
   const rightTab = ref<'knowledge' | 'notes' | 'transcript'>('notes')
   const transcripts = useTranscripts()
@@ -59,7 +61,8 @@ export function provideCourseWorkspace() {
     if (id && path) onCleanup(transcripts.retain(id, path))
   }, { immediate: true, flush: 'sync' })
   const { noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote } = useNoteWorkspace(
-    computed(() => course.value && video.value ? JSON.stringify([course.value.id, video.value.path]) : ''), rightTab, player, showToast)
+    computed(() => course.value && video.value ? JSON.stringify([course.value.id, video.value.path]) : ''), rightTab, player, showToast,
+    () => { rightPanelOpen.value = true })
   const guide = useLearningGuide(course, computed(() => !store.state.library.some(c => c.id === course.value?.id && c.status !== 'active')))
   const knowledge = useLessonKnowledge(course, guide.state.settings, guide.configured)
   const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
@@ -80,11 +83,20 @@ export function provideCourseWorkspace() {
   const segment = useSegmentReminder(computed(() => course.value?.id), computed(() => video.value?.path), computed(() => guide.state.today))
   const checkInPlan = computed(() => ({
     today: guide.state.today,
+    startDate: guide.program.value?.startDate ?? (guide.state.plan ? localDayKey(new Date(guide.state.plan.createdAt)) : null),
+    endDate: guide.program.value ? programDate(guide.program.value, guide.program.value.days) : null,
     dailyMinutes: guide.state.plan?.dailyMinutes ?? (guide.state.today?.minutes ?? 120),
     // 完整学习计划的每日总投入（看课 + 实践）作为打卡目标。
     targetMinutes: guide.todayTotalMinutes.value,
     workSeconds: guide.workSecondsByDate.value,
-    budgetForDate: (date: string) => budgetTotal(calculateDay(guide.dayContext.value, date).budget),
+    budgetForDate: (date: string) => {
+      if (date === guide.todayDate.value) return guide.todayTotalMinutes.value ?? guide.state.today?.minutes ?? 120
+      if (date > guide.todayDate.value && !guide.schedulingEnabled.value) return 0
+      const plan = guide.state.plan
+      if (!plan?.program) return plan?.dailyMinutes ?? 120
+      const day = programDay(plan.program, date)
+      return budgetTotal(budgetForDay(plan.program, stageForDay(plan.modules, day)?.practice, day))
+    },
   }))
   const checkIn = useStudyCheckIn(course, checkInPlan)
   watch(() => [course.value?.id, checkIn.state.date, checkIn.seconds.value] as const, ([id, date, seconds]) => {
@@ -137,7 +149,7 @@ export function provideCourseWorkspace() {
   }
 
   function startSegment(item: TodayItem) {
-    selectGuideVideo(item.path, item.start)
+    selectGuideVideo(item.path, segmentPlaybackStart(item, guide.courseProgressMap.value[item.path]))
     segment.start(item)
   }
 
@@ -356,7 +368,7 @@ export function provideCourseWorkspace() {
       throw new Error('页面切换未完成，请重试。')
     if (target.notice) studyTools.state.notice = target.notice
   })
-  const workspace = { companion, reminderLinks, store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideTab, pendingSeek, treeOpen, desktopTreeOpen, treeVisible, toggleTree, rightTab, transcripts, currentView, toast, showToast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, selectGuideVideo, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
+  const workspace = { companion, reminderLinks, store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideTab, pendingSeek, treeOpen, desktopTreeOpen, treeVisible, toggleTree, rightPanelOpen, rightTab, transcripts, currentView, toast, showToast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, selectGuideVideo, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
   provide(COURSE_WORKSPACE, workspace)
   return workspace
 }

@@ -11,6 +11,7 @@ import StageProgressBars from '~/components/StageProgressBars.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
 import UiButton from '~/components/UiButton.vue'
 import PlanAdjustment from '~/components/PlanAdjustment.vue'
+import ContinueStudyButton from '~/components/ContinueStudyButton.vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
@@ -333,6 +334,7 @@ const todayMinutes = computed(() => Math.floor((todayVideoSeconds.value + (guide
               <button class="mt-2 line-clamp-2 text-left text-body-sm font-bold leading-relaxed hover:text-deep-indigo" @click="tasksOpen = true">{{ nextWork.title }}</button>
             </div>
             <p v-if="!nextVideoItem && !nextWork" class="text-body-sm text-stone">{{ videoItems.length || guide.todayWork.value.length ? '今日任务已完成' : '今日暂无安排' }}</p>
+            <ContinueStudyButton @segment="startItem" />
             <UiButton size="sm" variant="text" @click="tasksOpen = true">查看今日安排<AppIcon name="chevron-right" :size="15" /></UiButton>
           </div>
         </section>

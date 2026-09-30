@@ -3,13 +3,14 @@ import { computed } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import UiButton from '~/components/UiButton.vue'
 import type { GuideLesson } from '~/types/guide'
-import { formatStudyDuration } from '~/utils/guide'
+import { dependencyRisks, formatStudyDuration } from '~/utils/guide'
 import { conciseLessonTitle } from '~/utils/studyProgram'
 
 /** 路线调整预览：列出新增、移出与顺序变化的课节，以及对剩余时间的影响；确认后才应用。 */
 const guide = useGuide()
 const preview = guide.pendingPreview
 const pending = computed(() => guide.state.pending)
+const risks = computed(() => dependencyRisks(pending.value?.plan.lessons ?? [], false, guide.masteredPaths.value))
 const LIMIT = 40
 function title(path: string) { const v = guide.videoMap.value.get(path); return v ? conciseLessonTitle(v.title) : path }
 function names(items: Array<GuideLesson | string>) { return items.slice(0, LIMIT).map(i => title(typeof i === 'string' ? i : i.path)) }
@@ -41,6 +42,7 @@ const rows = computed(() => {
     <h3 class="mt-1 text-subheading">确认路线调整</h3>
     <p class="mt-2 text-body-sm leading-relaxed text-graphite">请核对课节与时间变化，应用后可撤销。</p>
     <p class="mt-2 whitespace-pre-wrap break-words text-caption leading-relaxed text-stone">{{ pending.plan.summary }}</p>
+    <p v-if="risks.length" role="alert" class="mt-3 text-body-sm text-error">调整后有 {{ risks.length }} 节前置课不在路线中。请确认已具备相关知识，再应用调整。</p>
 
     <div class="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-page-cream p-4 text-center">
       <div><p class="text-heading-sm">{{ preview.added.length }}</p><p class="text-caption text-stone">新增课节</p></div>

@@ -70,6 +70,16 @@ export function calendarDays(year: number, month: number) {
   return cells
 }
 
+/** 从计划开始当天起标记未达标日期；未来、计划外和零目标休息日不标记。 */
+export function isMissedStudyDay(options: {
+  date: string; today: string; startDate?: string | null; endDate?: string | null
+  seconds: number; targetSeconds: number; checkedAt?: number | null
+}) {
+  return !!options.startDate && options.date >= options.startDate && options.date <= options.today
+    && (!options.endDate || options.date <= options.endDate) && options.checkedAt == null
+    && options.targetSeconds > 0 && options.seconds < options.targetSeconds
+}
+
 export function studyStreak(days: Record<string, StudyDay>, today: string): number {
   if (!validDayKey(today)) return 0
   const [year, month, day] = today.split('-').map(Number) as [number, number, number]

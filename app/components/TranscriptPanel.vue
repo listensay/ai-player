@@ -113,8 +113,14 @@ function quote(seg: { start: number; text: string }) {
 }
 
 function scrollToIndex(index: number, smooth = true) {
-  const el = listEl.value?.querySelector<HTMLElement>(`[data-index="${index}"]`)
-  el?.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
+  const list = listEl.value
+  if (!props.active || !list || !list.clientHeight) return
+  const el = list.querySelector<HTMLElement>(`[data-index="${index}"]`)
+  if (!el) return
+  // 只滚动逐字稿列表，避免 scrollIntoView 连带移动外层页面、遮住顶部内容。
+  const top = list.scrollTop + el.getBoundingClientRect().top - list.getBoundingClientRect().top
+    - list.clientTop - (list.clientHeight - el.getBoundingClientRect().height) / 2
+  list.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
 }
 
 function jumpMatch(dir: 1 | -1) {
@@ -130,26 +136,35 @@ function jumpMatch(dir: 1 | -1) {
 
 function onScroll() {
   // 用户手动滚动时暂停跟随；点“定位当前句”恢复
-  if (!scrollingByCode) follow.value = false
+  if (scrollingByCode) scheduleScrollGuardReset()
+  else follow.value = false
 }
 let scrollingByCode = false
 let scrollTimer: ReturnType<typeof setTimeout> | null = null
-function programmaticScroll(index: number) {
-  scrollingByCode = true
-  scrollToIndex(index)
+function scheduleScrollGuardReset(delay = 150) {
   if (scrollTimer) clearTimeout(scrollTimer)
-  scrollTimer = setTimeout(() => (scrollingByCode = false), 600)
+  scrollTimer = setTimeout(() => {
+    scrollingByCode = false
+    scrollTimer = null
+  }, delay)
+}
+function programmaticScroll(index: number, smooth = true) {
+  scrollingByCode = true
+  scrollToIndex(index, smooth)
+  // 无滚动事件时也释放标记；长距离动画由 onScroll 持续延后释放。
+  scheduleScrollGuardReset(600)
 }
 
-function resumeFollow() {
+async function resumeFollow() {
   follow.value = true
   query.value = ''
+  await nextTick()
   if (activeIndex.value >= 0) programmaticScroll(activeIndex.value)
 }
 
 watch(activeIndex, (i) => {
   if (props.active && follow.value && !query.value && i >= 0) programmaticScroll(i)
-})
+}, { flush: 'post' })
 
 watch(matches, () => {
   matchCursor.value = 0
@@ -177,7 +192,7 @@ watch(
   (active) => {
     if (active) {
       asr.startPolling()
-      if (follow.value && activeIndex.value >= 0) nextTick(() => scrollToIndex(activeIndex.value, false))
+      if (follow.value && activeIndex.value >= 0) nextTick(() => programmaticScroll(activeIndex.value, false))
     } else asr.stopPolling()
   },
   { immediate: true },
@@ -185,6 +200,7 @@ watch(
 
 onBeforeUnmount(() => {
   if (props.active) asr.stopPolling()
+  if (scrollTimer) clearTimeout(scrollTimer)
 })
 </script>
 

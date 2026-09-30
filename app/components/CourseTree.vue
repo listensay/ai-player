@@ -5,6 +5,7 @@ import { useGuide } from '~/composables/useLearningGuide'
 import { useProgress } from '~/composables/useProgress'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTreeNode from '~/components/CourseTreeNode.vue'
+import ContinueStudyButton from '~/components/ContinueStudyButton.vue'
 import type { Course, FolderEntry, TreeFilter, VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 
@@ -196,7 +197,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
 <template>
   <section class="pane flex min-h-0 flex-col" aria-label="课程目录">
     <header class="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
-      <h2 class="text-subheading font-bold">{{ routeView ? '学习路线' : '目录' }}</h2>
+      <h2 class="min-w-0 flex-1 text-subheading font-bold">{{ routeView ? '学习路线' : '目录' }}</h2>
       <button
         v-if="hasFolders && !routeView"
         type="button"
@@ -213,6 +214,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
       >
         {{ allRouteOpen ? '全部收起' : '全部展开' }}
       </button>
+      <slot name="header-actions" />
     </header>
 
     <div class="px-4 pb-3">
@@ -224,6 +226,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         <div class="flex items-center justify-between gap-2"><p class="text-caption text-stone">已选 {{ guide.route.value.length }} 节 · {{ guide.program.value && (guide.planDay.value ?? 0) >= 1 ? `计划第 ${guide.planDay.value} / ${guide.program.value.days} 天` : `视频排期约 ${guide.schedule.value.days} 天` }}</p><button type="button" class="text-caption font-bold hover:text-deep-indigo" @click="emit('guide')">调整</button></div>
         <label class="mt-2 flex items-center gap-2 text-caption text-graphite"><VCheckbox v-model="guide.state.includeOptional" :disabled="!!guide.state.busy" class="shrink-0" />包含选修课</label>
         <button type="button" :disabled="!canStart" class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50" @click="startRoute"><AppIcon name="play" :size="15" />{{ startLabel }}</button>
+        <ContinueStudyButton v-if="!showAllRoute" class="mt-3" @segment="emit('startToday', $event)" />
         <button v-if="guide.risks.value.length" type="button" class="mt-2 text-left text-caption text-error hover:text-deep-indigo" @click="emit('guide')">{{ guide.risks.value.length }} 节前置课未加入路线，查看建议</button>
       </div>
       <div>

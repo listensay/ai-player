@@ -153,7 +153,7 @@ defineExpose({ collapse })
       <button ref="petButton" type="button" class="pet-character" data-pet-hit="0.4" :aria-label="desktop ? 'Playbo 桌宠，点击查看，拖动移动' : 'Playbo 桌宠，点击展开，拖动或用方向键移动'" :aria-expanded="bubbleVisible" :aria-controls="bubbleVisible ? panelId : undefined" title="单击摸摸 · 双击播放/暂停 · 右键更多"
         @pointerdown="pointerDown" @pointermove="pointerMove" @pointerup="pointerUp" @pointercancel="pointerUp" @click="activate" @dblclick="doubleClick" @contextmenu.prevent="openMenu" @keydown.shift.f10.prevent="openMenu"
         @keydown.up.prevent="emit('nudge', 'up')" @keydown.down.prevent="emit('nudge', 'down')" @keydown.left.prevent="emit('nudge', 'left')" @keydown.right.prevent="emit('nudge', 'right')">
-        <span :key="reactionKey" class="pet-art" :class="{ 'is-petted': reaction }"><PlayboMascot :mood="reaction && !state.careDue && !state.restRemaining ? 'celebrate' : state.mood" :size="desktop ? 148 : 128" /></span>
+        <span :key="reactionKey" class="pet-art" :class="{ 'is-petted': reaction }"><PlayboMascot :mood="reaction && !state.careDue && !state.restRemaining ? 'celebrate' : state.mood" :playing="connected && state.playing && !state.buffering && !state.blocked" :size="desktop ? 124 : 128" /></span>
       </button>
       <button v-if="desktop" type="button" class="pet-dismiss pet-icon-button" data-pet-hit="0.5" aria-label="关闭桌宠" title="关闭桌宠，课程继续播放" @click="emit('close')"><AppIcon name="close" :size="14" /></button>
       <button v-else type="button" class="pet-detach pet-icon-button" aria-label="放到桌面" title="放到桌面" :disabled="busy" @click="emit('desktop')"><AppIcon name="pip" :size="16" /></button>
@@ -166,7 +166,7 @@ defineExpose({ collapse })
 
 <style scoped>
 .companion-pet { position: relative; width: 144px; height: 164px; pointer-events: none; color: #2d2c2b; font-size: 12px; }
-.companion-pet.is-desktop { width: 164px; height: 184px; }
+.companion-pet.is-desktop { width: 140px; height: 160px; }
 .pet-body { position: absolute; right: 0; bottom: 0; width: 100%; }
 .pet-character { display: block; margin: 0 auto; padding: 0; border: 0; background: transparent; cursor: grab; touch-action: none; pointer-events: auto; filter: drop-shadow(0 3px 3px #2d2c2b24); border-radius: 40%; }
 .pet-character:active { cursor: grabbing; }

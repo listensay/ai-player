@@ -3,6 +3,7 @@ import type { KnowledgePoint, LessonSummary } from '../types/knowledge'
 import type { PracticeScope, PracticeSource } from '../types/practice'
 import { isRecord } from './guide.ts'
 import { cleanPracticeText } from './practice.ts'
+import { dailyPracticeItems } from './dailyPracticeScope.ts'
 
 /** 分批处理全文，长课也不会只总结开头。 */
 export function transcriptSources(cues: SubtitleCue[]): PracticeSource[] {
@@ -92,7 +93,7 @@ export function summarySources(summary: LessonSummary, scopes?: PracticeScope[])
 }
 
 export function dailyVideoItems(plan: TodayPlan | null, date: string) {
-  return plan?.date === date ? plan.items.filter(i => i.kind !== 'question') : []
+  return dailyPracticeItems(plan, date)
 }
 
 export function dailyPlanComplete(plan: TodayPlan | null, date: string) {

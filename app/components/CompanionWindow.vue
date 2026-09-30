@@ -62,5 +62,5 @@ onBeforeUnmount(() => { disposed = true; unlisten?.(); clearInterval(timer) })
 <style>
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: visible; background: transparent !important; }
 body { color: #2d2c2b; font-family: 'Plus Jakarta Sans Variable', 'PingFang SC', system-ui, sans-serif; }
-.desktop-pet-root { display: flex; align-items: flex-end; justify-content: center; box-sizing: border-box; width: 100%; height: 100%; min-width: 164px; min-height: 184px; padding: 12px; overflow: visible; background: transparent; }
+.desktop-pet-root { display: flex; align-items: flex-end; justify-content: center; box-sizing: border-box; width: 100%; height: 100%; min-width: 140px; min-height: 160px; padding: 12px; overflow: visible; background: transparent; }
 </style>
