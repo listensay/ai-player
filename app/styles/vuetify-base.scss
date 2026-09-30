@@ -5,6 +5,10 @@
   $utilities: false,
   $color-pack: false,
   $reset: false,
-  $body-font-family: ('Plus Jakarta Sans Variable', 'PingFang SC', sans-serif)
+  $body-font-family: (
+    'Plus Jakarta Sans Variable',
+    'PingFang SC',
+    sans-serif,
+  )
 );
 @use 'vuetify/styles';

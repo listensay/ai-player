@@ -35,9 +35,7 @@ export async function dbSaveRecentCourse(course: {
 
 export async function dbDeleteRecentCourse(id: string): Promise<boolean> {
   try {
-    await databaseRequest('recent-courses', { query: { id },
-      method: 'DELETE',
-    })
+    await databaseRequest('recent-courses', { query: { id }, method: 'DELETE' })
     return true
   } catch (err) {
     console.warn('删除本地最近课程失败', err)
@@ -51,7 +49,11 @@ export async function dbFetchAllProgress(): Promise<Record<string, Record<string
   for (const lessons of Object.values(data)) {
     if (!lessons || typeof lessons !== 'object' || Array.isArray(lessons)) throw new Error('播放进度格式异常')
     for (const item of Object.values(lessons)) {
-      if (!item || typeof item.done !== 'boolean' || ![item.time, item.duration, item.ratio, item.updatedAt].every(Number.isFinite)) {
+      if (
+        !item ||
+        typeof item.done !== 'boolean' ||
+        ![item.time, item.duration, item.ratio, item.updatedAt].every(Number.isFinite)
+      ) {
         throw new Error('播放进度格式异常')
       }
     }
@@ -97,18 +99,28 @@ export async function dbSaveCheckIns(courseId: string, days: StudyDay[]): Promis
   }
 }
 
-export async function dbFetchNote(courseId: string, videoPath: string): Promise<{ content: string; updatedAt: number | null }> {
-  const data = await databaseRequest<{ content: string; updatedAt: number | null }>(
-    'notes', { query: { courseId, videoPath } },
-  )
-  if (!data || typeof data.content !== 'string'
-    || (data.updatedAt !== null && (typeof data.updatedAt !== 'number' || !Number.isFinite(data.updatedAt)))) {
+export async function dbFetchNote(
+  courseId: string,
+  videoPath: string,
+): Promise<{ content: string; updatedAt: number | null }> {
+  const data = await databaseRequest<{ content: string; updatedAt: number | null }>('notes', {
+    query: { courseId, videoPath },
+  })
+  if (
+    !data ||
+    typeof data.content !== 'string' ||
+    (data.updatedAt !== null && (typeof data.updatedAt !== 'number' || !Number.isFinite(data.updatedAt)))
+  ) {
     throw new Error('笔记记录格式异常，原有内容未修改。')
   }
   return data
 }
 
-export async function dbSaveNote(courseId: string, videoPath: string, content: string): Promise<{ success: boolean; updatedAt?: number }> {
+export async function dbSaveNote(
+  courseId: string,
+  videoPath: string,
+  content: string,
+): Promise<{ success: boolean; updatedAt?: number }> {
   try {
     const res = await databaseRequest<{ success: boolean; updatedAt: number }>('notes', {
       method: 'POST',
@@ -140,11 +152,15 @@ export async function dbSaveNoteImage(image: {
   }
 }
 
-export async function dbFetchNoteImages(courseId: string, videoPath: string, name?: string): Promise<Array<{ id: string; name: string; data_base64: string }>> {
+export async function dbFetchNoteImages(
+  courseId: string,
+  videoPath: string,
+  name?: string,
+): Promise<Array<{ id: string; name: string; data_base64: string }>> {
   try {
-    const data = await databaseRequest<Array<{ id: string; name: string; data_base64: string }>>(
-      'note-images', { query: { courseId, videoPath, ...(name ? { name } : {}) } },
-    )
+    const data = await databaseRequest<Array<{ id: string; name: string; data_base64: string }>>('note-images', {
+      query: { courseId, videoPath, ...(name ? { name } : {}) },
+    })
     return data ?? []
   } catch (err) {
     console.warn('读取本地笔记图片失败', err)
@@ -157,7 +173,7 @@ export async function dbFetchGuide(courseId: string): Promise<{
   metadata: Record<string, LessonMetadata>
   view: 'all' | 'route'
   includeOptional: boolean
-  mastery: Record<string, any>
+  mastery: Record<string, import('../types/guide').ConceptMastery>
   questions: LearningQuestion[]
   today: TodayPlan | null
   updatedAt: number
@@ -172,7 +188,7 @@ export async function dbSaveGuide(data: {
   metadata: Record<string, LessonMetadata>
   view: string
   includeOptional: boolean
-  mastery: Record<string, any>
+  mastery: Record<string, import('../types/guide').ConceptMastery>
   questions: LearningQuestion[]
   today: TodayPlan | null
 }): Promise<boolean> {

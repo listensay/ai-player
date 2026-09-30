@@ -32,7 +32,10 @@ export function toSrt(segments: TranscriptSegment[]): string {
 
 /** 解析 SRT / WebVTT（只取时间与文本，忽略样式与位置信息） */
 export function parseSrt(raw: string): TranscriptSegment[] {
-  const lines = raw.replace(/^﻿/, '').replace(/\r/g, '').split('\n')
+  const lines = raw
+    .replace(/^\uFEFF/, '')
+    .replace(/\r/g, '')
+    .split('\n')
   const segments: TranscriptSegment[] = []
   for (let i = 0; i < lines.length; i++) {
     const m = /^\s*(\S+)\s+-->\s+(\S+)/.exec(lines[i]!)
@@ -42,7 +45,10 @@ export function parseSrt(raw: string): TranscriptSegment[] {
     if (start === null || end === null || end <= start) continue
     const text: string[] = []
     while (i + 1 < lines.length && lines[i + 1]!.trim()) text.push(lines[++i]!)
-    const content = text.join(' ').replace(/<[^>]*>/g, '').trim()
+    const content = text
+      .join(' ')
+      .replace(/<[^>]*>/g, '')
+      .trim()
     if (content) segments.push({ id: segments.length, start, end, text: content })
   }
   return segments

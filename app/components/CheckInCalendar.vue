@@ -6,13 +6,16 @@ import UiButton from '~/components/UiButton.vue'
 import { calendarDays, formatStudyClock, formatStudyHours, isMissedStudyDay } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 
-const props = withDefaults(defineProps<{
-  compact?: boolean
-}>(), {
-  compact: false,
-})
+withDefaults(
+  defineProps<{
+    compact?: boolean
+  }>(),
+  {
+    compact: false,
+  },
+)
 
-const emit = defineEmits<{
+defineEmits<{
   plan: []
 }>()
 
@@ -63,17 +66,37 @@ function detailFor(date: string) {
   const isChecked = record?.checkedAt != null
   const isToday = date === todayKey.value
   const seconds = checkIn?.secondsFor(date) ?? record?.seconds ?? 0
-  const targetSeconds = record?.targetSeconds ?? ((checkIn?.minutesFor(date) ?? 0) * 60)
-  const isMissed = isMissedStudyDay({ date, today: todayKey.value, seconds, targetSeconds,
-    startDate: checkIn?.startDate.value, endDate: checkIn?.endDate.value, checkedAt: record?.checkedAt })
-  const status = isChecked ? '已打卡' : isMissed ? '时长未达标' : date > todayKey.value ? '尚未开始'
-    : targetSeconds === 0 ? '无学习目标' : seconds > 0 ? '已学习' : '未学习'
+  const targetSeconds = record?.targetSeconds ?? (checkIn?.minutesFor(date) ?? 0) * 60
+  const isMissed = isMissedStudyDay({
+    date,
+    today: todayKey.value,
+    seconds,
+    targetSeconds,
+    startDate: checkIn?.startDate.value,
+    endDate: checkIn?.endDate.value,
+    checkedAt: record?.checkedAt,
+  })
+  const status = isChecked
+    ? '已打卡'
+    : isMissed
+      ? '时长未达标'
+      : date > todayKey.value
+        ? '尚未开始'
+        : targetSeconds === 0
+          ? '无学习目标'
+          : seconds > 0
+            ? '已学习'
+            : '未学习'
   return { date, record, isChecked, isToday, isMissed, status, seconds, targetSeconds }
 }
 
-const days = computed(() => calendarDays(viewYear.value, viewMonth.value).map(cell => ({
-  ...cell, ...detailFor(cell.date), isSelected: cell.date === selectedDate.value,
-})))
+const days = computed(() =>
+  calendarDays(viewYear.value, viewMonth.value).map((cell) => ({
+    ...cell,
+    ...detailFor(cell.date),
+    isSelected: cell.date === selectedDate.value,
+  })),
+)
 
 const selectedDetail = computed(() => {
   if (!selectedDate.value) return null
@@ -103,8 +126,12 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
   <div class="check-in-calendar min-w-0 space-y-4" aria-label="学习打卡日历">
     <!-- 打卡统计顶栏 -->
     <div v-if="compact" class="flex flex-wrap gap-x-5 gap-y-2 text-caption text-stone">
-      <span>连续打卡 <strong class="text-charcoal-ink">{{ checkIn?.streak.value ?? 0 }}</strong> 天</span>
-      <span>累计打卡 <strong class="text-charcoal-ink">{{ checkIn?.total.value ?? 0 }}</strong> 天</span>
+      <span
+        >连续打卡 <strong class="text-charcoal-ink">{{ checkIn?.streak.value ?? 0 }}</strong> 天</span
+      >
+      <span
+        >累计打卡 <strong class="text-charcoal-ink">{{ checkIn?.total.value ?? 0 }}</strong> 天</span
+      >
     </div>
     <div v-else class="check-in-stats grid grid-cols-2 gap-3">
       <div class="min-w-0 rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
@@ -128,12 +155,21 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
         </p>
       </div>
 
-      <div class="min-w-0 rounded-2xl border border-linen p-3 text-center sm:p-4" :class="checkIn?.isAchieved.value ? 'bg-study-complete/5 border-study-complete/30' : 'bg-page-cream'">
-        <p class="text-caption font-medium" :class="checkIn?.isAchieved.value ? 'text-study-complete font-bold' : 'text-stone'">
+      <div
+        class="min-w-0 rounded-2xl border border-linen p-3 text-center sm:p-4"
+        :class="checkIn?.isAchieved.value ? 'bg-study-complete/5 border-study-complete/30' : 'bg-page-cream'"
+      >
+        <p
+          class="text-caption font-medium"
+          :class="checkIn?.isAchieved.value ? 'text-study-complete font-bold' : 'text-stone'"
+        >
           今日打卡
         </p>
         <div class="mt-1 flex items-center justify-center gap-1">
-          <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 text-body-sm font-bold text-study-complete">
+          <span
+            v-if="checkIn?.isAchieved.value"
+            class="inline-flex items-center gap-1 text-body-sm font-bold text-study-complete"
+          >
             <span class="flex h-5 w-5 items-center justify-center rounded-full bg-study-complete text-pure-white">
               <AppIcon name="check" :size="13" />
             </span>
@@ -149,21 +185,32 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
     <!-- 今日学习时长进度 -->
     <div v-if="compact">
       <p class="flex flex-wrap items-baseline justify-between gap-2 text-caption text-stone">
-        <span>今日 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} / {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}</span>
-        <strong class="text-deep-indigo">{{ checkIn?.isAchieved.value ? '已打卡' : `目标完成 ${checkIn?.percent.value ?? 0}%` }}</strong>
+        <span
+          >今日 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} /
+          {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}</span
+        >
+        <strong class="text-deep-indigo">{{
+          checkIn?.isAchieved.value ? '已打卡' : `目标完成 ${checkIn?.percent.value ?? 0}%`
+        }}</strong>
       </p>
-      <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-linen"><div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${checkIn?.percent.value ?? 0}%` }" /></div>
+      <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-linen">
+        <div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${checkIn?.percent.value ?? 0}%` }" />
+      </div>
     </div>
     <div v-else class="rounded-2xl border border-linen bg-pure-white p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <span class="text-body-sm font-bold">今日学习时长</span>
           <span class="text-caption text-stone">
-            {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} / {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}
+            {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} /
+            {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}
           </span>
         </div>
         <div>
-          <span v-if="checkIn?.isAchieved.value" class="inline-flex items-center gap-1 rounded-full bg-study-complete/10 px-2.5 py-0.5 text-caption font-bold text-study-complete">
+          <span
+            v-if="checkIn?.isAchieved.value"
+            class="inline-flex items-center gap-1 rounded-full bg-study-complete/10 px-2.5 py-0.5 text-caption font-bold text-study-complete"
+          >
             <AppIcon name="check" :size="12" /> 今日目标已完成
           </span>
           <span v-else class="text-caption text-stone">
@@ -187,15 +234,9 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h4 class="text-body font-bold text-charcoal-ink">{{ monthLabel }}</h4>
         <div class="flex items-center gap-1.5">
-          <UiButton size="sm" variant="ghost" title="上个月" @click="prevMonth">
-            ‹
-          </UiButton>
-          <UiButton size="sm" variant="ghost" @click="goToday">
-            今天
-          </UiButton>
-          <UiButton size="sm" variant="ghost" title="下个月" @click="nextMonth">
-            ›
-          </UiButton>
+          <UiButton size="sm" variant="ghost" title="上个月" @click="prevMonth"> ‹ </UiButton>
+          <UiButton size="sm" variant="ghost" @click="goToday"> 今天 </UiButton>
+          <UiButton size="sm" variant="ghost" title="下个月" @click="nextMonth"> › </UiButton>
         </div>
       </div>
 
@@ -216,20 +257,20 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             !cell.currentMonth ? 'text-stone/40 opacity-50' : 'text-charcoal-ink',
             cell.isSelected ? 'ring-2 ring-charcoal-ink' : 'hover:bg-page-cream',
             cell.isToday ? 'border border-deep-indigo/40 bg-page-cream/60' : '',
-            cell.isChecked ? 'bg-study-complete/5 border border-study-complete/20' : 'border border-transparent'
+            cell.isChecked ? 'bg-study-complete/5 border border-study-complete/20' : 'border border-transparent',
           ]"
           :aria-label="`${cell.date} ${cell.status}`"
           @click="selectedDate = cell.date"
         >
           <!-- 顶部：日期数字和今日标 -->
           <div class="flex w-full items-center justify-between px-0.5">
-            <span
-              class="text-caption font-bold"
-              :class="cell.isToday ? 'text-deep-indigo' : ''"
-            >
+            <span class="text-caption font-bold" :class="cell.isToday ? 'text-deep-indigo' : ''">
               {{ cell.day }}
             </span>
-            <span v-if="cell.isToday" class="rounded bg-deep-indigo/15 px-1 py-0.2 text-[10px] font-bold text-deep-indigo">
+            <span
+              v-if="cell.isToday"
+              class="rounded bg-deep-indigo/15 px-1 py-0.2 text-[10px] font-bold text-deep-indigo"
+            >
               今
             </span>
           </div>
@@ -251,10 +292,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             >
               <AppIcon name="close" :size="13" />
             </div>
-            <span
-              v-else-if="cell.seconds > 0"
-              class="text-[11px] font-medium text-stone"
-            >
+            <span v-else-if="cell.seconds > 0" class="text-[11px] font-medium text-stone">
               {{ Math.floor(cell.seconds / 60) }}m
             </span>
           </div>
@@ -263,14 +301,24 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
 
       <!-- 选中日期详情卡片 -->
       <div v-if="compact && selectedDetail" class="mt-4 rounded-xl bg-page-cream p-3 text-caption leading-relaxed">
-        <p class="flex flex-wrap justify-between gap-2"><strong>{{ selectedDetail.date }}{{ selectedDetail.isToday ? ' · 今天' : '' }}</strong><span :class="selectedDetail.isMissed ? 'text-error' : ''">{{ selectedDetail.status }}</span></p>
-        <p class="mt-1 text-stone">已学 {{ formatStudyClock(selectedDetail.seconds) }} · 目标 {{ formatStudyHours(selectedDetail.targetSeconds) }}</p>
+        <p class="flex flex-wrap justify-between gap-2">
+          <strong>{{ selectedDetail.date }}{{ selectedDetail.isToday ? ' · 今天' : '' }}</strong
+          ><span :class="selectedDetail.isMissed ? 'text-error' : ''">{{ selectedDetail.status }}</span>
+        </p>
+        <p class="mt-1 text-stone">
+          已学 {{ formatStudyClock(selectedDetail.seconds) }} · 目标
+          {{ formatStudyHours(selectedDetail.targetSeconds) }}
+        </p>
       </div>
       <div v-else-if="selectedDetail" class="mt-4 rounded-xl border border-linen bg-page-cream p-3.5 text-body-sm">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex min-w-0 flex-wrap items-center gap-2">
             <span class="font-bold text-charcoal-ink">{{ selectedDetail.date }}</span>
-            <span v-if="selectedDetail.isToday" class="rounded bg-deep-indigo text-pure-white px-1.5 py-0.5 text-caption font-bold">今天</span>
+            <span
+              v-if="selectedDetail.isToday"
+              class="rounded bg-deep-indigo text-pure-white px-1.5 py-0.5 text-caption font-bold"
+              >今天</span
+            >
             <span
               v-if="selectedDetail.isChecked"
               class="inline-flex items-center gap-1 rounded-full bg-study-complete/10 px-2 py-0.5 text-caption font-bold text-study-complete"
@@ -278,7 +326,10 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
               <AppIcon name="check" :size="12" /> 已打卡
               <span v-if="selectedDetail.checkedTimeStr">({{ selectedDetail.checkedTimeStr }})</span>
             </span>
-            <span v-else-if="selectedDetail.isMissed" class="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-caption font-bold text-error">
+            <span
+              v-else-if="selectedDetail.isMissed"
+              class="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-caption font-bold text-error"
+            >
               <AppIcon name="close" :size="12" /> 时长未达标
             </span>
             <span v-else class="text-caption text-stone">{{ selectedDetail.status }}</span>
@@ -287,20 +338,29 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
         </div>
 
         <div class="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-caption text-graphite">
-          <span>{{ checkIn?.includesWork.value ? '学习时长（视频与实践）' : '有效学习时长' }}：<strong class="text-charcoal-ink">{{ formatStudyClock(selectedDetail.seconds) }}</strong></span>
+          <span
+            >{{ checkIn?.includesWork.value ? '学习时长（视频与实践）' : '有效学习时长' }}：<strong
+              class="text-charcoal-ink"
+              >{{ formatStudyClock(selectedDetail.seconds) }}</strong
+            ></span
+          >
           <span v-if="!selectedDetail.isChecked && selectedDetail.remainingSeconds > 0" class="text-stone">
             距学习目标还需 {{ formatStudyHours(selectedDetail.remainingSeconds) }}
           </span>
-          <span v-else-if="selectedDetail.isChecked" class="text-study-complete font-medium">
-            当日目标已完成
-          </span>
+          <span v-else-if="selectedDetail.isChecked" class="text-study-complete font-medium"> 当日目标已完成 </span>
         </div>
       </div>
 
       <!-- 规则说明 -->
-      <p class="mt-4 text-caption leading-relaxed text-stone">绿色勾号表示已打卡；从计划开始当天起，截至今天未达时长目标的日期显示红叉。未来日期和休息日不标叉。</p>
+      <p class="mt-4 text-caption leading-relaxed text-stone">
+        绿色勾号表示已打卡；从计划开始当天起，截至今天未达时长目标的日期显示红叉。未来日期和休息日不标叉。
+      </p>
       <p v-if="!compact" class="mt-4 text-caption leading-relaxed text-stone">
-        <strong>打卡规则</strong>：{{ checkIn?.includesWork.value ? '当日有效观看时长与记录的实践时长合计达标后自动打卡。' : '当日有效学习时长达标后自动打卡。' }}倍速按实际播放时间计时，暂停、缓冲和跳转不计时。
+        <strong>打卡规则</strong>：{{
+          checkIn?.includesWork.value
+            ? '当日有效观看时长与记录的实践时长合计达标后自动打卡。'
+            : '当日有效学习时长达标后自动打卡。'
+        }}倍速按实际播放时间计时，暂停、缓冲和跳转不计时。
       </p>
     </div>
   </div>

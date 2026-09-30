@@ -37,35 +37,50 @@ export interface TranscribeResult {
 export function useAsrService() {
   async function checkHealth(): Promise<AsrServiceStatus> {
     if (checking) return checking
-    checking = readHealth().finally(() => { checking = null })
+    checking = readHealth().finally(() => {
+      checking = null
+    })
     return checking
   }
 
   async function startService() {
     if (starting) return starting
-    starting = start().finally(() => { starting = null })
+    starting = start().finally(() => {
+      starting = null
+    })
     return starting
   }
   async function start() {
     desktopStarted = true
     state.status = 'preparing'
     state.lastError = ''
-    try { await desktopInvoke('asr_start'); await checkHealth() }
-    catch (err) { state.status = 'error'; state.lastError = (err as Error).message }
+    try {
+      await desktopInvoke('asr_start')
+      await checkHealth()
+    } catch (err) {
+      state.status = 'error'
+      state.lastError = (err as Error).message
+    }
   }
 
   async function waitUntilReady(signal: AbortSignal) {
-    const abort = () => { throw new DOMException('已取消', 'AbortError') }
+    const abort = () => {
+      throw new DOMException('已取消', 'AbortError')
+    }
     if (signal.aborted) abort()
-    if (await checkHealth() === 'offline') await startService()
+    if ((await checkHealth()) === 'offline') await startService()
     const deadline = Date.now() + 30 * 60_000
     while (!signal.aborted) {
       const status = await checkHealth()
       if (status === 'ready') return
       if (status === 'error' || status === 'offline') throw new Error(state.lastError || '本地转写服务不可用，请重试。')
       if (Date.now() > deadline) throw new Error('转写模型准备超时，请检查网络后重试。')
-      await new Promise<void>(resolve => {
-        const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve() }
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer)
+          signal.removeEventListener('abort', finish)
+          resolve()
+        }
         const timer = setTimeout(finish, 1000)
         signal.addEventListener('abort', finish, { once: true })
       })
@@ -73,12 +88,22 @@ export function useAsrService() {
     abort()
   }
   async function stopService() {
-    try { await desktopInvoke('asr_stop'); state.status = 'offline'; state.health = null; state.lastError = '' }
-    catch (err) { state.lastError = (err as Error).message }
+    try {
+      await desktopInvoke('asr_stop')
+      state.status = 'offline'
+      state.health = null
+      state.lastError = ''
+    } catch (err) {
+      state.lastError = (err as Error).message
+    }
   }
   async function retryService() {
-    try { await desktopInvoke('asr_stop'); await startService() }
-    catch (err) { state.lastError = (err as Error).message }
+    try {
+      await desktopInvoke('asr_stop')
+      await startService()
+    } catch (err) {
+      state.lastError = (err as Error).message
+    }
   }
 
   async function readHealth(): Promise<AsrServiceStatus> {
@@ -86,7 +111,14 @@ export function useAsrService() {
       const health = await desktopInvoke<AsrHealth>('asr_health')
       state.health = health
       state.lastError = health.error || ''
-      state.status = health.status === 'stopped' ? 'offline' : health.status === 'ready' ? 'ready' : health.status === 'error' ? 'error' : 'preparing'
+      state.status =
+        health.status === 'stopped'
+          ? 'offline'
+          : health.status === 'ready'
+            ? 'ready'
+            : health.status === 'error'
+              ? 'error'
+              : 'preparing'
     } catch (err) {
       state.health = null
       state.status = 'offline'
@@ -111,24 +143,41 @@ export function useAsrService() {
     }
   }
 
-  async function transcribeHandle(handle: CourseFileHandle, duration: number, handlers: TranscribeHandlers): Promise<TranscribeResult> {
+  async function transcribeHandle(
+    handle: CourseFileHandle,
+    duration: number,
+    handlers: TranscribeHandlers,
+  ): Promise<TranscribeResult> {
     if (handlers.signal?.aborted) throw new DOMException('已取消', 'AbortError')
     const { Channel } = await import('@tauri-apps/api/core')
     const jobId = crypto.randomUUID()
-    const channel = new Channel<{ event: string; data: any }>()
+    const channel = new Channel<
+      | { event: 'segment'; data: TranscriptSegment }
+      | { event: 'progress'; data: { seconds: number; ratio: number | null } }
+      | { event: 'queued'; data: { position: number } }
+    >()
     channel.onmessage = ({ event, data }) => {
       if (handlers.signal?.aborted) return
       if (event === 'segment') handlers.onSegment(data)
       else if (event === 'progress') handlers.onProgress(data.seconds, data.ratio)
       else if (event === 'queued') handlers.onQueued?.(data.position)
     }
-    const cancel = () => { void desktopInvoke('asr_cancel', { jobId }).catch(() => {}) }
+    const cancel = () => {
+      void desktopInvoke('asr_cancel', { jobId }).catch(() => {})
+    }
     handlers.signal?.addEventListener('abort', cancel, { once: true })
     try {
       await waitUntilReady(handlers.signal ?? new AbortController().signal)
       if (handlers.signal?.aborted) throw new DOMException('已取消', 'AbortError')
-      return await desktopInvoke<TranscribeResult>('asr_transcribe', { ...nativeFileLocation(handle), duration: Number.isFinite(duration) ? duration : 0, jobId, onEvent: channel })
-    } finally { handlers.signal?.removeEventListener('abort', cancel) }
+      return await desktopInvoke<TranscribeResult>('asr_transcribe', {
+        ...nativeFileLocation(handle),
+        duration: Number.isFinite(duration) ? duration : 0,
+        jobId,
+        onEvent: channel,
+      })
+    } finally {
+      handlers.signal?.removeEventListener('abort', cancel)
+    }
   }
 
   return { state, checkHealth, startPolling, stopPolling, transcribeHandle, startService, stopService, retryService }

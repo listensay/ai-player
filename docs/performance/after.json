@@ -1,0 +1,59 @@
+{
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "date": "2026-09-30",
+  "results": [
+    {
+      "name": "read-budget",
+      "lessons": 200,
+      "iterations": 100,
+      "medianMs": 0.005,
+      "p95Ms": 0.008
+    },
+    {
+      "name": "calculate-day",
+      "lessons": 200,
+      "iterations": 100,
+      "medianMs": 0.67,
+      "p95Ms": 0.897
+    },
+    {
+      "name": "day-snapshot",
+      "lessons": 200,
+      "iterations": 100,
+      "medianMs": 0.607,
+      "p95Ms": 0.718
+    },
+    {
+      "name": "read-budget",
+      "lessons": 2000,
+      "iterations": 100,
+      "medianMs": 0.013,
+      "p95Ms": 0.017
+    },
+    {
+      "name": "calculate-day",
+      "lessons": 2000,
+      "iterations": 100,
+      "medianMs": 7.2,
+      "p95Ms": 7.771
+    },
+    {
+      "name": "day-snapshot",
+      "lessons": 2000,
+      "iterations": 100,
+      "medianMs": 6.986,
+      "p95Ms": 7.44
+    }
+  ],
+  "repeatedViewChanges": {
+    "changes": 50,
+    "writes": {
+      "guide": 50,
+      "records": 1,
+      "snapshot": 1
+    }
+  },
+  "note": "Synthetic Vue-reactive CPU benchmark and write counts. Not startup time, UI latency, or real database I/O."
+}

@@ -15,9 +15,15 @@ const emit = defineEmits<{ segment: [item: TodayItem]; plan: [] }>()
 const guide = useGuide()
 const today = computed(() => guide.state.today)
 const minutes = ref(30)
-watch(() => today.value?.minutes, value => { minutes.value = value ?? 30 }, { immediate: true })
-const done = computed(() => today.value?.items.filter(i => i.done) ?? [])
-const next = computed(() => today.value?.items.find(i => !i.done))
+watch(
+  () => today.value?.minutes,
+  (value) => {
+    minutes.value = value ?? 30
+  },
+  { immediate: true },
+)
+const done = computed(() => today.value?.items.filter((i) => i.done) ?? [])
+const next = computed(() => today.value?.items.find((i) => !i.done))
 const totalSeconds = computed(() => today.value?.items.reduce((n, i) => n + i.seconds, 0) ?? 0)
 const extraMinutes = computed(() => today.value?.extraDays?.reduce((sum, entry) => sum + entry.minutes, 0) ?? 0)
 function start(item: TodayItem) {
@@ -26,7 +32,10 @@ function start(item: TodayItem) {
 const allocationText = computed(() => {
   const b = guide.todayBudget.value
   if (!b) return ''
-  return (Object.keys(BUDGET_LABELS) as Array<keyof typeof BUDGET_LABELS>).filter(k => b[k] > 0).map(k => `${BUDGET_LABELS[k]} ${formatMinutes(b[k])}`).join(' · ')
+  return (Object.keys(BUDGET_LABELS) as Array<keyof typeof BUDGET_LABELS>)
+    .filter((k) => b[k] > 0)
+    .map((k) => `${BUDGET_LABELS[k]} ${formatMinutes(b[k])}`)
+    .join(' · ')
 })
 const practiceMinutes = computed(() => {
   if (!guide.todayBudget.value || guide.todayTotalMinutes.value === null) return 0
@@ -38,12 +47,20 @@ const intro = computed(() => {
   const program = guide.program.value
   if (program && guide.todayTotalMinutes.value !== null) {
     const day = guide.planDay.value ?? 0
-    const status = day < 1 ? `计划将于 ${program.startDate} 开始。` : day > program.days ? `计划周期（${program.days} 天）已结束。` : `计划第 ${day} / ${program.days} 天${guide.lightDay.value ? '，轻量复盘日' : ''}。`
+    const status =
+      day < 1
+        ? `计划将于 ${program.startDate} 开始。`
+        : day > program.days
+          ? `计划周期（${program.days} 天）已结束。`
+          : `计划第 ${day} / ${program.days} 天${guide.lightDay.value ? '，轻量复盘日' : ''}。`
     return `${status}今日目标 ${formatMinutes(guide.todayTotalMinutes.value)}${allocationText.value ? `（${allocationText.value}）` : ''}。`
   }
   return `每日目标 ${formatMinutes(plan.dailyMinutes)}。`
 })
-function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.value = today.value?.minutes ?? 30 }
+function updateMinutes() {
+  guide.refreshToday(Number(minutes.value))
+  minutes.value = today.value?.minutes ?? 30
+}
 </script>
 
 <template>
@@ -62,22 +79,39 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
       <form class="flex flex-wrap items-center gap-3" @submit.prevent="updateMinutes">
         <label class="flex items-center gap-2 text-body-sm font-medium">
           {{ guide.program.value ? '今日视频看课：' : '今日学习时长：' }}
-          <VTextField v-model.number="minutes" aria-label="今日看课分钟数" type="number" min="0" max="1440" step="1" required
-            class="w-20 text-center" :disabled="!!guide.state.busy" @change="updateMinutes" />分钟
+          <VTextField
+            v-model.number="minutes"
+            aria-label="今日看课分钟数"
+            type="number"
+            min="0"
+            max="1440"
+            step="1"
+            required
+            class="w-20 text-center"
+            :disabled="!!guide.state.busy"
+            @change="updateMinutes"
+          />分钟
           <span v-if="guide.program.value && practiceMinutes > 0" class="text-caption font-normal text-stone">
-            （总目标 {{ formatMinutes(guide.todayTotalMinutes.value ?? 0) }}，另含实践 {{ formatMinutes(practiceMinutes) }}）
+            （总目标 {{ formatMinutes(guide.todayTotalMinutes.value ?? 0) }}，另含实践
+            {{ formatMinutes(practiceMinutes) }}）
           </span>
         </label>
-        <UiButton size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday(Math.min(15, guide.state.plan?.dailyMinutes ?? 30))">精简至 15 分钟内</UiButton>
-        <UiButton variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday(null)">恢复计划时长</UiButton>
+        <UiButton
+          size="sm"
+          :disabled="!!guide.state.busy"
+          @click="guide.refreshToday(Math.min(15, guide.state.plan?.dailyMinutes ?? 30))"
+          >精简至 15 分钟内</UiButton
+        >
+        <UiButton variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday(null)"
+          >恢复计划时长</UiButton
+        >
       </form>
       <p class="mt-2.5 text-caption leading-relaxed text-stone">
         <template v-if="guide.program.value">
-          仅调整今日视频排课量，不影响原计划；已学完课节与进度正常保留，下方实践任务（共 {{ formatMinutes(practiceMinutes) }}）仍按阶段计划推进。
+          仅调整今日视频排课量，不影响原计划；已学完课节与进度正常保留，下方实践任务（共
+          {{ formatMinutes(practiceMinutes) }}）仍按阶段计划推进。
         </template>
-        <template v-else>
-          临时调整仅对今日生效，不影响长期计划；已学完课节与用时正常计入统计。
-        </template>
+        <template v-else> 临时调整仅对今日生效，不影响长期计划；已学完课节与用时正常计入统计。 </template>
       </p>
       <div class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-page-cream p-4">
         <div>
@@ -89,22 +123,44 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
         </div>
         <UiButton v-if="next" variant="dark" size="sm" @click="start(next)">开始下一项</UiButton>
       </div>
-      <p v-if="extraMinutes" class="mt-3 text-caption text-stone">已加入后续 {{ today?.extraDays?.length }} 天的课程（{{ formatMinutes(extraMinutes) }}），今日打卡目标不变。</p>
+      <p v-if="extraMinutes" class="mt-3 text-caption text-stone">
+        已加入后续 {{ today?.extraDays?.length }} 天的课程（{{ formatMinutes(extraMinutes) }}），今日打卡目标不变。
+      </p>
       <ol class="mt-3 divide-y divide-linen">
-        <li v-for="(item, index) in today?.items" :key="item.id" class="flex items-start gap-3 py-4" :data-today-id="item.id">
-          <VCheckbox :model-value="item.done" :aria-label="`完成今日第 ${index + 1} 项`" class="shrink-0"
-            @update:model-value="guide.completeTodayItem(item.id, !!$event)" />
+        <li
+          v-for="(item, index) in today?.items"
+          :key="item.id"
+          class="flex items-start gap-3 py-4"
+          :data-today-id="item.id"
+        >
+          <VCheckbox
+            :model-value="item.done"
+            :aria-label="`完成今日第 ${index + 1} 项`"
+            class="shrink-0"
+            @update:model-value="guide.completeTodayItem(item.id, !!$event)"
+          />
           <div class="min-w-0 flex-1">
-            <p class="text-caption text-stone">{{ item.kind === 'review' ? '补学基础' : '学习课节' }} · {{ formatStudyDuration(item.seconds) }}{{ item.estimated ? '（估算）' : '' }}</p>
-            <button class="mt-1 max-w-full break-words text-left text-body-sm font-bold hover:text-deep-indigo" :class="item.done ? 'text-stone line-through' : ''" @click="start(item)">
+            <p class="text-caption text-stone">
+              {{ item.kind === 'review' ? '补学基础' : '学习课节' }} · {{ formatStudyDuration(item.seconds)
+              }}{{ item.estimated ? '（估算）' : '' }}
+            </p>
+            <button
+              class="mt-1 max-w-full break-words text-left text-body-sm font-bold hover:text-deep-indigo"
+              :class="item.done ? 'text-stone line-through' : ''"
+              @click="start(item)"
+            >
               {{ guide.videoMap.value.get(item.path)?.title }}
             </button>
-            <p class="mt-1 text-caption text-stone">{{ formatTime(item.start, true) }} → {{ formatTime(item.end, true) }}</p>
+            <p class="mt-1 text-caption text-stone">
+              {{ formatTime(item.start, true) }} → {{ formatTime(item.end, true) }}
+            </p>
           </div>
         </li>
       </ol>
       <p v-if="!next && today?.items.length" class="py-4 text-body-sm font-bold text-study-complete">
-        当前安排的视频已全部学完。{{ guide.program.value && guide.todayWork.value.length ? '可继续完成下方的实践任务。' : '' }}
+        当前安排的视频已全部学完。{{
+          guide.program.value && guide.todayWork.value.length ? '可继续完成下方的实践任务。' : ''
+        }}
       </p>
       <ContinueStudyButton @segment="start" />
       <div v-if="!today?.items.length" class="py-6 text-center">
@@ -115,15 +171,27 @@ function updateMinutes() { guide.refreshToday(Number(minutes.value)); minutes.va
         <div class="flex flex-wrap items-baseline justify-between gap-2">
           <h4 class="text-body font-bold">
             实践任务
-            <span v-if="practiceMinutes > 0" class="ml-1 text-caption font-normal text-stone">（计划 {{ formatMinutes(practiceMinutes) }}）</span>
+            <span v-if="practiceMinutes > 0" class="ml-1 text-caption font-normal text-stone"
+              >（计划 {{ formatMinutes(practiceMinutes) }}）</span
+            >
           </h4>
-          <p v-if="guide.activeModule.value" class="text-caption text-stone">当前阶段：{{ guide.activeModule.value.title }}</p>
+          <p v-if="guide.activeModule.value" class="text-caption text-stone">
+            当前阶段：{{ guide.activeModule.value.title }}
+          </p>
         </div>
         <TodayWorkList v-if="guide.todayWork.value.length" class="mt-3" />
-        <p v-else class="mt-2 text-caption text-stone">{{ guide.activeModule.value?.practice ? '当前阶段任务已完成，或今日无安排。' : '当前阶段暂无实践任务，可在“定制路线”中补全或导入。' }}</p>
+        <p v-else class="mt-2 text-caption text-stone">
+          {{
+            guide.activeModule.value?.practice
+              ? '当前阶段任务已完成，或今日无安排。'
+              : '当前阶段暂无实践任务，可在“定制路线”中补全或导入。'
+          }}
+        </p>
       </section>
       <div class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-linen pt-4">
-        <UiButton variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday()">更新任务</UiButton>
+        <UiButton variant="text" size="sm" :disabled="!!guide.state.busy" @click="guide.refreshToday()"
+          >更新任务</UiButton
+        >
       </div>
     </div>
   </section>

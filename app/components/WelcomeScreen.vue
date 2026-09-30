@@ -49,17 +49,10 @@ function doneCount(recent: RecentCourse) {
     <h1 class="mt-10 max-w-2xl text-center text-heading-lg font-bold text-charcoal-ink md:text-display">
       本地课程学习与规划
     </h1>
-    <p class="mt-5 max-w-xl text-center text-body text-graphite">
-      播放课程、记录笔记，通过 AI 规划学习路线。
-    </p>
+    <p class="mt-5 max-w-xl text-center text-body text-graphite">播放课程、记录笔记，通过 AI 规划学习路线。</p>
 
     <div class="mt-8 flex flex-col items-center gap-3">
-      <UiButton
-        variant="primary"
-        size="lg"
-        :disabled="store.state.loading"
-        @click="openFolder"
-      >
+      <UiButton variant="primary" size="lg" :disabled="store.state.loading" @click="openFolder">
         <AppIcon name="folder" :size="20" />
         {{ store.state.loading ? '正在读取…' : '打开课程文件夹' }}
       </UiButton>
@@ -74,7 +67,9 @@ function doneCount(recent: RecentCourse) {
       {{ store.state.error }}
     </p>
 
-    <p v-if="store.state.accessWarning" role="status" class="mt-4 max-w-lg text-center text-caption text-stone">{{ store.state.accessWarning }}</p>
+    <p v-if="store.state.accessWarning" role="status" class="mt-4 max-w-lg text-center text-caption text-stone">
+      {{ store.state.accessWarning }}
+    </p>
 
     <section v-if="store.state.recents.length" class="mt-16 w-full max-w-2xl" aria-label="最近打开">
       <h2 class="text-body font-bold">最近打开</h2>
@@ -86,13 +81,17 @@ function doneCount(recent: RecentCourse) {
             :disabled="busyId !== null || store.state.loading"
             @click="reopen(recent)"
           >
-            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sunbeam-yellow text-charcoal-ink">
+            <span
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sunbeam-yellow text-charcoal-ink"
+            >
               <AppIcon name="folder" :size="20" />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body font-bold">{{ recent.name }}</span>
               <span class="tabular block text-caption text-stone">
-                共 {{ recent.videoCount }} 节 · 已完成 {{ doneCount(recent) }} 节 · 上次打开：{{ formatRelative(recent.lastOpenedAt) }}
+                共 {{ recent.videoCount }} 节 · 已完成 {{ doneCount(recent) }} 节 · 上次打开：{{
+                  formatRelative(recent.lastOpenedAt)
+                }}
               </span>
             </span>
             <AppIcon name="chevron-right" :size="18" class="shrink-0 text-stone" />

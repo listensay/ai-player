@@ -1,0 +1,18 @@
+{
+  "identifier": "app.aiplayer.regression.large",
+  "productName": "AI Player Large Regression",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Player Large Regression",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 860,
+        "minHeight": 640,
+        "maximized": false,
+        "backgroundThrottling": "disabled"
+      }
+    ]
+  }
+}

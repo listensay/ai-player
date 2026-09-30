@@ -63,7 +63,10 @@ function createVad(opts) {
 
 /** SenseVoice 偶尔会把 <|zh|> 之类的标签留在文本里，统一清掉 */
 function cleanText(text) {
-  return text.replace(/<\|[^|]*\|>/g, '').replace(/\s+/g, ' ').trim()
+  return text
+    .replace(/<\|[^|]*\|>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function normalizeLang(tag) {
@@ -138,6 +141,6 @@ export async function transcribePcm(chunks, handlers) {
 
   let language = ''
   let best = 0
-  for (const [lang, n] of langCount) if (n > best) (best = n), (language = lang)
+  for (const [lang, n] of langCount) if (n > best) ((best = n), (language = lang))
   return { duration: consumed / SAMPLE_RATE, language, segments: index }
 }

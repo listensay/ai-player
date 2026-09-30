@@ -1,7 +1,7 @@
 # 学习链路验证
 
-运行 `npm run check` 执行 Node 24 测试、Vue/TypeScript 检查和前端构建。
-运行 `node scripts/desktop-runtime.mjs` 后，可执行 `cargo test --manifest-path src-tauri/Cargo.toml`。
+运行 `npm run check` 执行 ESLint、Prettier、Node 24 测试、Vue/TypeScript 检查和前端构建。
+运行 `node scripts/desktop-runtime.mjs` 后，执行 `npm run check:rust` 检查 Rust 格式、Clippy 和测试。
 CI 在 macOS 上运行这些检查并构建桌面应用，Cargo 缓存目录使用 runner 临时目录，不依赖本机 SSD 挂载。
 
 自动化测试覆盖：
@@ -58,7 +58,6 @@ AI 多模型与导学测试：`aiService.test.mjs` 和 `aiSettingsPanel.test.mjs
 
 发布版已更新到本机 `/Applications/AI Player.app`，保留原有配置；更新后在主应用中复测同一模型，导学测试通过（2.0 秒）。隔离验证用的临时配置已清理，更新前的应用保存在本机缓存备份中。
 
-
 2026-09-29 大课程路线调整：`guidePlanAdjustment.test.mjs` 覆盖 1812 节课只调整 17 节、输入短编号映射、跨板块依赖、完整重排、时间预算，以及残缺／重复／虚构／循环变更拒绝；`guidePersistence.test.mjs` 覆盖预览、应用、撤销及 HTTP 520 保留原路线。201 项 Node 测试、类型检查、前端构建及 macOS 发布版打包通过。
 
 真实服务使用原课程与 gpt-5.6-luna 复测“删除git学习计划”：旧请求约 686 KB，40.6 秒返回 HTTP 200 但内容不是完整 JSON，本次未重现 520；增量请求约 280 KB，5.6 秒返回 476 字节有效变更，17 节 Git 课变化，其余 1795 节与板块、完整计划保持一致。已更新 `/Applications/AI Player.app` 并通过本地签名校验，旧应用保存在 `~/Library/Caches/ai-player-backups/20260929-202236-route-adjustment/`。桌面端再用原模型实测成功，预览显示移出 17 节 Git、无新增或重排、必修 1778→1761，并展示前置依赖提示；当前停留在待确认预览，原路线未应用更改。
@@ -106,3 +105,11 @@ OpenAI 图像消息格式依据 [Images and vision 官方文档](https://develop
 边缘按钮进一步缩小为 14×32px、箭头 12px，并移除外侧阴影；透明鼠标热区限制在页面现有 1rem 留白内，覆盖页面整条左右边缘。鼠标移至对应侧任意高度即可显示居中图标，默认隐藏，鼠标离开后隐藏，键盘聚焦时也会显示。6 项组件交互验证、类型检查和构建通过；悬停样式及实际像素位置未进行浏览器视觉实测。
 
 桌宠表情动画：保留原位图形象，以 SVG 眼睛覆盖原眼睛，实现不等间隔眨眼、偶尔双眨和待机视线移动；呼吸、播放点头、休息睡眠符号和开心表情使用 CSS 动画，不增加逐帧 JavaScript 更新。使用标准 transform 并分离原始位置变换，保留减少动态效果的静态模式。243 项 Node 测试、类型检查及构建通过。实际组件的睁眼、闭眼、专注、休息和开心状态经过离线 SVG 栅格化检查，并按动画姿态制作预览；未在原生 WebView 中实测动画时序。
+
+首轮性能与工程规范整理：预算读取与任务生成解耦，实践记录去重，快照计算缓存，桌宠同步去重；新增本地耗时标记及固定性能基准。统一格式，启用 ESLint / Prettier / EditorConfig、Rust fmt / Clippy，固定 Node / Rust 工具链；CI 同步执行并保留性能报告。详见 `CONTRIBUTING.md`、`docs/performance.md` 和 `docs/ui-regression.md`。
+
+本轮 251 项 Node 测试、28 项 Rust 测试、ESLint、格式、类型检查、Clippy 和构建通过。独立 AI Player Regression 应用使用合成课程完成 1280 / 860 宽度下的侧栏、目录抽屉、控制栏与笔记布局检查；笔记编辑后切课返回保留，退出后从独立 SQLite 再次确认已写入。追加第二天后原日巩固仍可用，全屏往返正常，桌宠继续 / 暂停可控制播放器并保持状态同步。尚未逐项实测所有边缘悬停位置、长期动画及跨显示器点击穿透；未以组件测试代替这些原生行为。测试应用已退出，正式学习数据未改动。
+
+第二轮六项优化：课程目录与字幕使用可变行高虚拟列表，笔记转换合并，知识点缓存限额与使用租约，首帧之后的自动准备，完整排课索引，以及构建信息和本地诊断导出。新增缓冲笔记、后台准备、缓存保护、目录平铺、远端行定位和导出字段回归；修复“撤销至原文后同步结束保存导致后续保存被跳过”的边界问题。
+
+当前 263 项 Node 测试、28 项 Rust 测试、格式、静态检查、类型检查和构建通过。独立大数据应用已成功构建并在首页显示 2,000 节样例课程；尝试进入播放器后，桌面控制工具连续返回 noWindowsAvailable / timeoutReached，截图和重建连接亦未恢复。长列表实际滚动与原生导出按钮仍待完成界面实测，不能按已通过记录。已申请使用 macOS 自带脚本工具继续此项验证，等待用户授权。

@@ -14,6 +14,7 @@ const props = defineProps<{
   currentPath: string | null
   expanded: Set<string>
   /** 定制路线中的序号，与原文件名序号分开。 */
+  flat?: boolean
   routePosition?: number
 }>()
 
@@ -72,14 +73,21 @@ function onClick() {
 </script>
 
 <template>
-  <li>
-    <VExpansionPanels v-if="node.kind === 'folder'" class="sidebar-panels" :model-value="isOpen ? 'content' : undefined" @update:model-value="emit('toggle', node.path)">
+  <component :is="flat ? 'div' : 'li'">
+    <VExpansionPanels
+      v-if="node.kind === 'folder'"
+      class="sidebar-panels"
+      :model-value="isOpen ? 'content' : undefined"
+      @update:model-value="emit('toggle', node.path)"
+    >
       <VExpansionPanel value="content">
         <VExpansionPanelTitle :style="{ paddingLeft: indent }" :data-path="node.path" :title="node.name">
           <span class="min-w-0 flex-1 truncate text-body-sm font-bold">{{ node.name }}</span>
-          <span v-if="folderStats" class="tabular shrink-0 text-caption text-stone">{{ folderStats.done }}/{{ folderStats.total }}</span>
+          <span v-if="folderStats" class="tabular shrink-0 text-caption text-stone"
+            >{{ folderStats.done }}/{{ folderStats.total }}</span
+          >
         </VExpansionPanelTitle>
-        <VExpansionPanelText>
+        <VExpansionPanelText v-if="!flat">
           <ul role="group">
             <CourseTreeNode
               v-for="child in node.children"
@@ -96,12 +104,11 @@ function onClick() {
         </VExpansionPanelText>
       </VExpansionPanel>
     </VExpansionPanels>
-    <button v-else
+    <button
+      v-else
       type="button"
       class="group flex w-full items-center gap-2.5 rounded-lg py-1.5 pr-2 text-left transition-colors duration-100 ease-soft hover:bg-cream-deep"
-      :class="[
-        isCurrent ? 'bg-page-cream text-charcoal-ink' : 'text-charcoal-ink',
-      ]"
+      :class="[isCurrent ? 'bg-page-cream text-charcoal-ink' : 'text-charcoal-ink']"
       :style="{ paddingLeft: indent }"
       :aria-current="isCurrent ? 'true' : undefined"
       :data-path="node.path"
@@ -125,9 +132,15 @@ function onClick() {
         </span>
         <span v-else class="h-3 w-3 rounded-full" :style="dotStyle" aria-hidden="true" />
       </span>
-      <span class="min-w-0 flex-1 text-body-sm" :class="[isCurrent ? 'font-bold' : 'font-medium', routePosition ? '[overflow-wrap:anywhere]' : 'truncate']">
-        <span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{ String(routePosition).padStart(2, '0') }}</span>
-        <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span>{{ routePosition && node.kind === 'video' ? conciseLessonTitle(node.title) : titleParts?.text }}
+      <span
+        class="min-w-0 flex-1 text-body-sm"
+        :class="[isCurrent ? 'font-bold' : 'font-medium', routePosition ? '[overflow-wrap:anywhere]' : 'truncate']"
+      >
+        <span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{
+          String(routePosition).padStart(2, '0')
+        }}</span>
+        <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span
+        >{{ routePosition && node.kind === 'video' ? conciseLessonTitle(node.title) : titleParts?.text }}
       </span>
       <span
         v-if="videoProgress && !videoProgress.done && videoProgress.ratio > 0"
@@ -140,5 +153,5 @@ function onClick() {
       </span>
       <LessonBadge v-if="lesson" :status="lesson.status" compact />
     </button>
-  </li>
+  </component>
 </template>

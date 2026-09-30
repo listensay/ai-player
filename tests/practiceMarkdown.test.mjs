@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { renderPracticeMarkdown } from '../app/utils/practiceMarkdown.ts'
 
 const long = '先确认占位符的含义，再检查变量与输出结果的对应关系。'.repeat(10)
-const removeBreaks = html => html.replace(/<br\s*\/?>(?:\n)?/g, '')
+const removeBreaks = (html) => html.replace(/<br\s*\/?>(?:\n)?/g, '')
 
 test('长反馈按完整句子分段，原文不丢失，普通题干不额外分段', () => {
   const plain = renderPracticeMarkdown(long)
@@ -31,7 +31,10 @@ test('保留强调、列表和短反馈的原有排版', () => {
 })
 
 test('反馈仍转义 HTML，不加载图片、链接或外部资源', () => {
-  const output = renderPracticeMarkdown(`${long}<script>alert(1)</script> ![image](https://example.test/a.png) [link](https://example.test)`, true)
+  const output = renderPracticeMarkdown(
+    `${long}<script>alert(1)</script> ![image](https://example.test/a.png) [link](https://example.test)`,
+    true,
+  )
   assert.ok(!output.includes('<script>'))
   assert.ok(!output.includes('<img'))
   assert.ok(!output.includes('<a '))

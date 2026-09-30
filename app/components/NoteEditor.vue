@@ -42,12 +42,22 @@ const target = { courseId: props.courseId, video: props.video }
 const session = useNoteSession({
   read: () => dbFetchNote(target.courseId, target.video.path),
   readCopy: () => readTextFile(target.video.parent, `${target.video.title}.md`),
-  write: content => dbSaveNote(target.courseId, target.video.path, content),
-  writeCopy: content => writeTextFile(target.video.parent, `${target.video.title}.md`, content),
+  write: (content) => dbSaveNote(target.courseId, target.video.path, content),
+  writeCopy: (content) => writeTextFile(target.video.parent, `${target.video.title}.md`, content),
 })
-const status = computed(() => session.state.error || editorError.value ? 'error'
-  : !editorReady.value ? 'loading' : session.state.saving ? 'saving'
-  : session.state.dirty ? 'dirty' : session.state.savedAt === null ? 'new' : 'saved')
+const status = computed(() =>
+  session.state.error || editorError.value
+    ? 'error'
+    : !editorReady.value
+      ? 'loading'
+      : session.state.saving
+        ? 'saving'
+        : session.state.dirty
+          ? 'dirty'
+          : session.state.savedAt === null
+            ? 'new'
+            : 'saved',
+)
 
 const noteFileName = computed(() => `${props.video.title}.md`)
 
@@ -85,7 +95,6 @@ function serialize(instance: Crepe): string {
 }
 
 async function save(): Promise<void> {
-  if (crepe && editorReady.value) session.edit(serialize(crepe))
   await session.save()
 }
 
@@ -155,10 +164,14 @@ function initialize(): Promise<void> {
   if (editorReady.value || destroyed) return Promise.resolve()
   if (initializing) return initializing
   editorError.value = ''
-  initializing = createEditor().catch(error => {
-    editorError.value = (error as Error).message || '编辑器初始化失败，请重试。'
-    throw error
-  }).finally(() => { initializing = undefined })
+  initializing = createEditor()
+    .catch((error) => {
+      editorError.value = (error as Error).message || '编辑器初始化失败，请重试。'
+      throw error
+    })
+    .finally(() => {
+      initializing = undefined
+    })
   return initializing
 }
 async function createEditor() {
@@ -240,18 +253,23 @@ async function createEditor() {
   crepe.on((listener) => {
     listener.updated((_ctx, doc, previous) => {
       if (!editorReady.value || !crepe || (previous && doc.eq(previous))) return
-      const markdown = serialize(crepe)
-      session.edit(markdown)
+      const instance = crepe
+      session.editFrom(() => serialize(instance))
     })
   })
 
   const instance = crepe
   await instance.create()
-  if (destroyed) { await instance.destroy(); return }
+  if (destroyed) {
+    await instance.destroy()
+    return
+  }
   session.acceptEditorContent(serialize(instance))
   editorReady.value = true
 }
-onMounted(() => { void initialize().catch(() => {}) })
+onMounted(() => {
+  void initialize().catch(() => {})
+})
 
 function onBeforeUnload(e: BeforeUnloadEvent) {
   if (session.state.dirty) {
@@ -262,7 +280,6 @@ function onBeforeUnload(e: BeforeUnloadEvent) {
 onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
-  if (crepe && editorReady.value) session.edit(serialize(crepe))
   session.dispose()
   destroyed = true
   const instance = crepe
@@ -275,9 +292,17 @@ function retry() {
   if (!editorReady.value) void initialize().catch(() => {})
   else void save().catch(() => {})
 }
-defineExpose({ whenReady: initialize, hasUnsavedChanges: () => session.state.dirty,
-  insertTimestamp, insertInline, insertScreenshot, setPlayhead, save, focus,
-  getMarkdown: () => crepe && editorReady.value && !destroyed ? serialize(crepe) : undefined })
+defineExpose({
+  whenReady: initialize,
+  hasUnsavedChanges: () => session.state.dirty,
+  insertTimestamp,
+  insertInline,
+  insertScreenshot,
+  setPlayhead,
+  save,
+  focus,
+  getMarkdown: () => (crepe && editorReady.value && !destroyed ? session.readContent() : undefined),
+})
 </script>
 
 <template>
@@ -293,12 +318,18 @@ defineExpose({ whenReady: initialize, hasUnsavedChanges: () => session.state.dir
           {{ statusText }}
         </p>
       </div>
-      <UiButton v-if="status === 'error' || session.state.copyError" size="sm" variant="ghost" @click="retry">重试</UiButton>
+      <UiButton v-if="status === 'error' || session.state.copyError" size="sm" variant="ghost" @click="retry"
+        >重试</UiButton
+      >
       <div class="flex items-center gap-2" :inert="!editorReady"><slot name="actions" /></div>
     </header>
 
-    <p v-if="session.state.copyError" role="status" class="px-4 py-2 text-caption text-stone">{{ session.state.copyError }}</p>
-    <p v-if="!editorReady" :role="status === 'error' ? 'alert' : 'status'" class="px-4 py-6 text-body-sm">{{ status === 'error' ? '读取成功前暂停编辑，原有笔记不会被覆盖。' : '正在准备笔记…' }}</p>
+    <p v-if="session.state.copyError" role="status" class="px-4 py-2 text-caption text-stone">
+      {{ session.state.copyError }}
+    </p>
+    <p v-if="!editorReady" :role="status === 'error' ? 'alert' : 'status'" class="px-4 py-6 text-body-sm">
+      {{ status === 'error' ? '读取成功前暂停编辑，原有笔记不会被覆盖。' : '正在准备笔记…' }}
+    </p>
     <div v-show="editorReady" ref="rootEl" class="scroll-soft note-editor min-h-0 flex-1 overflow-y-auto" />
   </section>
 </template>

@@ -15,12 +15,10 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 
-export const MODEL_DIR =
-  process.env.AI_PLAYER_MODEL_DIR || path.join(os.homedir(), '.ai-player', 'models')
+export const MODEL_DIR = process.env.AI_PLAYER_MODEL_DIR || path.join(os.homedir(), '.ai-player', 'models')
 
 const BASE_URL =
-  process.env.AI_PLAYER_MODEL_BASE_URL ||
-  'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models'
+  process.env.AI_PLAYER_MODEL_BASE_URL || 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models'
 
 export const SENSE_VOICE_NAME = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
 export const VAD_FILE = 'silero_vad.onnx'
@@ -88,7 +86,11 @@ export async function download(url, dest, label) {
 }
 
 export async function extractTarBz2(archive, cwd) {
-  await pipeline(createReadStream(archive), unbzip2(), extractTar({ cwd, strict: true, filter: (_path, entry) => entry.type === 'File' || entry.type === 'Directory' }))
+  await pipeline(
+    createReadStream(archive),
+    unbzip2(),
+    extractTar({ cwd, strict: true, filter: (_path, entry) => entry.type === 'File' || entry.type === 'Directory' }),
+  )
 }
 
 let ensuring = null
@@ -103,7 +105,7 @@ export function ensureModels(log = console.log) {
       if (legacy !== MODEL_DIR) {
         for (const file of [VAD_FILE, `${SENSE_VOICE_NAME}/model.int8.onnx`, `${SENSE_VOICE_NAME}/tokens.txt`]) {
           const dest = path.join(MODEL_DIR, file)
-          if (!(await exists(dest)) && await exists(path.join(legacy, file))) {
+          if (!(await exists(dest)) && (await exists(path.join(legacy, file)))) {
             await mkdir(path.dirname(dest), { recursive: true })
             const pending = `${dest}.part`
             await cp(path.join(legacy, file), pending)
@@ -132,7 +134,8 @@ export function ensureModels(log = console.log) {
             if (!(await stat(source)).size) throw new Error('下载的模型不完整，请重试')
           }
           await mkdir(paths.senseVoiceDir, { recursive: true })
-          for (const file of ['model.int8.onnx', 'tokens.txt']) await rename(path.join(staging, SENSE_VOICE_NAME, file), path.join(paths.senseVoiceDir, file))
+          for (const file of ['model.int8.onnx', 'tokens.txt'])
+            await rename(path.join(staging, SENSE_VOICE_NAME, file), path.join(paths.senseVoiceDir, file))
         } finally {
           await rm(staging, { recursive: true, force: true })
           await rm(archive, { force: true })

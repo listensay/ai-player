@@ -1,0 +1,12 @@
+{
+  "scenario": "2000 short lessons, 800 completed items, 600-minute cumulative day",
+  "iterations": 20,
+  "before": {
+    "medianMs": 132.298,
+    "p95Ms": 133.644
+  },
+  "after": {
+    "medianMs": 3.841,
+    "p95Ms": 4.219
+  }
+}

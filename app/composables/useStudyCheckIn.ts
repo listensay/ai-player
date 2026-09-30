@@ -4,10 +4,15 @@ import type { Course } from '~/types/course'
 import type { TodayPlan } from '~/types/guide'
 import type { PlaybackSample } from '~/types/practice'
 import type { StudyDay } from '~/types/checkIn'
-import { checkStudyDay, effectivePlaybackSeconds, setStudyTarget, splitStudySeconds, studyStreak } from '~/utils/checkIn'
+import {
+  checkStudyDay,
+  effectivePlaybackSeconds,
+  setStudyTarget,
+  splitStudySeconds,
+  studyStreak,
+} from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 import { dbFetchCheckIns, dbSaveCheckIns } from '~/utils/dbClient'
-
 
 export type StudyCheckInInstance = ReturnType<typeof useStudyCheckIn>
 export const CHECK_IN_KEY: InjectionKey<StudyCheckInInstance> = Symbol('study-check-in')
@@ -35,7 +40,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
 
   const current = computed(() => state.days[state.date])
   const streak = computed(() => studyStreak(state.days, state.date))
-  const total = computed(() => Object.values(state.days).filter(day => day.checkedAt !== null).length)
+  const total = computed(() => Object.values(state.days).filter((day) => day.checkedAt !== null).length)
   const isAchieved = computed(() => !!current.value?.checkedAt)
   const targetSeconds = computed(() => current.value?.targetSeconds ?? minutesFor(state.date) * 60)
   const includesWork = computed(() => plan.value.targetMinutes != null)
@@ -60,17 +65,21 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   }
 
   function ensureDay(date: string) {
-    if (!state.days[date]) state.days[date] = { date, seconds: 0, targetSeconds: minutesFor(date) * 60, checkedAt: null }
+    if (!state.days[date])
+      state.days[date] = { date, seconds: 0, targetSeconds: minutesFor(date) * 60, checkedAt: null }
     return state.days[date]!
   }
 
   function persist() {
-    clearTimeout(saveTimer); saveTimer = undefined
+    clearTimeout(saveTimer)
+    saveTimer = undefined
     if (!activeId || !ready) return
     void dbSaveCheckIns(activeId, Object.values(state.days))
   }
 
-  function scheduleSave() { if (!saveTimer) saveTimer = setTimeout(persist, 2000) }
+  function scheduleSave() {
+    if (!saveTimer) saveTimer = setTimeout(persist, 2000)
+  }
 
   function syncDay() {
     state.date = localDayKey()
@@ -79,17 +88,23 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     const wasChecked = day.checkedAt !== null
     setStudyTarget(day, minutesFor(state.date), Date.now(), workFor(state.date))
     // 记录实践时间后达到目标，同样视为当日打卡。
-    if (!wasChecked && day.checkedAt !== null) { justCheckedIn.value = { ...day }; persist() }
+    if (!wasChecked && day.checkedAt !== null) {
+      justCheckedIn.value = { ...day }
+      persist()
+    }
     scheduleSave()
   }
 
   function sample(path: string, sample: PlaybackSample) {
-    if (!activeId || !ready || course.value?.id !== activeId || !course.value.videos.some(v => v.path === path)) { previous = null; return }
+    if (!activeId || !ready || course.value?.id !== activeId || !course.value.videos.some((v) => v.path === path)) {
+      previous = null
+      return
+    }
     syncDay()
     const now = Date.now()
     const elapsed = previous && previous.path === path ? effectivePlaybackSeconds(previous.sample, sample) : 0
     // 系统时间被大幅调整时，不把两个不连续日期拼成一次学习。
-    const wallMatches = previous && Math.abs((now - previous.wall) - (sample.at - previous.sample.at)) < 2000
+    const wallMatches = previous && Math.abs(now - previous.wall - (sample.at - previous.sample.at)) < 2000
     if (elapsed > 0 && wallMatches) {
       for (const part of splitStudySeconds(now, elapsed)) {
         const day = ensureDay(part.date)
@@ -107,31 +122,54 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     if (!sample.playing || sample.ended) persist()
   }
 
-  function resetPlayback() { previous = null }
+  function resetPlayback() {
+    previous = null
+  }
 
-  watch(() => course.value?.id, async (_id, _oldId, onCleanup) => {
-    let stale = false
-    onCleanup(() => { stale = true })
-    persist(); resetPlayback(); activeId = course.value?.id ?? ''
-    ready = false
-    state.days = {}; state.storageError = ''; state.date = localDayKey()
-    justCheckedIn.value = null
-    if (!activeId) return
+  watch(
+    () => course.value?.id,
+    async (_id, _oldId, onCleanup) => {
+      let stale = false
+      onCleanup(() => {
+        stale = true
+      })
+      persist()
+      resetPlayback()
+      activeId = course.value?.id ?? ''
+      ready = false
+      state.days = {}
+      state.storageError = ''
+      state.date = localDayKey()
+      justCheckedIn.value = null
+      if (!activeId) return
 
-    try {
-      // 从 SQLite 读取
-      const dbDays = await dbFetchCheckIns(activeId)
-      if (stale) return
-      state.days = dbDays
-      ready = true
-      syncDay()
-    } catch {
-      if (stale) return
-      state.storageError = '打卡记录读取失败，已暂停保存并保留原有记录。请重新打开课程后重试。'
-    }
-  }, { immediate: true, flush: 'sync' })
+      try {
+        // 从 SQLite 读取
+        const dbDays = await dbFetchCheckIns(activeId)
+        if (stale) return
+        state.days = dbDays
+        ready = true
+        syncDay()
+      } catch {
+        if (stale) return
+        state.storageError = '打卡记录读取失败，已暂停保存并保留原有记录。请重新打开课程后重试。'
+      }
+    },
+    { immediate: true, flush: 'sync' },
+  )
 
-  watch(() => [course.value?.id, plan.value.today?.date, plan.value.today?.minutes, plan.value.dailyMinutes, plan.value.targetMinutes, workFor(state.date)], syncDay, { immediate: true })
+  watch(
+    () => [
+      course.value?.id,
+      plan.value.today?.date,
+      plan.value.today?.minutes,
+      plan.value.dailyMinutes,
+      plan.value.targetMinutes,
+      workFor(state.date),
+    ],
+    syncDay,
+    { immediate: true },
+  )
 
   onMounted(() => {
     dayTimer = setInterval(syncDay, 1000)
@@ -141,7 +179,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   })
 
   onBeforeUnmount(() => {
-    persist(); clearInterval(dayTimer)
+    persist()
+    clearInterval(dayTimer)
     window.removeEventListener('beforeunload', persist)
     window.removeEventListener('pagehide', persist)
     window.removeEventListener('focus', syncDay)

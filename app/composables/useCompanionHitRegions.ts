@@ -16,10 +16,16 @@ export function useCompanionHitRegions(root: Ref<HTMLElement | undefined>, repor
     if (!root.value || !resize) return
     const controls = new Set(root.value.querySelectorAll('[data-pet-hit]'))
     for (const control of observed) {
-      if (!controls.has(control)) { resize.unobserve(control); observed.delete(control) }
+      if (!controls.has(control)) {
+        resize.unobserve(control)
+        observed.delete(control)
+      }
     }
     for (const control of controls) {
-      if (!observed.has(control)) { resize.observe(control); observed.add(control) }
+      if (!observed.has(control)) {
+        resize.observe(control)
+        observed.add(control)
+      }
     }
   }
   function refresh() {
@@ -33,8 +39,12 @@ export function useCompanionHitRegions(root: Ref<HTMLElement | undefined>, repor
       previous = signature
       queue = queue.then(async () => {
         if (disposed) return
-        try { await desktopInvoke('set_companion_hit_regions', { regions }) }
-        catch { previous = ''; reportError() }
+        try {
+          await desktopInvoke('set_companion_hit_regions', { regions })
+        } catch {
+          previous = ''
+          reportError()
+        }
       })
     })
   }
@@ -49,7 +59,10 @@ export function useCompanionHitRegions(root: Ref<HTMLElement | undefined>, repor
     refresh()
   })
   onBeforeUnmount(() => {
-    disposed = true; cancelAnimationFrame(frame); resize?.disconnect(); mutation?.disconnect()
+    disposed = true
+    cancelAnimationFrame(frame)
+    resize?.disconnect()
+    mutation?.disconnect()
     observed.clear()
     for (const event of events) root.value?.removeEventListener(event, refresh)
     window.removeEventListener('resize', refresh)

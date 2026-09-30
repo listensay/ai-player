@@ -6,23 +6,36 @@ type Checkpoint = { version: 1; values: unknown[] }
 const pending = new Map<string, Checkpoint>()
 async function taskKey(identity: unknown) {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(identity)))
-  return `ai-batches:v1:${Array.from(new Uint8Array(hash), x => x.toString(16).padStart(2, '0')).join('')}`
+  return `ai-batches:v1:${Array.from(new Uint8Array(hash), (x) => x.toString(16).padStart(2, '0')).join('')}`
 }
 // Only consumers that have saved their final result mark a checkpoint as disposable.
 export async function completeAiBatches(identity: unknown) {
-  try { await databaseRequest('ai-batch-cache', { method: 'POST', body: { key: await taskKey(identity) } }) }
-  catch (error) { console.warn('AI 已完成批次暂未标记清理，将继续保留', error) }
+  try {
+    await databaseRequest('ai-batch-cache', { method: 'POST', body: { key: await taskKey(identity) } })
+  } catch (error) {
+    console.warn('AI 已完成批次暂未标记清理，将继续保留', error)
+  }
 }
 export async function pruneAiBatchCache() {
-  try { await databaseRequest('ai-batch-cache', { method: 'DELETE' }) }
-  catch (error) { console.warn('AI 缓存清理未完成，将继续保留', error) }
+  try {
+    await databaseRequest('ai-batch-cache', { method: 'DELETE' })
+  } catch (error) {
+    console.warn('AI 缓存清理未完成，将继续保留', error)
+  }
 }
 export function aiTaskSettings(settings: GuideSettings) {
-  return { provider: settings.provider ?? 'openai', contextWindow: settings.contextWindow ?? 'default',
-    baseUrl: settings.baseUrl, model: settings.model }
+  return {
+    provider: settings.provider ?? 'openai',
+    contextWindow: settings.contextWindow ?? 'default',
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+  }
 }
 export async function runAiBatches<B, R>(options: {
-  identity: unknown; batches: B[]; signal: AbortSignal; reset?: boolean
+  identity: unknown
+  batches: B[]
+  signal: AbortSignal
+  reset?: boolean
   request: (batch: B, index: number, completed: R[]) => Promise<unknown>
   validate: (raw: unknown, batch: B, index: number, completed: R[]) => R
   progress: (completed: number, total: number) => void
@@ -47,8 +60,9 @@ export async function runAiBatches<B, R>(options: {
   const completed: R[] = []
   // Validate a restored prefix against the current material before requesting or writing anything.
   for (const [index, raw] of checkpoint.values.entries()) {
-    try { completed.push(options.validate(raw, options.batches[index]!, index, completed)) }
-    catch {
+    try {
+      completed.push(options.validate(raw, options.batches[index]!, index, completed))
+    } catch {
       // Older validators accepted partial batches. Keep the valid prefix and redo the remainder.
       checkpoint.values = checkpoint.values.slice(0, index)
       break
@@ -59,8 +73,11 @@ export async function runAiBatches<B, R>(options: {
     // Snapshot the prefix so subsequent work cannot mutate an in-flight write.
     const value = { version: 1 as const, values: [...checkpoint.values] }
     pending.set(key, value)
-    try { await databaseRequest('settings', { method: 'POST', body: { key, value } }) }
-    catch { throw new Error('AI 批次进度保存失败，已完成结果保留在本次会话中；请重试保存后继续。') }
+    try {
+      await databaseRequest('settings', { method: 'POST', body: { key, value } })
+    } catch {
+      throw new Error('AI 批次进度保存失败，已完成结果保留在本次会话中；请重试保存后继续。')
+    }
     if (pending.get(key) === value) pending.delete(key)
     check()
   }
@@ -72,7 +89,8 @@ export async function runAiBatches<B, R>(options: {
     const raw = await options.request(batch, index, completed)
     check()
     const result = options.validate(raw, batch, index, completed)
-    checkpoint.values.push(raw); completed.push(result)
+    checkpoint.values.push(raw)
+    completed.push(result)
     await persist()
     options.progress(completed.length, options.batches.length)
   }

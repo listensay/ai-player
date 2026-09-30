@@ -2,7 +2,14 @@ import type { CourseDirectoryHandle, CourseFileHandle, CourseHandle } from '../t
 import { desktopInvoke } from './platform.ts'
 import type { LessonMetadata } from '../types/guide'
 
-interface NativeEntry { name: string; kind: 'directory' | 'file'; relative: string; size: number; modified: number; path: string }
+interface NativeEntry {
+  name: string
+  kind: 'directory' | 'file'
+  relative: string
+  size: number
+  modified: number
+  path: string
+}
 
 class NativeHandle implements CourseHandle {
   readonly root: string
@@ -10,7 +17,10 @@ class NativeHandle implements CourseHandle {
   readonly name: string
   readonly kind: 'directory' | 'file'
   constructor(root: string, relative: string, name: string, kind: 'directory' | 'file') {
-    this.root = root; this.relative = relative; this.name = name; this.kind = kind
+    this.root = root
+    this.relative = relative
+    this.name = name
+    this.kind = kind
   }
   async isSameEntry(other: CourseHandle) {
     if (!(other instanceof NativeHandle)) return false
@@ -18,9 +28,16 @@ class NativeHandle implements CourseHandle {
     return (await this.stat()).path === (await other.stat()).path
   }
   async isAvailable() {
-    try { await this.stat(); return true } catch { return false }
+    try {
+      await this.stat()
+      return true
+    } catch {
+      return false
+    }
   }
-  stat() { return desktopInvoke<NativeEntry>('fs_stat', { root: this.root, relative: this.relative }) }
+  stat() {
+    return desktopInvoke<NativeEntry>('fs_stat', { root: this.root, relative: this.relative })
+  }
   childPath(name: string) {
     if (!name || name === '.' || name === '..' || /[/\\]/.test(name)) throw new Error('无效的文件名')
     return this.relative ? `${this.relative}/${name}` : name
@@ -41,7 +58,8 @@ class NativeFile extends NativeHandle implements CourseFileHandle {
         if (closed) throw new Error('文件写入已结束')
         if (typeof value === 'string') data = new TextEncoder().encode(value)
         else if (value instanceof Blob) data = new Uint8Array(await value.arrayBuffer())
-        else if (ArrayBuffer.isView(value)) data = new Uint8Array(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
+        else if (ArrayBuffer.isView(value))
+          data = new Uint8Array(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
         else data = new Uint8Array(value.slice(0))
       },
       close: async () => {
@@ -56,12 +74,16 @@ class NativeDirectory extends NativeHandle implements CourseDirectoryHandle {
   override readonly kind = 'directory' as const
   async *values(): AsyncIterableIterator<CourseDirectoryHandle | CourseFileHandle> {
     const entries = await desktopInvoke<NativeEntry[]>('fs_entries', { root: this.root, relative: this.relative })
-    for (const e of entries) yield e.kind === 'directory' ? new NativeDirectory(this.root, e.relative, e.name, 'directory') : new NativeFile(this.root, e.relative, e.name, 'file')
+    for (const e of entries)
+      yield e.kind === 'directory'
+        ? new NativeDirectory(this.root, e.relative, e.name, 'directory')
+        : new NativeFile(this.root, e.relative, e.name, 'file')
   }
   async getFileHandle(name: string, options?: { create?: boolean }): Promise<CourseFileHandle> {
     const relative = this.childPath(name)
-    try { await desktopInvoke('fs_child', { root: this.root, relative, directory: false, create: options?.create ?? false }) }
-    catch (error) {
+    try {
+      await desktopInvoke('fs_child', { root: this.root, relative, directory: false, create: options?.create ?? false })
+    } catch (error) {
       if (/os error [23]\b/.test(String(error))) throw new DOMException('文件不存在', 'NotFoundError')
       throw error
     }
@@ -101,10 +123,15 @@ export function nativeFileLocation(handle: CourseFileHandle): { root: string; re
   return { root: handle.root, relative: handle.relative }
 }
 
-export async function videoMetadataBatch(files: Array<{ handle: CourseFileHandle; cached?: LessonMetadata }>): Promise<Array<LessonMetadata & { relative: string; readable: boolean }>> {
+export async function videoMetadataBatch(
+  files: Array<{ handle: CourseFileHandle; cached?: LessonMetadata }>,
+): Promise<Array<LessonMetadata & { relative: string; readable: boolean }>> {
   if (!files.length) return []
-  const locations = files.map(file => nativeFileLocation(file.handle))
+  const locations = files.map((file) => nativeFileLocation(file.handle))
   const root = locations[0]!.root
-  if (locations.some(location => location.root !== root)) throw new Error('同一批视频必须属于同一课程目录')
-  return desktopInvoke('fs_video_metadata', { root, videos: locations.map((location, i) => ({ relative: location.relative, cached: files[i]!.cached ?? null })) })
+  if (locations.some((location) => location.root !== root)) throw new Error('同一批视频必须属于同一课程目录')
+  return desktopInvoke('fs_video_metadata', {
+    root,
+    videos: locations.map((location, i) => ({ relative: location.relative, cached: files[i]!.cached ?? null })),
+  })
 }

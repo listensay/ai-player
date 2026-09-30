@@ -1,4 +1,12 @@
-import type { ConceptMastery, GuideSettings, LearningPlan, LearningQuestion, LessonMetadata, StudyRecords, TodayPlan } from './guide'
+import type {
+  ConceptMastery,
+  GuideSettings,
+  LearningPlan,
+  LearningQuestion,
+  LessonMetadata,
+  StudyRecords,
+  TodayPlan,
+} from './guide'
 
 export interface GuideWorkspaceState {
   plan: LearningPlan | null

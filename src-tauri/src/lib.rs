@@ -2,8 +2,8 @@ mod asr;
 mod companion;
 mod db;
 mod files;
-mod media_duration;
 mod mac_reminders;
+mod media_duration;
 mod reminder_links;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -71,6 +71,30 @@ async fn export_learning_plan(
 }
 
 #[tauri::command]
+async fn export_performance_report(app: tauri::AppHandle, content: String) -> db::Result<bool> {
+    if content.len() > 32_768 || serde_json::from_str::<Value>(&content).is_err() {
+        return Err("性能报告格式无效".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("导出本地性能报告")
+            .set_file_name("AI-Player-performance.json")
+            .add_filter("JSON", &["json"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        std::fs::write(path.into_path().map_err(|e| e.to_string())?, content)
+            .map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn frontend_ready(state: tauri::State<AppState>) {
     state.frontend_ready.store(true, Ordering::SeqCst);
 }
@@ -90,7 +114,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let directory = app.path().app_data_dir()?;
-            let directory = if std::env::var("AI_PLAYER_DEV_ISOLATE").map(|v| v == "1").unwrap_or(false) {
+            let directory = if std::env::var("AI_PLAYER_DEV_ISOLATE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+            {
                 directory.join("development")
             } else {
                 directory
@@ -123,6 +150,7 @@ pub fn run() {
             companion::reveal_learning_window,
             database_request,
             export_learning_plan,
+            export_performance_report,
             mac_reminders::mac_reminders_status,
             mac_reminders::mac_reminders_export,
             mac_reminders::mac_reminders_remove,

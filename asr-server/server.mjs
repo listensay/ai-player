@@ -30,7 +30,10 @@ const cancelled = new Set()
 
 async function readJson(req) {
   let body = ''
-  for await (const chunk of req) { body += chunk; if (body.length > 16_384) throw new Error('请求内容过大') }
+  for await (const chunk of req) {
+    body += chunk
+    if (body.length > 16_384) throw new Error('请求内容过大')
+  }
   return JSON.parse(body)
 }
 function authorized(req) {
@@ -111,9 +114,15 @@ async function handleTranscribe(req, res, local = null) {
 
   const tmpDir = local ? null : await mkdtemp(path.join(os.tmpdir(), 'ai-player-asr-'))
   const tmpFile = local?.path ?? path.join(tmpDir, 'input' + (path.extname(fileName) || '.bin'))
-  const cleanup = async () => { if (tmpDir) await rm(tmpDir, { recursive: true, force: true }); if (local) controllers.delete(local.jobId) }
+  const cleanup = async () => {
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
+    if (local) controllers.delete(local.jobId)
+  }
   const controller = new AbortController()
-  if (local) { controllers.set(local.jobId, controller); if (cancelled.delete(local.jobId)) controller.abort() }
+  if (local) {
+    controllers.set(local.jobId, controller)
+    if (cancelled.delete(local.jobId)) controller.abort()
+  }
   // 注意：req 的 close 在请求体接收完就会触发，不能用它判断客户端断开；
   // 要看响应端：连接在我们主动结束之前就关了，才是客户端取消。
   res.on('close', () => {
@@ -167,7 +176,9 @@ async function handleTranscribe(req, res, local = null) {
       })
       if (!controller.signal.aborted) {
         const elapsed = (Date.now() - started) / 1000
-        log(`完成：${fileName}，${summary.segments} 句，音频 ${summary.duration.toFixed(0)}s，耗时 ${elapsed.toFixed(1)}s`)
+        log(
+          `完成：${fileName}，${summary.segments} 句，音频 ${summary.duration.toFixed(0)}s，耗时 ${elapsed.toFixed(1)}s`,
+        )
         send('done', { ...summary, elapsed })
       }
     } catch (err) {
@@ -211,9 +222,14 @@ const server = http.createServer(async (req, res) => {
       const { jobId } = await readJson(req)
       if (typeof jobId !== 'string' || jobId.length > 100) throw new Error('无效的任务')
       if (controllers.has(jobId)) controllers.get(jobId).abort()
-      else { if (cancelled.size >= 1000) cancelled.clear(); cancelled.add(jobId) }
+      else {
+        if (cancelled.size >= 1000) cancelled.clear()
+        cancelled.add(jobId)
+      }
       return json(res, 200, { ok: true })
-    } catch (err) { return json(res, 400, { error: err.message }) }
+    } catch (err) {
+      return json(res, 400, { error: err.message })
+    }
   }
 
   if (req.method === 'POST' && (pathname === '/transcribe' || (TOKEN && pathname === '/transcribe-local'))) {
@@ -221,7 +237,13 @@ const server = http.createServer(async (req, res) => {
       let local = null
       if (pathname === '/transcribe-local') {
         local = await readJson(req)
-        if (typeof local.path !== 'string' || !path.isAbsolute(local.path) || typeof local.jobId !== 'string' || local.jobId.length > 100) throw new Error('无效的转写文件')
+        if (
+          typeof local.path !== 'string' ||
+          !path.isAbsolute(local.path) ||
+          typeof local.jobId !== 'string' ||
+          local.jobId.length > 100
+        )
+          throw new Error('无效的转写文件')
         if (controllers.has(local.jobId)) throw new Error('任务已存在')
       }
       await handleTranscribe(req, res, local)
@@ -255,8 +277,17 @@ function shutdown() {
 }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
-server.on('error', err => { console.error(err.message); process.exit(1) })
+server.on('error', (err) => {
+  console.error(err.message)
+  process.exit(1)
+})
 if (process.env.AI_PLAYER_PARENT_PID) {
   const parent = Number(process.env.AI_PLAYER_PARENT_PID)
-  setInterval(() => { try { process.kill(parent, 0) } catch { shutdown() } }, 2000).unref()
+  setInterval(() => {
+    try {
+      process.kill(parent, 0)
+    } catch {
+      shutdown()
+    }
+  }, 2000).unref()
 }

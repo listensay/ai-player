@@ -3,7 +3,10 @@ import { onBeforeUnmount, computed, ref, watch, nextTick } from 'vue'
 import { usePlayer } from '~/composables/usePlayer'
 import { useTranscripts } from '~/composables/useTranscripts'
 import { formatTime, timestampToken } from '~/utils/time'
-import { activeSegmentIndex, searchTranscript, splitByRanges } from '~/utils/transcript'
+import { activeSegmentIndex, searchTranscript } from '~/utils/transcript'
+import type { VirtualListHandle } from '~/types/virtualList'
+import VirtualList from '~/components/VirtualList.vue'
+import TranscriptLine from '~/components/TranscriptLine.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 /**
@@ -36,6 +39,8 @@ const player = usePlayer()
 const state = computed(() => transcripts.get(props.courseId, props.video.path))
 const query = ref('')
 const listEl = ref<HTMLElement>()
+const virtualList = ref<VirtualListHandle>()
+const virtualized = computed(() => state.value.segments.length > 150)
 const follow = ref(true)
 const matchCursor = ref(0)
 
@@ -49,7 +54,8 @@ const serviceHint = computed(() => {
   if (s.status === 'error') return `服务异常：${s.lastError}`
   if (s.status === 'preparing') {
     const d = s.health?.download
-    if (d && d.total) return `正在下载模型 ${Math.round((d.received / d.total) * 100)}%（${(d.total / 1048576).toFixed(0)} MB）`
+    if (d && d.total)
+      return `正在下载模型 ${Math.round((d.received / d.total) * 100)}%（${(d.total / 1048576).toFixed(0)} MB）`
     if (s.health?.status === 'downloading') return '正在下载模型…'
     return '正在加载模型…'
   }
@@ -113,13 +119,21 @@ function quote(seg: { start: number; text: string }) {
 }
 
 function scrollToIndex(index: number, smooth = true) {
+  if (virtualized.value) {
+    void virtualList.value?.scrollToIndex(index, 'center', smooth)
+    return
+  }
   const list = listEl.value
   if (!props.active || !list || !list.clientHeight) return
   const el = list.querySelector<HTMLElement>(`[data-index="${index}"]`)
   if (!el) return
   // 只滚动逐字稿列表，避免 scrollIntoView 连带移动外层页面、遮住顶部内容。
-  const top = list.scrollTop + el.getBoundingClientRect().top - list.getBoundingClientRect().top
-    - list.clientTop - (list.clientHeight - el.getBoundingClientRect().height) / 2
+  const top =
+    list.scrollTop +
+    el.getBoundingClientRect().top -
+    list.getBoundingClientRect().top -
+    list.clientTop -
+    (list.clientHeight - el.getBoundingClientRect().height) / 2
   list.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
 }
 
@@ -162,9 +176,13 @@ async function resumeFollow() {
   if (activeIndex.value >= 0) programmaticScroll(activeIndex.value)
 }
 
-watch(activeIndex, (i) => {
-  if (props.active && follow.value && !query.value && i >= 0) programmaticScroll(i)
-}, { flush: 'post' })
+watch(
+  activeIndex,
+  (i) => {
+    if (props.active && follow.value && !query.value && i >= 0) programmaticScroll(i)
+  },
+  { flush: 'post' },
+)
 
 watch(matches, () => {
   matchCursor.value = 0
@@ -178,11 +196,13 @@ watch(matches, () => {
 })
 
 watch(
-  () => [props.courseId, props.video.path] as const,
-  () => {
-    query.value = ''
-    follow.value = true
-    void transcripts.load(props.courseId, props.video)
+  () => [props.courseId, props.video.path, props.active, player.state.frameReady] as const,
+  (value, previous) => {
+    if (!previous || value[0] !== previous[0] || value[1] !== previous[1]) {
+      query.value = ''
+      follow.value = true
+    }
+    if (props.active || player.state.frameReady) void transcripts.load(props.courseId, props.video)
   },
   { immediate: true },
 )
@@ -208,10 +228,35 @@ onBeforeUnmount(() => {
   <section class="flex min-h-0 flex-1 flex-col" aria-label="逐字稿">
     <div class="shrink-0 border-b border-linen px-4 py-2 text-caption" aria-label="本地转写管理">
       <div class="flex items-center justify-between gap-2">
-        <span role="status" class="min-w-0 text-graphite">{{ asr.state.status === 'ready' ? '本地转写已就绪' : serviceHint || '正在启动本地转写…' }}</span>
-        <button v-if="asr.state.status === 'offline'" class="shrink-0 font-bold" type="button" @click="asr.startService()">启动</button>
-        <button v-else-if="asr.state.status === 'error'" class="shrink-0 font-bold" type="button" :disabled="transcripts.activeJobs.value > 0" @click="asr.retryService()">重试</button>
-        <button v-else class="shrink-0 text-stone disabled:opacity-40" type="button" :disabled="transcripts.activeJobs.value > 0" @click="asr.stopService()">停止服务</button>
+        <span role="status" class="min-w-0 text-graphite">{{
+          asr.state.status === 'ready' ? '本地转写已就绪' : serviceHint || '正在启动本地转写…'
+        }}</span>
+        <button
+          v-if="asr.state.status === 'offline'"
+          class="shrink-0 font-bold"
+          type="button"
+          @click="asr.startService()"
+        >
+          启动
+        </button>
+        <button
+          v-else-if="asr.state.status === 'error'"
+          class="shrink-0 font-bold"
+          type="button"
+          :disabled="transcripts.activeJobs.value > 0"
+          @click="asr.retryService()"
+        >
+          重试
+        </button>
+        <button
+          v-else
+          class="shrink-0 text-stone disabled:opacity-40"
+          type="button"
+          :disabled="transcripts.activeJobs.value > 0"
+          @click="asr.stopService()"
+        >
+          停止服务
+        </button>
       </div>
     </div>
     <!-- 有逐字稿：搜索 + 列表 -->
@@ -233,10 +278,24 @@ onBeforeUnmount(() => {
           <span class="tabular shrink-0 text-caption text-stone">
             {{ matches.length ? `${matchCursor + 1}/${matches.length}` : '0 处' }}
           </span>
-          <UiButton variant="text" size="sm" icon title="上一处（⇧ Enter）" :disabled="!matches.length" @click="jumpMatch(-1)">
+          <UiButton
+            variant="text"
+            size="sm"
+            icon
+            title="上一处（⇧ Enter）"
+            :disabled="!matches.length"
+            @click="jumpMatch(-1)"
+          >
             <AppIcon name="chevron-down" :size="16" class="rotate-180" />
           </UiButton>
-          <UiButton variant="text" size="sm" icon title="下一处（Enter）" :disabled="!matches.length" @click="jumpMatch(1)">
+          <UiButton
+            variant="text"
+            size="sm"
+            icon
+            title="下一处（Enter）"
+            :disabled="!matches.length"
+            @click="jumpMatch(1)"
+          >
             <AppIcon name="chevron-down" :size="16" />
           </UiButton>
         </template>
@@ -246,7 +305,13 @@ onBeforeUnmount(() => {
       <div v-if="state.status === 'transcribing'" class="border-b border-linen bg-page-cream px-4 py-2">
         <div class="flex items-center justify-between gap-3 text-caption">
           <span class="font-medium text-charcoal-ink">正在转写… {{ progressText }}</span>
-          <button type="button" class="text-stone hover:text-charcoal-ink" @click="transcripts.cancel(courseId, video.path)">取消</button>
+          <button
+            type="button"
+            class="text-stone hover:text-charcoal-ink"
+            @click="transcripts.cancel(courseId, video.path)"
+          >
+            取消
+          </button>
         </div>
         <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-linen">
           <div
@@ -257,47 +322,50 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div ref="listEl" class="scroll-soft relative min-h-0 flex-1 overflow-y-auto px-2 py-2" @scroll.passive="onScroll">
-        <ol>
-          <li
+      <div
+        ref="listEl"
+        class="scroll-soft relative min-h-0 flex-1 px-2 py-2"
+        :class="virtualized ? 'overflow-hidden' : 'overflow-y-auto'"
+        @scroll.passive="onScroll"
+      >
+        <VirtualList
+          v-if="virtualized"
+          ref="virtualList"
+          class="h-full"
+          :items="state.segments"
+          :item-key="(seg) => seg.id"
+          :item-height="60"
+          :active="active"
+          aria-label="字幕句子"
+          @interact="follow = false"
+        >
+          <template #default="{ item, index }"
+            ><TranscriptLine
+              :seg="item"
+              :index="index"
+              :active="index === activeIndex"
+              :ranges="matchMap.get(item.id)"
+              virtual
+              @seek="seek"
+              @quote="quote"
+          /></template>
+        </VirtualList>
+        <ol v-else>
+          <TranscriptLine
             v-for="(seg, index) in state.segments"
             :key="seg.id"
-            :data-index="index"
-            class="group flex gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-100 ease-soft"
-            :class="index === activeIndex ? 'bg-sunbeam-yellow/25' : 'hover:bg-cream-deep'"
-          >
-            <button
-              type="button"
-              class="tabular mt-0.5 h-6 shrink-0 rounded-full px-2 text-caption font-bold transition-colors inline-flex items-center gap-1"
-              :class="index === activeIndex ? 'bg-charcoal-ink text-pure-white' : 'bg-page-cream text-graphite group-hover:bg-linen'"
-              :title="seg.refined ? `跳转至 ${formatTime(seg.start)}（AI 已校对）` : `跳转至 ${formatTime(seg.start)}`"
-              @click="seek(seg.start)"
-            >
-              <span>{{ formatTime(seg.start) }}</span>
-              <span v-if="seg.refined" class="h-1.5 w-1.5 rounded-full bg-mindful-blue" title="AI 已校对修正" />
-            </button>
-            <button
-              type="button"
-              class="min-w-0 flex-1 text-left text-body-sm leading-relaxed"
-              :class="index === activeIndex ? 'text-charcoal-ink' : 'text-graphite'"
-              @click="seek(seg.start)"
-            >
-              <template v-for="(part, i) in splitByRanges(seg.text, matchMap.get(seg.id))" :key="i">
-                <mark v-if="part.hit" class="rounded-sm bg-sunbeam-yellow px-0.5 text-charcoal-ink">{{ part.text }}</mark>
-                <template v-else>{{ part.text }}</template>
-              </template>
-            </button>
-            <button
-              type="button"
-              class="mt-0.5 h-6 shrink-0 rounded-full px-2 text-caption font-medium text-stone opacity-0 transition-opacity hover:bg-linen hover:text-charcoal-ink focus-visible:opacity-100 group-hover:opacity-100"
-              title="将本句与时间戳插入笔记"
-              @click="quote(seg)"
-            >
-              引用
-            </button>
-          </li>
+            :seg="seg"
+            :index="index"
+            :active="index === activeIndex"
+            :ranges="matchMap.get(seg.id)"
+            @seek="seek"
+            @quote="quote"
+          />
         </ol>
-        <p v-if="state.status === 'transcribing' && !state.segments.length" class="px-2 py-8 text-center text-body-sm text-stone">
+        <p
+          v-if="state.status === 'transcribing' && !state.segments.length"
+          class="px-2 py-8 text-center text-body-sm text-stone"
+        >
           正在识别音频，逐字稿将陆续显示…
         </p>
       </div>
@@ -312,12 +380,7 @@ onBeforeUnmount(() => {
             <AppIcon name="sparkles" :size="13" class="animate-spin" />
             AI 纠错中 {{ state.refineProgress }}
           </span>
-          <button
-            v-if="state.refining"
-            type="button"
-            class="text-stone hover:text-charcoal-ink"
-            @click="cancelRefine"
-          >
+          <button v-if="state.refining" type="button" class="text-stone hover:text-charcoal-ink" @click="cancelRefine">
             取消
           </button>
           <button
@@ -359,22 +422,32 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else>
-        <span class="flex h-14 w-14 items-center justify-center rounded-2xl bg-sunbeam-yellow text-charcoal-ink" aria-hidden="true">
+        <span
+          class="flex h-14 w-14 items-center justify-center rounded-2xl bg-sunbeam-yellow text-charcoal-ink"
+          aria-hidden="true"
+        >
           <AppIcon name="note" :size="26" />
         </span>
         <h3 class="mt-4 text-body font-bold">本节暂无逐字稿</h3>
 
-        <p v-if="state.status === 'error'" role="alert" class="mt-4 max-w-xs rounded-xl border border-linen bg-pure-white px-3 py-2 text-body-sm text-error">
+        <p
+          v-if="state.status === 'error'"
+          role="alert"
+          class="mt-4 max-w-xs rounded-xl border border-linen bg-pure-white px-3 py-2 text-body-sm text-error"
+        >
           {{ state.error }}
         </p>
 
         <div class="mt-5 flex flex-col items-center gap-2">
-          <UiButton variant="primary" :disabled="asr.state.status !== 'ready' || !player.state.ready" @click="startTranscribe">
+          <UiButton
+            variant="primary"
+            :disabled="asr.state.status !== 'ready' || !player.state.ready"
+            @click="startTranscribe"
+          >
             转写本节
           </UiButton>
           <p v-if="asr.state.status === 'ready' && estimate" class="text-caption text-stone">{{ estimate }}</p>
         </div>
-
       </template>
     </div>
   </section>

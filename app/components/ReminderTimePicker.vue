@@ -5,7 +5,9 @@ import UiButton from './UiButton.vue'
 const model = defineModel<string>({ required: true })
 const open = ref(false)
 const draft = ref(model.value)
-watch(open, value => { if (value) draft.value = model.value })
+watch(open, (value) => {
+  if (value) draft.value = model.value
+})
 function confirm() {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.value)) return
   model.value = draft.value
@@ -16,8 +18,15 @@ function confirm() {
 <template>
   <VMenu v-model="open" :close-on-content-click="false">
     <template #activator="{ props }">
-      <VTextField v-bind="props" :model-value="model" label="提醒时间" readonly
-        aria-label="选择提醒时间" @keydown.enter.prevent="open = !open" @keydown.space.prevent="open = !open" />
+      <VTextField
+        v-bind="props"
+        :model-value="model"
+        label="提醒时间"
+        readonly
+        aria-label="选择提醒时间"
+        @keydown.enter.prevent="open = !open"
+        @keydown.space.prevent="open = !open"
+      />
     </template>
     <VCard aria-label="提醒时间选择器">
       <VTimePicker v-model="draft" format="24hr" title="选择提醒时间" />

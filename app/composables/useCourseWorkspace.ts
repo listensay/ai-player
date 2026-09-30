@@ -1,7 +1,9 @@
 import { onBeforeUnmount, computed, ref, watch, inject, provide } from 'vue'
+import { startPerformanceMeasure } from '~/utils/performance'
 import { useCourseStore } from '~/composables/useCourseStore'
 import { useLearningGuide } from '~/composables/useLearningGuide'
 import { useLessonPractice } from '~/composables/useLessonPractice'
+import { useKnowledgePreparation } from '~/composables/useKnowledgePreparation'
 import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
 import { useCompanion } from '~/composables/useCompanion'
@@ -51,41 +53,109 @@ export function provideCourseWorkspace() {
   const rightTab = ref<'knowledge' | 'notes' | 'transcript'>('notes')
   const transcripts = useTranscripts()
 
-  const currentView = computed(() => route.path.endsWith('/player') ? 'player' as const : 'dashboard' as const)
+  const currentView = computed(() => (route.path.endsWith('/player') ? ('player' as const) : ('dashboard' as const)))
   const toast = ref('')
   let toastTimer: ReturnType<typeof setTimeout> | null = null
 
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
-  watch(() => [course.value?.id, video.value?.path] as const, ([id, path], _old, onCleanup) => {
-    if (id && path) onCleanup(transcripts.retain(id, path))
-  }, { immediate: true, flush: 'sync' })
+  watch(
+    () => [course.value?.id, video.value?.path] as const,
+    ([id, path], _old, onCleanup) => {
+      if (id && path) onCleanup(transcripts.retain(id, path))
+    },
+    { immediate: true, flush: 'sync' },
+  )
   const { noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote } = useNoteWorkspace(
-    computed(() => course.value && video.value ? JSON.stringify([course.value.id, video.value.path]) : ''), rightTab, player, showToast,
-    () => { rightPanelOpen.value = true })
-  const guide = useLearningGuide(course, computed(() => !store.state.library.some(c => c.id === course.value?.id && c.status !== 'active')))
+    computed(() => (course.value && video.value ? JSON.stringify([course.value.id, video.value.path]) : '')),
+    rightTab,
+    player,
+    showToast,
+    () => {
+      rightPanelOpen.value = true
+    },
+  )
+  const guide = useLearningGuide(
+    course,
+    computed(() => !store.state.library.some((c) => c.id === course.value?.id && c.status !== 'active')),
+  )
   const knowledge = useLessonKnowledge(course, guide.state.settings, guide.configured)
   const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
     sources: (target, scope) => knowledge.sourcesFor(course.value!.id, target, scope ? [scope] : undefined),
   })
-  const daily = useDailyPractice(course, computed(() => guide.state.today), guide.todayDate, guide.state.settings, guide.configured, knowledge)
-  watch(() => [course.value?.id, video.value?.path, currentView.value, guide.configured.value,
-    guide.state.settings.provider, guide.state.settings.contextWindow, guide.state.settings.baseUrl, guide.state.settings.model, guide.state.settings.apiKey] as const, (value, previous) => {
-    if (currentView.value !== 'player' || !course.value || !video.value) return
-    if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2]) rightTab.value = 'notes'
-    void knowledge.ensure(course.value.id, video.value).catch(() => {})
-  }, { immediate: true })
-  watch(() => course.value && video.value ? transcripts.get(course.value.id, video.value.path).status : '', (status, previous) => {
-    if (status === 'ready' && previous === 'transcribing' && course.value && video.value) {
-      void knowledge.ensure(course.value.id, video.value).catch(() => {})
-    }
-  })
-  const segment = useSegmentReminder(computed(() => course.value?.id), computed(() => video.value?.path), computed(() => guide.state.today))
+  const daily = useDailyPractice(
+    course,
+    computed(() => guide.state.today),
+    guide.todayDate,
+    guide.state.settings,
+    guide.configured,
+    knowledge,
+  )
+  watch(
+    () =>
+      [
+        course.value?.id,
+        video.value?.path,
+        currentView.value,
+        guide.configured.value,
+        guide.state.settings.provider,
+        guide.state.settings.contextWindow,
+        guide.state.settings.baseUrl,
+        guide.state.settings.model,
+        guide.state.settings.apiKey,
+      ] as const,
+    (value, previous) => {
+      if (currentView.value !== 'player' || !course.value || !video.value) return
+      if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2])
+        rightTab.value = 'notes'
+    },
+    { immediate: true },
+  )
+  useKnowledgePreparation(
+    {
+      course,
+      video,
+      enabled: computed(() => currentView.value === 'player'),
+      ready: computed(() => player.state.frameReady || !!player.state.error),
+      visible: computed(() => rightPanelOpen.value && rightTab.value === 'knowledge'),
+      revision: computed(() =>
+        JSON.stringify([
+          guide.configured.value,
+          guide.state.settings.provider,
+          guide.state.settings.contextWindow,
+          guide.state.settings.baseUrl,
+          guide.state.settings.model,
+          guide.state.settings.apiKey,
+        ]),
+      ),
+    },
+    knowledge,
+  )
+  watch(
+    () => (course.value && video.value ? transcripts.get(course.value.id, video.value.path).status : ''),
+    (status, previous) => {
+      if (
+        status === 'ready' &&
+        previous === 'transcribing' &&
+        course.value &&
+        video.value &&
+        currentView.value === 'player'
+      ) {
+        void knowledge.ensure(course.value.id, video.value, undefined, false, { background: true }).catch(() => {})
+      }
+    },
+  )
+  const segment = useSegmentReminder(
+    computed(() => course.value?.id),
+    computed(() => video.value?.path),
+    computed(() => guide.state.today),
+  )
   const checkInPlan = computed(() => ({
     today: guide.state.today,
-    startDate: guide.program.value?.startDate ?? (guide.state.plan ? localDayKey(new Date(guide.state.plan.createdAt)) : null),
+    startDate:
+      guide.program.value?.startDate ?? (guide.state.plan ? localDayKey(new Date(guide.state.plan.createdAt)) : null),
     endDate: guide.program.value ? programDate(guide.program.value, guide.program.value.days) : null,
-    dailyMinutes: guide.state.plan?.dailyMinutes ?? (guide.state.today?.minutes ?? 120),
+    dailyMinutes: guide.state.plan?.dailyMinutes ?? guide.state.today?.minutes ?? 120,
     // 完整学习计划的每日总投入（看课 + 实践）作为打卡目标。
     targetMinutes: guide.todayTotalMinutes.value,
     workSeconds: guide.workSecondsByDate.value,
@@ -99,13 +169,20 @@ export function provideCourseWorkspace() {
     },
   }))
   const checkIn = useStudyCheckIn(course, checkInPlan)
-  watch(() => [course.value?.id, checkIn.state.date, checkIn.seconds.value] as const, ([id, date, seconds]) => {
-    if (id && seconds > 0) studyTools.markStudied(id, date)
-  }, { flush: 'sync' })
+  watch(
+    () => [course.value?.id, checkIn.state.date, checkIn.seconds.value] as const,
+    ([id, date, seconds]) => {
+      if (id && seconds > 0) studyTools.markStudied(id, date)
+    },
+    { flush: 'sync' },
+  )
   const companion = useCompanion({
     desktopSettings,
-    player, course, video, knowledge,
-    concepts: computed(() => guide.state.plan?.lessons.find(l => l.path === video.value?.path)?.concepts ?? []),
+    player,
+    course,
+    video,
+    knowledge,
+    concepts: computed(() => guide.state.plan?.lessons.find((l) => l.path === video.value?.path)?.concepts ?? []),
     today: computed(() => guide.state.today),
     todayReady: computed(() => guide.guideReady.value && guide.recordsReady.value),
     dailyFinished: daily.finished,
@@ -115,14 +192,17 @@ export function provideCourseWorkspace() {
     blocked: computed(() => helpOpen.value || guideOpen.value || practice.state.open || daily.practice.state.open),
   })
 
-  watch(() => checkIn.justCheckedIn.value, (day) => {
-    if (day) {
-      const hours = Math.floor(day.targetSeconds / 3600)
-      const minutes = Math.floor((day.targetSeconds % 3600) / 60)
-      const timeStr = hours > 0 ? `${hours} 小时${minutes > 0 ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`
-      showToast(`今日学习 ${timeStr}，已打卡。`)
-    }
-  })
+  watch(
+    () => checkIn.justCheckedIn.value,
+    (day) => {
+      if (day) {
+        const hours = Math.floor(day.targetSeconds / 3600)
+        const minutes = Math.floor((day.targetSeconds % 3600) / 60)
+        const timeStr = hours > 0 ? `${hours} 小时${minutes > 0 ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`
+        showToast(`今日学习 ${timeStr}，已打卡。`)
+      }
+    },
+  )
   const hasPrev = computed(() => !!video.value && !!guide.adjacent(video.value.path, -1))
   const hasNext = computed(() => !!video.value && !!guide.adjacent(video.value.path, 1))
 
@@ -130,7 +210,8 @@ export function provideCourseWorkspace() {
     companion.sample(sample)
     segment.sample(sample)
     const completed = segment.reminder.value?.item
-    if (completed && !guide.state.today?.items.find(i => i.id === completed.id)?.done) guide.completeTodayItem(completed.id, true)
+    if (completed && !guide.state.today?.items.find((i) => i.id === completed.id)?.done)
+      guide.completeTodayItem(completed.id, true)
     if (video.value) {
       checkIn.sample(video.value.path, sample)
     }
@@ -143,7 +224,11 @@ export function provideCourseWorkspace() {
   }
 
   function openGuide(tab: 'plan' | 'today' | 'settings' = 'plan') {
-    if (tab === 'settings') { guideOpen.value = false; void router.push({ path: '/settings', query: { section: 'ai' } }); return }
+    if (tab === 'settings') {
+      guideOpen.value = false
+      void router.push({ path: '/settings', query: { section: 'ai' } })
+      return
+    }
     guideTab.value = tab
     guideOpen.value = true
   }
@@ -158,7 +243,8 @@ export function provideCourseWorkspace() {
   }
 
   async function openPractice(scope: PracticeScope | null = null) {
-    const target = video.value, courseId = course.value?.id
+    const target = video.value,
+      courseId = course.value?.id
     if (!target) return
     const snapshot = noteEditor.value?.getMarkdown()
     daily.practice.close()
@@ -169,16 +255,24 @@ export function provideCourseWorkspace() {
 
   async function openDailyPractice() {
     if (!daily.complete.value) return
-    const courseId = course.value?.id, day = guide.todayDate.value
+    const courseId = course.value?.id,
+      day = guide.todayDate.value
     player.pause()
     await leaveFullscreen()
     if (course.value?.id !== courseId || guide.todayDate.value !== day || !daily.complete.value) return
-    guideOpen.value = false; helpOpen.value = false; practice.close(); segment.dismiss()
+    guideOpen.value = false
+    helpOpen.value = false
+    practice.close()
+    segment.dismiss()
     void daily.open()
   }
-  watch(() => daily.shouldPrompt.value && !practice.state.open && !helpOpen.value && !daily.practice.state.open, ready => {
-    if (ready) void openDailyPractice()
-  }, { immediate: true })
+  watch(
+    () => daily.shouldPrompt.value && !practice.state.open && !helpOpen.value && !daily.practice.state.open,
+    (ready) => {
+      if (ready) void openDailyPractice()
+    },
+    { immediate: true },
+  )
 
   function practiceSegment() {
     const reminder = segment.reminder.value
@@ -197,13 +291,14 @@ export function provideCourseWorkspace() {
 
   async function noteAfterSegment() {
     const seconds = segment.reminder.value?.end
-    player.pause(); segment.dismiss()
+    player.pause()
+    segment.dismiss()
     await leaveFullscreen()
     if (seconds !== undefined) await noteAt(seconds)
   }
 
   function selectGuideVideo(path: string, seconds?: number) {
-    const target = course.value?.videos.find(v => v.path === path)
+    const target = course.value?.videos.find((v) => v.path === path)
     if (!target) return
     const canSeek = currentView.value === 'player' && video.value?.path === path && player.state.ready
     selectVideo(target)
@@ -213,22 +308,28 @@ export function provideCourseWorkspace() {
     }
   }
 
-  watch(() => player.state.ready, ready => {
-    const target = pendingSeek.value
-    if (ready && target && video.value?.path === target.path) {
-      seekTo(target.seconds)
+  watch(
+    () => player.state.ready,
+    (ready) => {
+      const target = pendingSeek.value
+      if (ready && target && video.value?.path === target.path) {
+        seekTo(target.seconds)
+        pendingSeek.value = null
+      }
+      if (ready && route.query.autoplay === '1' && video.value?.path === route.query.lesson) {
+        void player.play()
+        const { autoplay: _autoplay, at: _at, ...query } = route.query
+        void router.replace({ path: route.path, query })
+      }
+    },
+  )
+  watch(
+    () => course.value?.id,
+    () => {
+      guideOpen.value = false
       pendingSeek.value = null
-    }
-    if (ready && route.query.autoplay === '1' && video.value?.path === route.query.lesson) {
-      void player.play()
-      const { autoplay: _autoplay, at: _at, ...query } = route.query
-      void router.replace({ path: route.path, query })
-    }
-  })
-  watch(() => course.value?.id, () => {
-    guideOpen.value = false
-    pendingSeek.value = null
-  })
+    },
+  )
 
   function playVideoFromDashboard(v: VideoEntry) {
     selectVideo(v)
@@ -281,41 +382,73 @@ export function provideCourseWorkspace() {
   )
 
   let routeVersion = 0
-  watch(() => route.params.id, async (id) => {
-    const version = ++routeVersion
-    player.pause()
-    if (typeof id !== 'string') { store.closeCourse(); return }
-    await store.restoreCourse(id)
-    if (version !== routeVersion) return
-    const canonicalId = store.state.accessRecent?.id ?? store.state.course?.id
-    if (canonicalId && canonicalId !== id) {
-      await router.replace({ path: `/courses/${canonicalId}${currentView.value === 'player' ? '/player' : ''}`, query: route.query })
-    }
-  }, { immediate: true })
+  watch(
+    () => route.params.id,
+    async (id) => {
+      const version = ++routeVersion
+      player.pause()
+      if (typeof id !== 'string') {
+        store.closeCourse()
+        return
+      }
+      const measure = startPerformanceMeasure('course-open')
+      try {
+        await store.restoreCourse(id)
+        if (version === routeVersion && store.state.course) measure.finish()
+      } finally {
+        measure.cancel()
+      }
+      if (version !== routeVersion) return
+      const canonicalId = store.state.accessRecent?.id ?? store.state.course?.id
+      if (canonicalId && canonicalId !== id) {
+        await router.replace({
+          path: `/courses/${canonicalId}${currentView.value === 'player' ? '/player' : ''}`,
+          query: route.query,
+        })
+      }
+    },
+    { immediate: true },
+  )
 
-  watch(() => [course.value?.id, route.params.id, route.query.lesson, route.query.at, currentView.value] as const, () => {
-    if (!course.value || course.value.id !== route.params.id || currentView.value !== 'player') return
-    const path = typeof route.query.lesson === 'string' ? route.query.lesson : ''
-    const selected = course.value.videos.find(v => v.path === path) ?? video.value ?? course.value.videos[0]
-    if (!selected) return
-    if (pendingSeek.value?.path !== selected.path) pendingSeek.value = null
-    store.selectVideo(selected)
-    if (typeof route.query.at === 'string') {
-      const seconds = Number(route.query.at)
-      if (Number.isFinite(seconds) && seconds >= 0) pendingSeek.value = { path: selected.path, seconds }
-    }
-    if (path !== selected.path) void router.replace({ path: route.path, query: { ...route.query, lesson: selected.path } })
-  })
+  watch(
+    () => [course.value?.id, route.params.id, route.query.lesson, route.query.at, currentView.value] as const,
+    () => {
+      if (!course.value || course.value.id !== route.params.id || currentView.value !== 'player') return
+      const path = typeof route.query.lesson === 'string' ? route.query.lesson : ''
+      const selected = course.value.videos.find((v) => v.path === path) ?? video.value ?? course.value.videos[0]
+      if (!selected) return
+      if (pendingSeek.value?.path !== selected.path) pendingSeek.value = null
+      store.selectVideo(selected)
+      if (typeof route.query.at === 'string') {
+        const seconds = Number(route.query.at)
+        if (Number.isFinite(seconds) && seconds >= 0) pendingSeek.value = { path: selected.path, seconds }
+      }
+      if (path !== selected.path)
+        void router.replace({ path: route.path, query: { ...route.query, lesson: selected.path } })
+    },
+  )
 
-  watch(() => [route.query.panel, course.value?.id, guide.guideReady.value, guide.recordsReady.value, store.state.loading], async () => {
-    const panel = route.query.panel, id = course.value?.id
-    if (!id || route.params.id !== id || !guide.guideReady.value || !guide.recordsReady.value || store.state.loading || !['today', 'practice'].includes(String(panel))) return
-    const { panel: _panel, ...query } = route.query
-    await router.replace({ path: route.path, query })
-    if (course.value?.id !== id) return
-    if (panel === 'practice' && daily.complete.value) await openDailyPractice()
-    else openGuide('today')
-  })
+  watch(
+    () => [route.query.panel, course.value?.id, guide.guideReady.value, guide.recordsReady.value, store.state.loading],
+    async () => {
+      const panel = route.query.panel,
+        id = course.value?.id
+      if (
+        !id ||
+        route.params.id !== id ||
+        !guide.guideReady.value ||
+        !guide.recordsReady.value ||
+        store.state.loading ||
+        !['today', 'practice'].includes(String(panel))
+      )
+        return
+      const { panel: _panel, ...query } = route.query
+      await router.replace({ path: route.path, query })
+      if (course.value?.id !== id) return
+      if (panel === 'practice' && daily.complete.value) await openDailyPractice()
+      else openGuide('today')
+    },
+  )
 
   watch(currentView, () => {
     void leaveFullscreen()
@@ -325,8 +458,13 @@ export function provideCourseWorkspace() {
     practice.close()
     daily.practice.close()
   })
-  onBeforeUnmount(() => { if (toastTimer) clearTimeout(toastTimer) })
-  useWorkspaceLifecycle({ router, note: noteEditor, notify: showToast,
+  onBeforeUnmount(() => {
+    if (toastTimer) clearTimeout(toastTimer)
+  })
+  useWorkspaceLifecycle({
+    router,
+    note: noteEditor,
+    notify: showToast,
     activeJobs: () => !!transcripts.activeJobs.value,
     async flush() {
       player.pause()
@@ -334,18 +472,22 @@ export function provideCourseWorkspace() {
         useProgress().update(course.value.id, video.value.path, player.state.currentTime, player.state.duration)
       }
       await useProgress().flush()
-      guide.persist(); practice.persist(); checkIn.persist()
+      guide.persist()
+      practice.persist()
+      checkIn.persist()
       await daily.flush()
       await studyTools.flush()
       await flushDatabaseWrites()
     },
   })
-  const reminderLinks = useReminderLinks(async request => {
+  const reminderLinks = useReminderLinks(async (request) => {
     await noteEditor.value?.save()
     if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记尚未保存，请保存后重试。')
     await studyTools.flush()
     await flushDatabaseWrites()
-    const target = await desktopInvoke<ReminderLinkDestination>('resolve_reminder_link', { reminderId: request.reminderId })
+    const target = await desktopInvoke<ReminderLinkDestination>('resolve_reminder_link', {
+      reminderId: request.reminderId,
+    })
     if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记有新的修改，请保存后重试。')
     // A second click for the current player only reveals it; never reload or rewind a playing lesson.
     const alreadyPlayingCourse = target.courseId === course.value?.id && currentView.value === 'player'
@@ -359,16 +501,75 @@ export function provideCourseWorkspace() {
     }
     await leaveFullscreen()
     if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记有新的修改，请保存后重试。')
-    helpOpen.value = false; guideOpen.value = false; practice.close(); daily.practice.close(); treeOpen.value = false
+    helpOpen.value = false
+    guideOpen.value = false
+    practice.close()
+    daily.practice.close()
+    treeOpen.value = false
     if (alreadyPlayingCourse) return
-    const navigation = await router.push(target.courseId
-      ? { name: 'course-player', params: { id: target.courseId }, query: target.lesson ? { lesson: target.lesson } : {} }
-      : { name: 'study-management' })
+    const navigation = await router.push(
+      target.courseId
+        ? {
+            name: 'course-player',
+            params: { id: target.courseId },
+            query: target.lesson ? { lesson: target.lesson } : {},
+          }
+        : { name: 'study-management' },
+    )
     if (isNavigationFailure(navigation) && !isNavigationFailure(navigation, NavigationFailureType.duplicated))
       throw new Error('页面切换未完成，请重试。')
     if (target.notice) studyTools.state.notice = target.notice
   })
-  const workspace = { companion, reminderLinks, store, stats, player, noteEditor, stage, helpOpen, guideOpen, guideTab, pendingSeek, treeOpen, desktopTreeOpen, treeVisible, toggleTree, rightPanelOpen, rightTab, transcripts, currentView, toast, showToast, course, video, guide, practice, knowledge, daily, openDailyPractice, segment, checkIn, hasPrev, hasNext, onVideoSample, navigateEpisode, openGuide, startSegment, openPractice, practiceSegment, completeSegment, noteAfterSegment, selectGuideVideo, playVideoFromDashboard, selectVideo, insertTimestamp, screenshot, saveNote, seekTo, quoteToNote }
+  const workspace = {
+    companion,
+    reminderLinks,
+    store,
+    stats,
+    player,
+    noteEditor,
+    stage,
+    helpOpen,
+    guideOpen,
+    guideTab,
+    pendingSeek,
+    treeOpen,
+    desktopTreeOpen,
+    treeVisible,
+    toggleTree,
+    rightPanelOpen,
+    rightTab,
+    transcripts,
+    currentView,
+    toast,
+    showToast,
+    course,
+    video,
+    guide,
+    practice,
+    knowledge,
+    daily,
+    openDailyPractice,
+    segment,
+    checkIn,
+    hasPrev,
+    hasNext,
+    onVideoSample,
+    navigateEpisode,
+    openGuide,
+    startSegment,
+    openPractice,
+    practiceSegment,
+    completeSegment,
+    noteAfterSegment,
+    selectGuideVideo,
+    playVideoFromDashboard,
+    selectVideo,
+    insertTimestamp,
+    screenshot,
+    saveNote,
+    seekTo,
+    quoteToNote,
+  }
   provide(COURSE_WORKSPACE, workspace)
   return workspace
 }

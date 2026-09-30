@@ -1,0 +1,70 @@
+{
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "date": "2026-09-30",
+  "results": [
+    {
+      "name": "read-budget",
+      "lessons": 200,
+      "iterations": 100,
+      "medianMs": 0.005,
+      "p95Ms": 0.011
+    },
+    {
+      "name": "calculate-day",
+      "lessons": 200,
+      "iterations": 100,
+      "medianMs": 0.581,
+      "p95Ms": 0.892
+    },
+    {
+      "name": "day-snapshot",
+      "lessons": 200,
+      "iterations": 100,
+      "medianMs": 0.557,
+      "p95Ms": 0.731
+    },
+    {
+      "name": "read-budget",
+      "lessons": 2000,
+      "iterations": 100,
+      "medianMs": 0.013,
+      "p95Ms": 0.019
+    },
+    {
+      "name": "calculate-day",
+      "lessons": 2000,
+      "iterations": 100,
+      "medianMs": 6.293,
+      "p95Ms": 6.949
+    },
+    {
+      "name": "day-snapshot",
+      "lessons": 2000,
+      "iterations": 100,
+      "medianMs": 6.202,
+      "p95Ms": 6.671
+    },
+    {
+      "name": "many-completed-today",
+      "lessons": 2000,
+      "iterations": 20,
+      "medianMs": 4.385,
+      "p95Ms": 4.776
+    }
+  ],
+  "typingBurst": {
+    "updates": 100,
+    "serializations": 1
+  },
+  "repeatedViewChanges": {
+    "changes": 50,
+    "writes": {
+      "guide": 50,
+      "records": 1,
+      "snapshot": 1
+    }
+  },
+  "note": "Synthetic Vue-reactive CPU benchmark and write counts. Not startup time, UI latency, or real database I/O."
+}

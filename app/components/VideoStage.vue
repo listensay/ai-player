@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, computed, ref, watch } from 'vue'
+import { startPerformanceMeasure } from '~/utils/performance'
 import { usePlayer } from '~/composables/usePlayer'
 import { useProgress } from '~/composables/useProgress'
 import { formatTime } from '~/utils/time'
@@ -38,6 +39,7 @@ let lastPersist = 0
 let unlistenResize: (() => void) | undefined
 /** 卸载中：忽略 <video> 在被移除时补发的 pause/timeupdate 事件 */
 let unmounting = false
+let firstFrame: ReturnType<typeof startPerformanceMeasure> | undefined
 
 /** 拖动进度条时用本地值，避免被 timeupdate 拉回去 */
 const scrubbing = ref(false)
@@ -67,17 +69,23 @@ function persistProgress(force = false, opts: { ended?: boolean } = {}) {
 async function loadSource() {
   const v = videoEl.value
   if (!v) return
+  firstFrame?.cancel()
+  firstFrame = startPerformanceMeasure('video-ready')
   loading.value = true
   ended.value = false
   state.error = ''
   releaseSource?.()
   try {
     const source = await mediaSource(props.video.handle)
-    if (unmounting) { source.release(); return }
+    if (unmounting) {
+      source.release()
+      return
+    }
     releaseSource = source.release
     v.src = source.url
     v.load()
   } catch (err) {
+    firstFrame?.cancel()
     loading.value = false
     state.error = `读取视频文件失败：${(err as Error).message}`
   }
@@ -99,6 +107,12 @@ function onLoadedMetadata(e: Event) {
   if (p && !p.done && p.time > 1 && p.time < v.duration - 3) v.currentTime = p.time
 }
 
+function onLoadedData() {
+  if (unmounting) return
+  player.sync.loadedData()
+  firstFrame?.finish()
+}
+
 function onTimeUpdate(e: Event) {
   const v = videoFrom(e)
   if (!v || unmounting) return
@@ -110,8 +124,15 @@ function onTimeUpdate(e: Event) {
 function onSample(e: Event) {
   const v = videoFrom(e)
   if (!v || unmounting) return
-  emit('sample', { seconds: v.currentTime, duration: v.duration, seeking: v.seeking || e.type === 'seeking',
-    playing: !v.paused, ended: v.ended, rate: v.playbackRate, at: performance.now() })
+  emit('sample', {
+    seconds: v.currentTime,
+    duration: v.duration,
+    seeking: v.seeking || e.type === 'seeking',
+    playing: !v.paused,
+    ended: v.ended,
+    rate: v.playbackRate,
+    at: performance.now(),
+  })
 }
 
 function onEnded(e: Event) {
@@ -175,7 +196,7 @@ onMounted(async () => {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     const appWindow = getCurrentWindow()
     unlistenResize = await appWindow.onResized(async () => {
-      if (state.fullscreen && !await appWindow.isFullscreen()) state.fullscreen = false
+      if (state.fullscreen && !(await appWindow.isFullscreen())) state.fullscreen = false
     })
     if (unmounting) unlistenResize()
   }
@@ -195,6 +216,7 @@ watch(
 
 onBeforeUnmount(() => {
   unmounting = true
+  firstFrame?.cancel()
   persistProgress(true)
   void progress.flush().catch(() => {})
   unlistenResize?.()
@@ -227,10 +249,16 @@ defineExpose({ toggleFullscreen })
         crossorigin="anonymous"
         tabindex="-1"
         @loadedmetadata="onLoadedMetadata"
+        @loadeddata="onLoadedData"
         @durationchange="onVideoEvent($event, player.sync.durationChange)"
         @timeupdate="onTimeUpdate"
         @play="player.sync.play()"
-        @playing="player.sync.playing(); onSample($event)"
+        @playing="
+          ($event) => {
+            player.sync.playing()
+            onSample($event)
+          }
+        "
         @seeking="onSample"
         @seeked="onSample"
         @pause="onPause"
@@ -238,7 +266,12 @@ defineExpose({ toggleFullscreen })
         @ended="onEnded"
         @ratechange="onVideoEvent($event, player.sync.rateChange)"
         @volumechange="onVideoEvent($event, player.sync.volumeChange)"
-        @error="onVideoEvent($event, player.sync.error)"
+        @error="
+          ($event) => {
+            firstFrame?.cancel()
+            onVideoEvent($event, player.sync.error)
+          }
+        "
       />
 
       <!-- 读取中 -->
@@ -250,11 +283,7 @@ defineExpose({ toggleFullscreen })
       </div>
 
       <!-- 出错 -->
-      <div
-        v-else-if="state.error"
-        class="absolute inset-0 flex items-center justify-center p-8"
-        @click.stop
-      >
+      <div v-else-if="state.error" class="absolute inset-0 flex items-center justify-center p-8" @click.stop>
         <div class="max-w-md rounded-2xl bg-pure-white p-6 text-center">
           <p class="text-body font-bold text-charcoal-ink">视频无法播放</p>
           <p class="mt-2 text-body-sm text-graphite">{{ state.error }}</p>
@@ -328,7 +357,6 @@ defineExpose({ toggleFullscreen })
         <span class="tabular w-14 shrink-0 text-body-sm font-medium text-stone">
           {{ formatTime(state.duration) }}
         </span>
-
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -341,10 +369,24 @@ defineExpose({ toggleFullscreen })
           <AppIcon :name="state.playing ? 'pause' : 'play'" :size="22" :class="state.playing ? '' : 'ml-0.5'" />
         </button>
 
-        <UiButton variant="text" size="sm" icon title="后退 5 秒（←）" :disabled="!state.ready" @click="player.seekBy(-5)">
+        <UiButton
+          variant="text"
+          size="sm"
+          icon
+          title="后退 5 秒（←）"
+          :disabled="!state.ready"
+          @click="player.seekBy(-5)"
+        >
           <AppIcon name="rewind" :size="18" />
         </UiButton>
-        <UiButton variant="text" size="sm" icon title="前进 5 秒（→）" :disabled="!state.ready" @click="player.seekBy(5)">
+        <UiButton
+          variant="text"
+          size="sm"
+          icon
+          title="前进 5 秒（→）"
+          :disabled="!state.ready"
+          @click="player.seekBy(5)"
+        >
           <AppIcon name="forward" :size="18" />
         </UiButton>
 

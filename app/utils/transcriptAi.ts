@@ -48,7 +48,7 @@ export function refineTranscriptPrompt(title: string, batch: TranscriptSegment[]
 必须且仅返回如下格式的合法 JSON：
 {"items":[{"id":0,"text":"校对后的文本"}]}
 待校对数据：
-${JSON.stringify({ title, segments: batch.map(s => ({ id: s.id, text: s.text })) })}`,
+${JSON.stringify({ title, segments: batch.map((s) => ({ id: s.id, text: s.text })) })}`,
     },
   ]
 }
@@ -65,8 +65,14 @@ export function validateTranscriptCorrections(raw: unknown, batch: TranscriptSeg
 
   const validIds = new Set(batch.map((s) => s.id))
   for (const item of raw.items) {
-    if (!isRecord(item) || typeof item.id !== 'number' || !Number.isInteger(item.id)
-      || !validIds.has(item.id) || corrections.has(item.id) || typeof item.text !== 'string') {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== 'number' ||
+      !Number.isInteger(item.id) ||
+      !validIds.has(item.id) ||
+      corrections.has(item.id) ||
+      typeof item.text !== 'string'
+    ) {
       throw new Error('AI 校对结果含无效或重复的句子，请重试本批次。')
     }
     const id = item.id

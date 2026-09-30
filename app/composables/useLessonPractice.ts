@@ -9,11 +9,25 @@ import { prepareDailyPracticeSources } from '~/utils/dailyPractice'
 import { isRecord } from '~/utils/guide'
 import { loadLessonSubtitles } from '~/utils/guideMedia'
 import { requestGuideJson } from '~/utils/guideAi'
-import { enoughPracticeMaterial, practicePrompt, practiceReviewPrompt, practiceSources, validatePracticeQuestion, validateDailyPracticeQuestion, validatePracticeFeedback, restorePractice, isChoiceQuestion, practiceAnswerText, reviewPracticeChoice, appendPracticeRecord, isRepeatedPracticeQuestion, PRACTICE_ATTEMPT_LIMIT } from '~/utils/practice'
+import {
+  enoughPracticeMaterial,
+  practicePrompt,
+  practiceReviewPrompt,
+  practiceSources,
+  validatePracticeQuestion,
+  validateDailyPracticeQuestion,
+  validatePracticeFeedback,
+  restorePractice,
+  isChoiceQuestion,
+  practiceAnswerText,
+  reviewPracticeChoice,
+  appendPracticeRecord,
+  isRepeatedPracticeQuestion,
+  PRACTICE_ATTEMPT_LIMIT,
+} from '~/utils/practice'
 import { dbFetchPractice, dbSavePractice, dbFetchNote } from '~/utils/dbClient'
 import { createPracticeAttachmentStore, readPracticeFile, validateAttachments } from '~/utils/practiceAttachments'
 import { assignmentReviewPrompt } from '~/utils/practiceGrading'
-
 
 interface PracticeOptions {
   mode?: 'lesson' | 'daily'
@@ -21,17 +35,36 @@ interface PracticeOptions {
   save?: typeof dbSavePractice
   sources?: (video: VideoEntry, scope: PracticeScope | null) => Promise<PracticeSource[]>
 }
-export function useLessonPractice(course: Ref<Course | null>, settings: GuideSettings, available: Ref<boolean>, options: PracticeOptions = {}) {
+export function useLessonPractice(
+  course: Ref<Course | null>,
+  settings: GuideSettings,
+  available: Ref<boolean>,
+  options: PracticeOptions = {},
+) {
   const mode = options.mode ?? 'lesson'
   const historyLimit = mode === 'daily' ? 1000 : 20
   const fetchRecords = options.fetch ?? dbFetchPractice
   const saveRecords = options.save ?? dbSavePractice
   const state = reactive({
-    open: false, path: '', title: '', scope: null as PracticeScope | null,
-    note: '', cues: [] as SubtitleCue[], supplement: '',
-    records: [] as PracticeRecord[], selectedId: '', historyReady: false,
-    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload', error: '', storageError: '', materialNotice: '',
-    mode, preparedSources: null as PracticeSource[] | null, questionCount: mode === 'daily' ? 1 : 3, generationProgress: '', retryGenerationCount: 0,
+    open: false,
+    path: '',
+    title: '',
+    scope: null as PracticeScope | null,
+    note: '',
+    cues: [] as SubtitleCue[],
+    supplement: '',
+    records: [] as PracticeRecord[],
+    selectedId: '',
+    historyReady: false,
+    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload',
+    error: '',
+    storageError: '',
+    materialNotice: '',
+    mode,
+    preparedSources: null as PracticeSource[] | null,
+    questionCount: mode === 'daily' ? 1 : 3,
+    generationProgress: '',
+    retryGenerationCount: 0,
   })
   let activeId = ''
   let request: AbortController | null = null
@@ -39,48 +72,101 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
   let courseRevision = 0
   let saveRevision = 0
   const attachmentStore = createPracticeAttachmentStore()
-  const current = computed(() => state.records.find(r => r.id === state.selectedId && r.path === state.path))
-  const history = computed(() => state.records.filter(r => r.path === state.path))
+  const current = computed(() => state.records.find((r) => r.id === state.selectedId && r.path === state.path))
+  const history = computed(() => state.records.filter((r) => r.path === state.path))
   const sources = computed(() => {
     if (state.preparedSources === null) return practiceSources(state.note, state.cues, state.supplement, state.scope)
     if (!state.preparedSources.length || mode === 'daily') return state.preparedSources
-    return [...state.preparedSources, ...practiceSources(state.note, [], state.supplement, state.scope).map(s => ({ ...s, id: `m${s.id}` }))]
+    return [
+      ...state.preparedSources,
+      ...practiceSources(state.note, [], state.supplement, state.scope).map((s) => ({ ...s, id: `m${s.id}` })),
+    ]
   })
   const hasMaterial = computed(() => enoughPracticeMaterial(sources.value))
   const configured = computed(() => available.value && !!settings.baseUrl.trim() && !!settings.model.trim())
-  const answer = computed(() => current.value ? practiceAnswerText(current.value.question, current.value.draft) : '')
+  const answer = computed(() => (current.value ? practiceAnswerText(current.value.question, current.value.draft) : ''))
   const attachments = computed(() => current.value?.attachments ?? [])
   const hasSubmission = computed(() => !!answer.value || attachments.value.length > 0)
   const answerSubmitted = computed(() => {
     const previous = current.value?.attempts.at(-1)
-    return hasSubmission.value && !!previous && previous.answer === answer.value
-      && (mode !== 'daily' || !!previous.feedback.grade)
-      && JSON.stringify((previous.attachments ?? []).map(file => file.id).sort()) === JSON.stringify(attachments.value.map(file => file.id).sort())
+    return (
+      hasSubmission.value &&
+      !!previous &&
+      previous.answer === answer.value &&
+      (mode !== 'daily' || !!previous.feedback.grade) &&
+      JSON.stringify((previous.attachments ?? []).map((file) => file.id).sort()) ===
+        JSON.stringify(attachments.value.map((file) => file.id).sort())
+    )
   })
-  const canReview = computed(() => state.historyReady && !!current.value && hasSubmission.value && !answerSubmitted.value && !state.busy
-    && current.value.attempts.length < PRACTICE_ATTEMPT_LIMIT && (isChoiceQuestion(current.value.question) || configured.value))
+  const canReview = computed(
+    () =>
+      state.historyReady &&
+      !!current.value &&
+      hasSubmission.value &&
+      !answerSubmitted.value &&
+      !state.busy &&
+      current.value.attempts.length < PRACTICE_ATTEMPT_LIMIT &&
+      (isChoiceQuestion(current.value.question) || configured.value),
+  )
 
   function persist() {
     if (!activeId || !state.path || !state.historyReady) return
-    const id = activeId, path = state.path, revision = ++saveRevision, courseVersion = courseRevision
-    const recordsForPath: PracticeRecord[] = JSON.parse(JSON.stringify(state.records.filter(r => r.path === path)))
-    return saveRecords(id, path, recordsForPath).then(saved => {
+    const id = activeId,
+      path = state.path,
+      revision = ++saveRevision,
+      courseVersion = courseRevision
+    const recordsForPath: PracticeRecord[] = JSON.parse(JSON.stringify(state.records.filter((r) => r.path === path)))
+    return saveRecords(id, path, recordsForPath).then((saved) => {
       if (courseVersion === courseRevision && state.path === path && revision === saveRevision)
         state.storageError = saved ? '' : '练习记录保存失败，请关闭后重新打开练习重试。'
       return saved
     })
   }
-  function cancel() { request?.abort(); request = null; state.busy = '' }
-  function close() { cancel(); persist(); state.open = false; attachmentStore.clear() }
-  function select(id: string) { if (state.busy) return; state.selectedId = id; state.error = '' }
-  function updateDraft(answer: string) { if (current.value && !state.busy) { current.value.draft = answer.slice(0, 8000); state.error = ''; persist() } }
+  function cancel() {
+    request?.abort()
+    request = null
+    state.busy = ''
+  }
+  function close() {
+    cancel()
+    persist()
+    state.open = false
+    attachmentStore.clear()
+  }
+  function select(id: string) {
+    if (state.busy) return
+    state.selectedId = id
+    state.error = ''
+  }
+  function updateDraft(answer: string) {
+    if (current.value && !state.busy) {
+      current.value.draft = answer.slice(0, 8000)
+      state.error = ''
+      persist()
+    }
+  }
 
   async function addAttachments(files: File[]) {
     const record = current.value
-    if (!record || state.busy || !state.open || !state.historyReady || isChoiceQuestion(record.question) || !files.length) return
-    if ((record.attachments?.length ?? 0) + files.length > 8) { state.error = '每次作业最多上传 8 个文件。'; return }
-    const id = activeId, revision = courseRevision
-    const controller = new AbortController(); request = controller; state.busy = 'upload'; state.error = ''
+    if (
+      !record ||
+      state.busy ||
+      !state.open ||
+      !state.historyReady ||
+      isChoiceQuestion(record.question) ||
+      !files.length
+    )
+      return
+    if ((record.attachments?.length ?? 0) + files.length > 8) {
+      state.error = '每次作业最多上传 8 个文件。'
+      return
+    }
+    const id = activeId,
+      revision = courseRevision
+    const controller = new AbortController()
+    request = controller
+    state.busy = 'upload'
+    state.error = ''
     try {
       for (const file of files) {
         const { attachment, content } = await readPracticeFile(file)
@@ -92,13 +178,20 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
         record.attachments = next
         await persist()
       }
-    } catch (error) { if (!controller.signal.aborted) state.error = `作业文件未添加：${(error as Error).message}` }
-    finally { if (request === controller) { request = null; state.busy = '' } }
+    } catch (error) {
+      if (!controller.signal.aborted) state.error = `作业文件未添加：${(error as Error).message}`
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
+    }
   }
   function removeAttachment(id: string) {
     if (!current.value || state.busy) return
-    current.value.attachments = attachments.value.filter(file => file.id !== id)
-    state.error = ''; persist()
+    current.value.attachments = attachments.value.filter((file) => file.id !== id)
+    state.error = ''
+    persist()
   }
   function loadAttachment(file: PracticeAttachment, recordId = current.value?.id) {
     if (!activeId || !recordId) return Promise.reject(new Error('当前作业不可用。'))
@@ -111,52 +204,93 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
     persist()
     if (state.path !== video.path || JSON.stringify(state.scope) !== JSON.stringify(scope)) state.supplement = ''
     state.retryGenerationCount = 0
-    state.path = video.path; state.title = video.title; state.scope = scope; state.open = true
-    state.error = ''; state.materialNotice = ''; state.note = ''; state.cues = []; state.preparedSources = options.sources ? [] : null
-    state.selectedId = history.value.find(r => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
-    const controller = new AbortController(); request = controller; state.busy = 'loading'
+    state.path = video.path
+    state.title = video.title
+    state.scope = scope
+    state.open = true
+    state.error = ''
+    state.materialNotice = ''
+    state.note = ''
+    state.cues = []
+    state.preparedSources = options.sources ? [] : null
+    state.selectedId = history.value.find((r) => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
+    const controller = new AbortController()
+    request = controller
+    state.busy = 'loading'
     try {
       await historyLoad
       if (controller.signal.aborted) return
       if (!state.historyReady) await (historyLoad = loadHistory())
       if (controller.signal.aborted || !state.historyReady) return
-      state.selectedId = history.value.find(r => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
+      state.selectedId = history.value.find((r) => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
       const [cues, note] = await Promise.all([
         loadLessonSubtitles(video),
-        noteSnapshot !== undefined ? Promise.resolve(noteSnapshot) : (async () => {
-          try {
-            const saved = await dbFetchNote(activeId, video.path)
-            if (saved.updatedAt !== null) {
-              if (saved.content.length > 1_000_000) { state.materialNotice = '笔记超过 1 MB，请粘贴本次需要的内容。'; return '' }
-              return saved.content
-            }
-            const handle = await video.parent.getFileHandle(`${video.title}.md`)
-            const file = await handle.getFile()
-            if (controller.signal.aborted) return ''
-            if (file.size > 1_000_000) { state.materialNotice = '笔记超过 1 MB，请在下方粘贴本次需要的内容。'; return '' }
-            return await file.text()
-          } catch (err) {
-            if (!controller.signal.aborted && (err as Error).name !== 'NotFoundError') state.materialNotice = '笔记读取失败，可在下方补充本次学习内容。'
-            return ''
-          }
-        })(),
+        noteSnapshot !== undefined
+          ? Promise.resolve(noteSnapshot)
+          : (async () => {
+              try {
+                const saved = await dbFetchNote(activeId, video.path)
+                if (saved.updatedAt !== null) {
+                  if (saved.content.length > 1_000_000) {
+                    state.materialNotice = '笔记超过 1 MB，请粘贴本次需要的内容。'
+                    return ''
+                  }
+                  return saved.content
+                }
+                const handle = await video.parent.getFileHandle(`${video.title}.md`)
+                const file = await handle.getFile()
+                if (controller.signal.aborted) return ''
+                if (file.size > 1_000_000) {
+                  state.materialNotice = '笔记超过 1 MB，请在下方粘贴本次需要的内容。'
+                  return ''
+                }
+                return await file.text()
+              } catch (err) {
+                if (!controller.signal.aborted && (err as Error).name !== 'NotFoundError')
+                  state.materialNotice = '笔记读取失败，可在下方补充本次学习内容。'
+                return ''
+              }
+            })(),
       ])
       if (controller.signal.aborted) return
-      state.cues = cues; state.note = note
+      state.cues = cues
+      state.note = note
       if (options.sources) {
         const summary = await options.sources(video, scope)
         if (controller.signal.aborted) return
         state.preparedSources = summary
       }
-    } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
-    finally { if (request === controller) { request = null; state.busy = '' } }
+    } catch (err) {
+      if (!controller.signal.aborted) state.error = (err as Error).message
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
+    }
   }
 
   async function openSources(path: string, title: string, loader: (signal: AbortSignal) => Promise<PracticeSource[]>) {
     if (!activeId) return
-    cancel(); persist(); state.retryGenerationCount = 0
-    Object.assign(state, { path, title, scope: null, open: true, error: '', materialNotice: '', note: '', cues: [], supplement: '', preparedSources: [], selectedId: '' })
-    const controller = new AbortController(); request = controller; state.busy = 'loading'
+    cancel()
+    persist()
+    state.retryGenerationCount = 0
+    Object.assign(state, {
+      path,
+      title,
+      scope: null,
+      open: true,
+      error: '',
+      materialNotice: '',
+      note: '',
+      cues: [],
+      supplement: '',
+      preparedSources: [],
+      selectedId: '',
+    })
+    const controller = new AbortController()
+    request = controller
+    state.busy = 'loading'
     try {
       await historyLoad
       if (controller.signal.aborted) return
@@ -165,8 +299,14 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
       state.selectedId = history.value.at(-1)?.id ?? ''
       const sources = await loader(controller.signal)
       if (!controller.signal.aborted) state.preparedSources = sources
-    } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
-    finally { if (request === controller) { request = null; state.busy = '' } }
+    } catch (err) {
+      if (!controller.signal.aborted) state.error = (err as Error).message
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
+    }
   }
 
   async function generate(count = 1) {
@@ -177,43 +317,85 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
       state.questionCount = 1
     }
     state.error = ''
-    if (!hasMaterial.value) { state.error = '学习材料不足，请补充本课概念、示例或代码后生成练习。'; return }
-    if (!configured.value) { state.error = '请先在 AI 设置中填写服务地址和模型。'; return }
+    if (!hasMaterial.value) {
+      state.error = '学习材料不足，请补充本课概念、示例或代码后生成练习。'
+      return
+    }
+    if (!configured.value) {
+      state.error = '请先在 AI 设置中填写服务地址和模型。'
+      return
+    }
     if (!Number.isInteger(count) || count < 1 || count > 8) return
-    const controller = new AbortController(); request = controller; state.busy = 'generate'
-    state.retryGenerationCount = count; state.generationProgress = ''
+    const controller = new AbortController()
+    request = controller
+    state.busy = 'generate'
+    state.retryGenerationCount = count
+    state.generationProgress = ''
     // 固定本次提交的材料，等待期间的 UI 变化不能改变题目依据。
-    const submitted = sources.value.map(s => ({ ...s }))
+    const submitted = sources.value.map((s) => ({ ...s }))
     const scope = state.scope ? { ...state.scope } : null
     const path = state.path
     try {
       const submittedSettings = { ...settings }
-      const dailyMaterial = mode === 'daily' ? await prepareDailyPracticeSources({
-        identity: { courseId: activeId, path, settings: aiTaskSettings(submittedSettings) },
-        title: state.title, sources: submitted, signal: controller.signal,
-        request: messages => requestGuideJson(submittedSettings, messages, controller.signal),
-        progress: message => { state.generationProgress = message },
-      }) : null
+      const dailyMaterial =
+        mode === 'daily'
+          ? await prepareDailyPracticeSources({
+              identity: { courseId: activeId, path, settings: aiTaskSettings(submittedSettings) },
+              title: state.title,
+              sources: submitted,
+              signal: controller.signal,
+              request: (messages) => requestGuideJson(submittedSettings, messages, controller.signal),
+              progress: (message) => {
+                state.generationProgress = message
+              },
+            })
+          : null
       const allBatches = materialBatches(dailyMaterial?.sources ?? submitted)
       // 单题续练轮换材料批次，保证按钮始终只新增一题；整组练习覆盖全部批次。
-      const batches = mode === 'daily' ? allBatches : count === 1 ? [allBatches[history.value.length % allBatches.length]!] : allBatches
-      if (batches.length * count > historyLimit) throw new Error(`知识点较多，请减少每组题数（本次最多保留 ${historyLimit} 题）。`)
-      const previous = history.value.map(r => r.question)
-      const identity = { kind: 'practice', promptVersion: mode === 'daily' ? 3 : 1, courseId: activeId, path, title: state.title, scope,
-        count, mode, batches, previous, settings: aiTaskSettings(submittedSettings) }
+      const batches =
+        mode === 'daily'
+          ? allBatches
+          : count === 1
+            ? [allBatches[history.value.length % allBatches.length]!]
+            : allBatches
+      if (batches.length * count > historyLimit)
+        throw new Error(`知识点较多，请减少每组题数（本次最多保留 ${historyLimit} 题）。`)
+      const previous = history.value.map((r) => r.question)
+      const identity = {
+        kind: 'practice',
+        promptVersion: mode === 'daily' ? 3 : 1,
+        courseId: activeId,
+        path,
+        title: state.title,
+        scope,
+        count,
+        mode,
+        batches,
+        previous,
+        settings: aiTaskSettings(submittedSettings),
+      }
       const results = await runAiBatches({
         identity,
-        batches, signal: controller.signal,
-        progress: (done, total) => { state.generationProgress = `已完成 ${done} / ${total} 批` },
+        batches,
+        signal: controller.signal,
+        progress: (done, total) => {
+          state.generationProgress = `已完成 ${done} / ${total} 批`
+        },
         request: (batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) =>
-          requestGuideJson(submittedSettings, practicePrompt(state.title, batch, scope,
-            [...previous, ...completed.flat()], count, mode === 'daily'), controller.signal),
+          requestGuideJson(
+            submittedSettings,
+            practicePrompt(state.title, batch, scope, [...previous, ...completed.flat()], count, mode === 'daily'),
+            controller.signal,
+          ),
         validate: (raw, batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) => {
           const questions = count === 1 ? [raw] : isRecord(raw) && Array.isArray(raw.questions) ? raw.questions : []
           if (questions.length !== count) throw new Error('AI 返回的题目数量不完整，请重试。')
           const validated: ReturnType<typeof validatePracticeQuestion>[] = []
           for (const item of questions) {
-            const question = mode === 'daily' ? validateDailyPracticeQuestion(item, batch) : validatePracticeQuestion(item, batch, true)
+            const question =
+              mode === 'daily'
+                ? validateDailyPracticeQuestion(item, batch)
+                : validatePracticeQuestion(item, batch, true)
             if (isRepeatedPracticeQuestion(question, [...previous, ...completed.flat(), ...validated])) {
               throw new Error('AI 返回了已有题目，请重试或补充学习材料。')
             }
@@ -223,70 +405,185 @@ export function useLessonPractice(course: Ref<Course | null>, settings: GuideSet
         },
       })
       if (controller.signal.aborted) return
-      const pending: PracticeRecord[] = results.flatMap((questions, index) => questions.map(question => ({
-        id: crypto.randomUUID(), path, createdAt: Date.now(), scope, sources: batches[index]!, question, draft: '', attempts: [],
-      })))
+      const pending: PracticeRecord[] = results.flatMap((questions, index) =>
+        questions.map((question) => ({
+          id: crypto.randomUUID(),
+          path,
+          createdAt: Date.now(),
+          scope,
+          sources: batches[index]!,
+          question,
+          draft: '',
+          attempts: [],
+        })),
+      )
       for (const record of pending) state.records = appendPracticeRecord(state.records, record, historyLimit)
-      state.selectedId = pending[0]?.id ?? ''; state.retryGenerationCount = 0
+      state.selectedId = pending[0]?.id ?? ''
+      state.retryGenerationCount = 0
       if (await persist()) {
         await completeAiBatches(identity)
         for (const task of dailyMaterial?.identities ?? []) await completeAiBatches(task)
       }
-    } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
-    finally { if (request === controller) { request = null; state.busy = '' } }
+    } catch (err) {
+      if (!controller.signal.aborted) state.error = (err as Error).message
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
+    }
   }
 
   async function review() {
     const record = current.value
-    if (!state.open || !state.historyReady || !record || state.busy || record.attempts.length >= PRACTICE_ATTEMPT_LIMIT || answerSubmitted.value) return
+    if (
+      !state.open ||
+      !state.historyReady ||
+      !record ||
+      state.busy ||
+      record.attempts.length >= PRACTICE_ATTEMPT_LIMIT ||
+      answerSubmitted.value
+    )
+      return
     state.error = ''
     const answer = practiceAnswerText(record.question, record.draft)
-    const submittedFiles = (record.attachments ?? []).map(file => ({ ...file }))
-    if (!answer && !submittedFiles.length) { state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容或上传代码、图片后提交。'; return }
-    if (isChoiceQuestion(record.question)) {
-      record.attempts.push({ answer, feedback: reviewPracticeChoice(record.question, record.draft), at: Date.now() }); persist(); return
+    const submittedFiles = (record.attachments ?? []).map((file) => ({ ...file }))
+    if (!answer && !submittedFiles.length) {
+      state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容或上传代码、图片后提交。'
+      return
     }
-    if (!configured.value) { state.error = '请先选择有效的 AI 配置。'; return }
-    const controller = new AbortController(); request = controller; state.busy = 'review'
+    if (isChoiceQuestion(record.question)) {
+      record.attempts.push({ answer, feedback: reviewPracticeChoice(record.question, record.draft), at: Date.now() })
+      persist()
+      return
+    }
+    if (!configured.value) {
+      state.error = '请先选择有效的 AI 配置。'
+      return
+    }
+    const controller = new AbortController()
+    request = controller
+    state.busy = 'review'
     try {
       const settingsSnapshot = { ...settings }
-      const files = await Promise.all(submittedFiles.map(async attachment => ({ attachment, content: await loadAttachment(attachment, record.id) })))
+      const files = await Promise.all(
+        submittedFiles.map(async (attachment) => ({
+          attachment,
+          content: await loadAttachment(attachment, record.id),
+        })),
+      )
       controller.signal.throwIfAborted()
       const graded = mode === 'daily' || files.length > 0
       const messages = graded ? assignmentReviewPrompt(record, answer, files) : practiceReviewPrompt(record, answer)
       const raw = await requestGuideJson(settingsSnapshot, messages, controller.signal)
       if (controller.signal.aborted) return
-      record.attempts.push({ answer, ...(submittedFiles.length ? { attachments: submittedFiles } : {}),
-        feedback: validatePracticeFeedback(raw, record.sources, record.question, graded), at: Date.now() }); persist()
-    } catch (err) { if (!controller.signal.aborted) state.error = (err as Error).message }
-    finally { if (request === controller) { request = null; state.busy = '' } }
+      record.attempts.push({
+        answer,
+        ...(submittedFiles.length ? { attachments: submittedFiles } : {}),
+        feedback: validatePracticeFeedback(raw, record.sources, record.question, graded),
+        at: Date.now(),
+      })
+      persist()
+    } catch (err) {
+      if (!controller.signal.aborted) state.error = (err as Error).message
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
+    }
   }
 
   async function loadHistory() {
-    const version = courseRevision, id = activeId
+    const version = courseRevision,
+      id = activeId
     if (!activeId) return
     try {
       const practiceMap = await fetchRecords(id)
       if (version !== courseRevision) return
       const allRecords = Object.values(practiceMap).flat()
-      const videoPaths = course.value?.videos.map(v => v.path) ?? []
-      const paths = mode === 'daily' ? Object.keys(practiceMap).filter(p => /^daily:\d{4}-\d{2}-\d{2}:/u.test(p)) : videoPaths
-      state.records = restorePractice(allRecords.filter(r => r && typeof r.createdAt === 'number').sort((a, b) => b.createdAt - a.createdAt), paths, historyLimit, videoPaths)
-      state.historyReady = true; state.storageError = ''
+      const videoPaths = course.value?.videos.map((v) => v.path) ?? []
+      const paths =
+        mode === 'daily' ? Object.keys(practiceMap).filter((p) => /^daily:\d{4}-\d{2}-\d{2}:/u.test(p)) : videoPaths
+      state.records = restorePractice(
+        allRecords.filter((r) => r && typeof r.createdAt === 'number').sort((a, b) => b.createdAt - a.createdAt),
+        paths,
+        historyLimit,
+        videoPaths,
+      )
+      state.historyReady = true
+      state.storageError = ''
     } catch {
       if (version === courseRevision) state.storageError = '练习记录读取失败，请关闭后重新打开练习重试。'
     }
   }
-  watch(() => course.value?.id, () => {
-    persist(); cancel(); attachmentStore.clear(); courseRevision++
-    state.open = false; state.records = []; state.selectedId = ''; state.path = ''; state.note = ''; state.cues = []; state.supplement = ''; state.storageError = ''; state.error = ''; state.historyReady = false; state.preparedSources = null
-    activeId = course.value?.id ?? ''
-    historyLoad = loadHistory()
-  }, { immediate: true, flush: 'sync' })
-  watch(() => [settings.provider, settings.contextWindow, settings.baseUrl, settings.model, settings.apiKey, settings.timeoutMinutes, available.value], () => {
-    if (state.busy !== 'generate' && state.busy !== 'review') return
-    cancel(); state.error = 'AI 配置已变更，请重新提交请求。'
-  }, { flush: 'sync' })
-  onBeforeUnmount(() => { cancel(); persist(); attachmentStore.clear(); courseRevision++ })
-  return { persist, state, current, history, sources, hasMaterial, configured, answerSubmitted, canReview, attachments, addAttachments, removeAttachment, loadAttachment, open, openSources, close, cancel, select, updateDraft, generate, review }
+  watch(
+    () => course.value?.id,
+    () => {
+      persist()
+      cancel()
+      attachmentStore.clear()
+      courseRevision++
+      state.open = false
+      state.records = []
+      state.selectedId = ''
+      state.path = ''
+      state.note = ''
+      state.cues = []
+      state.supplement = ''
+      state.storageError = ''
+      state.error = ''
+      state.historyReady = false
+      state.preparedSources = null
+      activeId = course.value?.id ?? ''
+      historyLoad = loadHistory()
+    },
+    { immediate: true, flush: 'sync' },
+  )
+  watch(
+    () => [
+      settings.provider,
+      settings.contextWindow,
+      settings.baseUrl,
+      settings.model,
+      settings.apiKey,
+      settings.timeoutMinutes,
+      available.value,
+    ],
+    () => {
+      if (state.busy !== 'generate' && state.busy !== 'review') return
+      cancel()
+      state.error = 'AI 配置已变更，请重新提交请求。'
+    },
+    { flush: 'sync' },
+  )
+  onBeforeUnmount(() => {
+    cancel()
+    persist()
+    attachmentStore.clear()
+    courseRevision++
+  })
+  return {
+    persist,
+    state,
+    current,
+    history,
+    sources,
+    hasMaterial,
+    configured,
+    answerSubmitted,
+    canReview,
+    attachments,
+    addAttachments,
+    removeAttachment,
+    loadAttachment,
+    open,
+    openSources,
+    close,
+    cancel,
+    select,
+    updateDraft,
+    generate,
+    review,
+  }
 }

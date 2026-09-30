@@ -10,11 +10,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm run check
       - run: node scripts/desktop-runtime.mjs
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: npm run check:rust
+      - run: npm run benchmark -- performance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: performance-report
+          path: performance.json
       - run: npm run tauri -- build --debug --bundles app

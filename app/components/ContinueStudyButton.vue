@@ -14,6 +14,8 @@ function start() {
 <template>
   <div v-if="guide.nextStudy.value" class="space-y-2">
     <UiButton size="sm" variant="dark" @click="start">继续学习下一天</UiButton>
-    <p class="text-caption leading-relaxed text-stone">提前学习 {{ guide.nextStudy.value.date }} 的课程，用时计入今天。</p>
+    <p class="text-caption leading-relaxed text-stone">
+      提前学习 {{ guide.nextStudy.value.date }} 的课程，用时计入今天。
+    </p>
   </div>
 </template>

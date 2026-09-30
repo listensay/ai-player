@@ -51,9 +51,7 @@ export function naturalCompare(a: string, b: string): number {
  * 目录和文件都按自然顺序排序；目录排在文件前面。
  * 所有句柄都用 markRaw 标记，避免被 Vue 的响应式代理包裹（文件操作需要真实的 this）。
  */
-export async function scanCourse(
-  root: CourseDirectoryHandle,
-): Promise<{ tree: FolderEntry; videos: VideoEntry[] }> {
+export async function scanCourse(root: CourseDirectoryHandle): Promise<{ tree: FolderEntry; videos: VideoEntry[] }> {
   const videos: VideoEntry[] = []
 
   async function walk(dir: CourseDirectoryHandle, path: string): Promise<FolderEntry> {
@@ -113,10 +111,7 @@ export async function scanCourse(
   return { tree, videos }
 }
 
-export async function readTextFile(
-  dir: CourseDirectoryHandle,
-  name: string,
-): Promise<string | null> {
+export async function readTextFile(dir: CourseDirectoryHandle, name: string): Promise<string | null> {
   try {
     const handle = await dir.getFileHandle(name)
     const file = await handle.getFile()
@@ -127,22 +122,14 @@ export async function readTextFile(
   }
 }
 
-export async function writeTextFile(
-  dir: CourseDirectoryHandle,
-  name: string,
-  text: string,
-): Promise<void> {
+export async function writeTextFile(dir: CourseDirectoryHandle, name: string, text: string): Promise<void> {
   const handle = await dir.getFileHandle(name, { create: true })
   const writable = await handle.createWritable()
   await writable.write(text)
   await writable.close()
 }
 
-export async function writeBlobFile(
-  dir: CourseDirectoryHandle,
-  name: string,
-  blob: Blob,
-): Promise<void> {
+export async function writeBlobFile(dir: CourseDirectoryHandle, name: string, blob: Blob): Promise<void> {
   const handle = await dir.getFileHandle(name, { create: true })
   const writable = await handle.createWritable()
   await writable.write(blob)
@@ -150,10 +137,7 @@ export async function writeBlobFile(
 }
 
 /** 按相对路径（可含多级目录）读取文件；不存在返回 null */
-export async function resolveRelativeFile(
-  base: CourseDirectoryHandle,
-  relativePath: string,
-): Promise<File | null> {
+export async function resolveRelativeFile(base: CourseDirectoryHandle, relativePath: string): Promise<File | null> {
   const parts = relativePath.split('/').filter((p) => p && p !== '.')
   if (parts.length === 0) return null
   try {

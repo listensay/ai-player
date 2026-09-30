@@ -20,25 +20,25 @@
   /* ---- 颜色：只保留品牌色板，禁用 Tailwind 默认的 red/blue/gray 等 ---- */
   --color-*: initial;
 
-  --color-page-cream: #f9f4f2;      /* 页面画布，暖纸 */
-  --color-pure-white: #ffffff;      /* 卡片、面板、输入框 */
-  --color-charcoal-ink: #2d2c2b;    /* 正文、深色按钮 */
-  --color-graphite: #44423f;        /* 次级文字、图标 */
-  --color-slate: #4b4c4d;           /* 三级文字、辅助说明 */
-  --color-stone: #63605d;           /* 禁用态、最低强调文字 */
-  --color-driftwood: #c6c1b9;       /* 列表细分割线 */
-  --color-linen: #e2ded9;           /* 卡片/输入框边框，奶油底上的分隔 */
-  --color-ash: #d0d0d0;             /* 输入框边框、复选框边框 */
-  --color-soft-black: #000000;      /* 最高对比的深色按钮、展示级大标题 */
-  --color-brand-orange: #f47d31;    /* 品牌 logo 圆点，仅此一处使用 */
-  --color-mindful-blue: #0061ef;    /* 每个视图仅一个的最高优先级操作 */
-  --color-sunbeam-yellow: #ffce00;  /* 情绪标点：本应用里表示"当前/此刻" */
-  --color-deep-indigo: #3b197f;     /* 沉思感插画填充 */
+  --color-page-cream: #f9f4f2; /* 页面画布，暖纸 */
+  --color-pure-white: #ffffff; /* 卡片、面板、输入框 */
+  --color-charcoal-ink: #2d2c2b; /* 正文、深色按钮 */
+  --color-graphite: #44423f; /* 次级文字、图标 */
+  --color-slate: #4b4c4d; /* 三级文字、辅助说明 */
+  --color-stone: #63605d; /* 禁用态、最低强调文字 */
+  --color-driftwood: #c6c1b9; /* 列表细分割线 */
+  --color-linen: #e2ded9; /* 卡片/输入框边框，奶油底上的分隔 */
+  --color-ash: #d0d0d0; /* 输入框边框、复选框边框 */
+  --color-soft-black: #000000; /* 最高对比的深色按钮、展示级大标题 */
+  --color-brand-orange: #f47d31; /* 品牌 logo 圆点，仅此一处使用 */
+  --color-mindful-blue: #0061ef; /* 每个视图仅一个的最高优先级操作 */
+  --color-sunbeam-yellow: #ffce00; /* 情绪标点：本应用里表示"当前/此刻" */
+  --color-deep-indigo: #3b197f; /* 沉思感插画填充 */
   --color-twilight-violet: #281466;
   --color-plum: #5f2b89;
   --color-mauve: #8144a8;
   --color-celeste: #00a4ff;
-  --color-blush: #ffa1cc;           /* 备用强调面 */
+  --color-blush: #ffa1cc; /* 备用强调面 */
 
   /* 功能色：DESIGN.md 未定义错误色，这里补一个低饱和的暖红，仅用于错误提示 */
   --color-error: #b3261e;
@@ -51,11 +51,10 @@
   /* ---- 字体 ---- */
   /* Headspace Apercu 为商用字体，按 DESIGN.md 建议用 Plus Jakarta Sans 替代；中文回退到系统苹方 */
   --font-sans:
-    'Plus Jakarta Sans Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    'Noto Sans SC', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    'Plus Jakarta Sans Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', ui-sans-serif,
+    system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono:
-    ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono',
-    'Courier New', monospace;
+    ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
   /* ---- 字号刻度（字号 / 行高 / 字距）---- */
   --text-caption: 12px;
@@ -96,13 +95,13 @@
 
   /* ---- 圆角 ---- */
   --radius-sm: 6px;
-  --radius-md: 8px;      /* 输入框、小元素 */
+  --radius-md: 8px; /* 输入框、小元素 */
   --radius-lg: 8px;
-  --radius-xl: 12px;     /* 提示气泡 */
-  --radius-2xl: 16px;    /* 卡片 */
-  --radius-3xl: 24px;    /* 特色区块 */
-  --radius-4xl: 32px;    /* 大型特色区块 */
-  --radius-pill: 800px;  /* DESIGN.md 的药丸字面值，等价于 rounded-full */
+  --radius-xl: 12px; /* 提示气泡 */
+  --radius-2xl: 16px; /* 卡片 */
+  --radius-3xl: 24px; /* 特色区块 */
+  --radius-4xl: 32px; /* 大型特色区块 */
+  --radius-pill: 800px; /* DESIGN.md 的药丸字面值，等价于 rounded-full */
 
   /* ---- 阴影 ---- */
   /* 深色药丸按钮的"印刷贴纸"偏移阴影 */

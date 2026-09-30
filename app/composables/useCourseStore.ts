@@ -28,7 +28,7 @@ let initialization: Promise<void> | undefined
 let operation = 0
 
 async function initialize() {
-  return initialization ??= (async () => {
+  return (initialization ??= (async () => {
     const [list, saved, library] = await Promise.all([
       dbFetchRecentCourses(),
       readCourseHandles().catch(() => {
@@ -38,17 +38,23 @@ async function initialize() {
       databaseRequest<LibraryCourse[]>('library'),
     ])
     for (const [id, handle] of saved) handles.set(id, markRaw(handle))
-    state.recents = list.map(r => ({ ...r, handle: handles.get(r.id) }))
+    state.recents = list
+      .map((r) => ({ ...r, handle: handles.get(r.id) }))
       .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
-    state.library = library.map(r => ({ ...r, handle: handles.get(r.id) }))
+    state.library = library.map((r) => ({ ...r, handle: handles.get(r.id) }))
     state.libraryReady = true
-  })().catch(error => { initialization = undefined; state.error = '课程列表读取失败，请重试。'; throw error })
+  })().catch((error) => {
+    initialization = undefined
+    state.error = '课程列表读取失败，请重试。'
+    throw error
+  }))
 }
 
 async function getRecent(id: string): Promise<RecentCourse | null> {
-  const recent = state.recents.find(r => r.id === id)
-    ?? state.library.find(r => r.id === id)
-    ?? await databaseRequest<RecentCourse | null>('library', { query: { id } })
+  const recent =
+    state.recents.find((r) => r.id === id) ??
+    state.library.find((r) => r.id === id) ??
+    (await databaseRequest<RecentCourse | null>('library', { query: { id } }))
   if (!recent) return null
   return { ...recent, handle: handles.get(recent.id) ?? handles.get(id) }
 }
@@ -61,8 +67,11 @@ async function saveRecent(recent: RecentCourse) {
 async function findIdentity(handle: CourseDirectoryHandle) {
   for (const [id, saved] of handles) {
     let same = false
-    try { same = await saved.isSameEntry(handle) }
-    catch { /* 单个目录不可用不影响其他已保存的课程位置 */ }
+    try {
+      same = await saved.isSameEntry(handle)
+    } catch {
+      /* 单个目录不可用不影响其他已保存的课程位置 */
+    }
     if (same) return { id, recent: await getRecent(id) }
   }
   return null
@@ -74,7 +83,7 @@ async function validateRelink(recent: RecentCourse, handle: CourseDirectoryHandl
   const metadata = guide?.metadata
   if (metadata && typeof metadata === 'object') {
     const entries = Object.entries(metadata)
-    const byPath = new Map(videos.map(video => [video.path, video]))
+    const byPath = new Map(videos.map((video) => [video.path, video]))
     for (const [path, previous] of entries) {
       const video = byPath.get(path)
       if (!video) return false
@@ -82,7 +91,7 @@ async function validateRelink(recent: RecentCourse, handle: CourseDirectoryHandl
       if (file.size !== previous.size || file.lastModified !== previous.modified) return false
     }
   }
-  return !recent.lastVideoPath || videos.some(v => v.path === recent.lastVideoPath)
+  return !recent.lastVideoPath || videos.some((v) => v.path === recent.lastVideoPath)
 }
 
 export function useCourseStore() {
@@ -91,7 +100,12 @@ export function useCourseStore() {
     void initialize().catch(() => {})
   }
 
-  async function loadCourse(handle: CourseDirectoryHandle, preferredVideoPath?: string, recent?: RecentCourse, token = ++operation) {
+  async function loadCourse(
+    handle: CourseDirectoryHandle,
+    preferredVideoPath?: string,
+    recent?: RecentCourse,
+    token = ++operation,
+  ) {
     state.loading = true
     state.error = ''
     try {
@@ -101,8 +115,10 @@ export function useCourseStore() {
       if (!videos.length) throw new Error(`「${handle.name}」中未找到视频文件。`)
       const identity = await findIdentity(handle)
       if (recent && !recent.handle) {
-        if (identity && (identity.recent?.id ?? identity.id) !== recent.id) throw new Error('所选文件夹已关联其他课程，请选择该课程的原文件夹。')
-        if (!await validateRelink(recent, handle, videos)) throw new Error(`所选文件夹与「${recent.name}」的课程记录不一致，请选择原课程文件夹。`)
+        if (identity && (identity.recent?.id ?? identity.id) !== recent.id)
+          throw new Error('所选文件夹已关联其他课程，请选择该课程的原文件夹。')
+        if (!(await validateRelink(recent, handle, videos)))
+          throw new Error(`所选文件夹与「${recent.name}」的课程记录不一致，请选择原课程文件夹。`)
       }
       const existing = recent ?? identity?.recent
       const id = existing?.id ?? identity?.id ?? crypto.randomUUID()
@@ -113,20 +129,26 @@ export function useCourseStore() {
       if (token !== operation) return false
       handles.set(id, rawHandle)
       const entry: RecentCourse = {
-        id, name: handle.name, handle: rawHandle, videoCount: videos.length,
-        lastOpenedAt: Date.now(), lastVideoPath: existing?.lastVideoPath,
+        id,
+        name: handle.name,
+        handle: rawHandle,
+        videoCount: videos.length,
+        lastOpenedAt: Date.now(),
+        lastVideoPath: existing?.lastVideoPath,
       }
       // 进度需先就绪，直接打开播放器时才能恢复播放位置。
       await progress.ready()
       if (token !== operation) return false
       state.course = { id, name: handle.name, handle: rawHandle, root: tree, videos }
       state.accessRecent = entry
-      state.recents = [entry, ...state.recents.filter(r => r.id !== id)].slice(0, MAX_RECENTS)
-      const libraryEntry = state.library.find(r => r.id === id)
+      state.recents = [entry, ...state.recents.filter((r) => r.id !== id)].slice(0, MAX_RECENTS)
+      const libraryEntry = state.library.find((r) => r.id === id)
       if (libraryEntry) Object.assign(libraryEntry, entry)
       else state.library.unshift({ ...entry, status: 'active', pinned: false })
-      const target = videos.find(v => v.path === preferredVideoPath)
-        ?? videos.find(v => v.path === entry.lastVideoPath) ?? videos[0]!
+      const target =
+        videos.find((v) => v.path === preferredVideoPath) ??
+        videos.find((v) => v.path === entry.lastVideoPath) ??
+        videos[0]!
       state.currentVideo = target
       entry.lastVideoPath = target.path
       await saveRecent(entry)
@@ -152,7 +174,9 @@ export function useCourseStore() {
     } catch (err) {
       if ((err as DOMException).name !== 'AbortError') state.error = `打开文件夹失败：${(err as Error).message}`
       return false
-    } finally { if (token === operation) state.loading = false }
+    } finally {
+      if (token === operation) state.loading = false
+    }
   }
 
   /** 仅由用户操作触发：优先使用已保存的课程位置，缺失时打开目录选择框。 */
@@ -162,10 +186,10 @@ export function useCourseStore() {
     state.loading = true
     state.error = ''
     try {
-      const saved = replaceHandle ? undefined : recent.handle ?? handles.get(recent.id)
-      const handle = saved ?? await chooseCourseFolder()
+      const saved = replaceHandle ? undefined : (recent.handle ?? handles.get(recent.id))
+      const handle = saved ?? (await chooseCourseFolder())
       if (!handle) return false
-      if (saved && !await saved.isAvailable()) {
+      if (saved && !(await saved.isAvailable())) {
         state.error = '课程目录无法访问，请重新关联原文件夹。'
         return false
       }
@@ -174,7 +198,9 @@ export function useCourseStore() {
     } catch (err) {
       if ((err as DOMException).name !== 'AbortError') state.error = '无法访问课程文件夹，请重新关联原文件夹。'
       return false
-    } finally { if (token === operation) state.loading = false }
+    } finally {
+      if (token === operation) state.loading = false
+    }
   }
 
   /** 路由恢复不弹出目录选择框；课程位置不可用时由页面提示重新关联。 */
@@ -191,37 +217,51 @@ export function useCourseStore() {
       const recent = await getRecent(id)
       if (token !== operation) return false
       state.accessRecent = recent
-      if (!recent) { state.error = '课程记录不存在或已从最近列表移除。'; return false }
-      if (!recent.handle || !await recent.handle.isAvailable()) return false
+      if (!recent) {
+        state.error = '课程记录不存在或已从最近列表移除。'
+        return false
+      }
+      if (!recent.handle || !(await recent.handle.isAvailable())) return false
       if (token !== operation) return false
       return await loadCourse(recent.handle, recent.lastVideoPath, recent, token)
     } catch {
       if (token === operation) state.error = '课程恢复失败，请重新关联文件夹或重试。'
       return false
-    } finally { if (token === operation) state.loading = false }
+    } finally {
+      if (token === operation) state.loading = false
+    }
   }
 
   async function removeRecent(recent: RecentCourse) {
-    if (!await dbDeleteRecentCourse(recent.id)) { state.error = '移除失败，请稍后重试。'; return }
-    state.recents = state.recents.filter(r => r.id !== recent.id)
+    if (!(await dbDeleteRecentCourse(recent.id))) {
+      state.error = '移除失败，请稍后重试。'
+      return
+    }
+    state.recents = state.recents.filter((r) => r.id !== recent.id)
     // 保留目录与课程的对应关系，重新导入时沿用原有学习记录。
   }
 
   async function updateLibrary(id: string, patch: Partial<Pick<LibraryCourse, 'status' | 'pinned'>>) {
     try {
       await databaseRequest('library', { method: 'POST', body: { id, ...patch } })
-      const entry = state.library.find(r => r.id === id)
+      const entry = state.library.find((r) => r.id === id)
       if (entry) Object.assign(entry, patch)
       return true
-    } catch { state.error = '课程状态保存失败，请重试。'; return false }
+    } catch {
+      state.error = '课程状态保存失败，请重试。'
+      return false
+    }
   }
 
   function selectVideo(video: VideoEntry) {
     if (state.currentVideo === video) return
     state.currentVideo = video
-    const recent = state.recents.find(r => r.id === state.course?.id)
-    if (recent) { recent.lastVideoPath = video.path; void saveRecent(recent) }
-    const entry = state.library.find(r => r.id === state.course?.id)
+    const recent = state.recents.find((r) => r.id === state.course?.id)
+    if (recent) {
+      recent.lastVideoPath = video.path
+      void saveRecent(recent)
+    }
+    const entry = state.library.find((r) => r.id === state.course?.id)
     if (entry) entry.lastVideoPath = video.path
   }
 
@@ -246,7 +286,8 @@ export function useCourseStore() {
     const course = state.course
     if (!course) return { total: 0, done: 0, started: 0 }
     const map = progress.courseProgress(course.id)
-    let done = 0, started = 0
+    let done = 0,
+      started = 0
     for (const v of course.videos) {
       const p = map[v.path]
       if (p?.done) done++
@@ -255,5 +296,18 @@ export function useCourseStore() {
     return { total: course.videos.length, done, started }
   })
 
-  return { state, stats, initialize, openFolder, loadCourse, reopenRecent, restoreCourse, removeRecent, updateLibrary, selectVideo, selectByOffset, closeCourse }
+  return {
+    state,
+    stats,
+    initialize,
+    openFolder,
+    loadCourse,
+    reopenRecent,
+    restoreCourse,
+    removeRecent,
+    updateLibrary,
+    selectVideo,
+    selectByOffset,
+    closeCourse,
+  }
 }

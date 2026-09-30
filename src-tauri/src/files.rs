@@ -192,23 +192,42 @@ pub async fn fs_video_metadata(
     root: String,
     videos: Vec<VideoMetadataRequest>,
 ) -> db::Result<Vec<VideoMetadata>> {
-    if videos.len() > 64 { return Err("每批最多读取 64 个视频".into()); }
+    if videos.len() > 64 {
+        return Err("每批最多读取 64 个视频".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        Ok(videos.into_iter().map(|video| {
-            let mut result = VideoMetadata { relative: video.relative.clone(), size: 0, modified: 0, duration: None, readable: false };
-            if let Ok(path) = authorized(&state, &root, &video.relative, false) {
-                if let Ok(info) = entry(&path, video.relative) {
-                    if info.kind != "file" { return result; }
-                    result.size = info.size; result.modified = info.modified; result.readable = true;
-                    result.duration = video.cached.filter(|old| old.size == info.size && old.modified == info.modified)
-                        .and_then(|old| old.duration.filter(|d| d.is_finite() && *d > 0.0))
-                        .or_else(|| crate::media_duration::read_duration(&path));
+        Ok(videos
+            .into_iter()
+            .map(|video| {
+                let mut result = VideoMetadata {
+                    relative: video.relative.clone(),
+                    size: 0,
+                    modified: 0,
+                    duration: None,
+                    readable: false,
+                };
+                if let Ok(path) = authorized(&state, &root, &video.relative, false) {
+                    if let Ok(info) = entry(&path, video.relative) {
+                        if info.kind != "file" {
+                            return result;
+                        }
+                        result.size = info.size;
+                        result.modified = info.modified;
+                        result.readable = true;
+                        result.duration = video
+                            .cached
+                            .filter(|old| old.size == info.size && old.modified == info.modified)
+                            .and_then(|old| old.duration.filter(|d| d.is_finite() && *d > 0.0))
+                            .or_else(|| crate::media_duration::read_duration(&path));
+                    }
                 }
-            }
-            result
-        }).collect())
-    }).await.map_err(|e| e.to_string())?
+                result
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub fn fs_entries(

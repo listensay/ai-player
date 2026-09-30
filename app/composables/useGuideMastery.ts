@@ -4,7 +4,10 @@ import type { GuideLesson, MasteryLevel } from '~/types/guide'
 import type { GuideWorkspaceState } from '~/types/guideWorkspace'
 import { applyMastery, lessonConcepts, masteryKey } from '~/utils/learningFeedback'
 
-export function useGuideMastery(state: GuideWorkspaceState, options: { lessonMap: Ref<Map<string, GuideLesson>>; videoMap: Ref<Map<string, VideoEntry>>; persist: () => void }) {
+export function useGuideMastery(
+  state: GuideWorkspaceState,
+  options: { lessonMap: Ref<Map<string, GuideLesson>>; videoMap: Ref<Map<string, VideoEntry>>; persist: () => void },
+) {
   const { lessonMap, videoMap, persist } = options
   function setMastery(path: string, concept: string, level: MasteryLevel | '') {
     const lesson = lessonMap.value.get(path)

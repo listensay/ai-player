@@ -2,14 +2,21 @@ import type { AiProfile, AiSettingsCollection, GuideSettings } from '../types/gu
 import { completionUrl } from './guideAi.ts'
 import { isRecord } from './guide.ts'
 
-export const emptyAiSettings = (): GuideSettings => ({ provider: 'openai', contextWindow: 'default', baseUrl: '', model: '', apiKey: '', timeoutMinutes: 15 })
+export const emptyAiSettings = (): GuideSettings => ({
+  provider: 'openai',
+  contextWindow: 'default',
+  baseUrl: '',
+  model: '',
+  apiKey: '',
+  timeoutMinutes: 15,
+})
 export const emptyAiCollection = (): AiSettingsCollection => ({ version: 2, profiles: [], activeId: '' })
 
 function readModelIds(value: unknown, model: string): string[] {
-  if (value !== undefined && (!Array.isArray(value) || value.some(id => typeof id !== 'string'))) {
+  if (value !== undefined && (!Array.isArray(value) || value.some((id) => typeof id !== 'string'))) {
     throw new Error('AI 模型列表格式无效，请检查配置。')
   }
-  return [...new Set([...(value as string[] | undefined ?? []), model].map(id => id.trim()).filter(Boolean))]
+  return [...new Set([...((value as string[] | undefined) ?? []), model].map((id) => id.trim()).filter(Boolean))]
 }
 
 function readSettings(value: Record<string, unknown>): GuideSettings {
@@ -25,8 +32,10 @@ function readSettings(value: Record<string, unknown>): GuideSettings {
     baseUrl: typeof value.baseUrl === 'string' ? value.baseUrl.trim() : '',
     model: typeof value.model === 'string' ? value.model.trim() : '',
     apiKey: typeof value.apiKey === 'string' ? value.apiKey.trim() : '',
-    timeoutMinutes: typeof value.timeoutMinutes === 'number' && Number.isFinite(value.timeoutMinutes)
-      ? Math.min(30, Math.max(1, value.timeoutMinutes)) : 15,
+    timeoutMinutes:
+      typeof value.timeoutMinutes === 'number' && Number.isFinite(value.timeoutMinutes)
+        ? Math.min(30, Math.max(1, value.timeoutMinutes))
+        : 15,
   }
 }
 
@@ -36,7 +45,12 @@ export function restoreAiSettings(value: unknown): AiSettingsCollection {
   if (!isRecord(value)) throw new Error('AI 配置格式异常，请检查本地配置。')
   if (!('version' in value) && ('baseUrl' in value || 'model' in value)) {
     const settings = readSettings(value)
-    const profile = { ...settings, modelIds: readModelIds(value.modelIds, settings.model), id: 'legacy-default', name: '原有配置' }
+    const profile = {
+      ...settings,
+      modelIds: readModelIds(value.modelIds, settings.model),
+      id: 'legacy-default',
+      name: '原有配置',
+    }
     return { version: 2, profiles: [profile], activeId: profile.id }
   }
   if (value.version !== 2 || !Array.isArray(value.profiles) || typeof value.activeId !== 'string') {
@@ -44,9 +58,17 @@ export function restoreAiSettings(value: unknown): AiSettingsCollection {
   }
   const ids = new Set<string>()
   const profiles = value.profiles.map((item): AiProfile => {
-    if (!isRecord(item) || typeof item.id !== 'string' || !item.id || ids.has(item.id)
-      || typeof item.name !== 'string' || !item.name.trim()
-      || typeof item.baseUrl !== 'string' || typeof item.model !== 'string' || typeof item.apiKey !== 'string') {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== 'string' ||
+      !item.id ||
+      ids.has(item.id) ||
+      typeof item.name !== 'string' ||
+      !item.name.trim() ||
+      typeof item.baseUrl !== 'string' ||
+      typeof item.model !== 'string' ||
+      typeof item.apiKey !== 'string'
+    ) {
       throw new Error('AI 配置列表异常，请检查本地配置。')
     }
     ids.add(item.id)
@@ -67,5 +89,9 @@ export function validateAiProfile(value: GuideSettings & { name: string; modelId
 }
 
 export function removeAiProfile(collection: AiSettingsCollection, id: string): AiSettingsCollection {
-  return { version: 2, profiles: collection.profiles.filter(p => p.id !== id), activeId: collection.activeId === id ? '' : collection.activeId }
+  return {
+    version: 2,
+    profiles: collection.profiles.filter((p) => p.id !== id),
+    activeId: collection.activeId === id ? '' : collection.activeId,
+  }
 }

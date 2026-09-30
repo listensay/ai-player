@@ -1,5 +1,14 @@
 import type {
-  GuideLesson, KnowledgeModule, LearningPlan, StagePractice, StageTask, StudyBudget, StudyProgram, StudyRecords, WorkEntry, WorkKind,
+  GuideLesson,
+  KnowledgeModule,
+  LearningPlan,
+  StagePractice,
+  StageTask,
+  StudyBudget,
+  StudyProgram,
+  StudyRecords,
+  WorkEntry,
+  WorkKind,
 } from '../types/guide'
 import type { VideoProgress } from '../types/course'
 
@@ -11,8 +20,9 @@ export const LIGHT_TASK_ID = 'light-review'
 export const emptyBudget = (): StudyBudget => ({ video: 0, code: 0, project: 0, recap: 0 })
 const DAY = 86_400_000
 
-const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
-const integer = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
+const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+const integer = (v: unknown, min: number, max: number): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
 const text = (v: unknown, max = 2000): v is string => typeof v === 'string' && v.trim().length > 0 && v.length <= max
 /** 深拷贝；来源可能是响应式代理，不能使用 structuredClone。 */
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
@@ -21,29 +31,62 @@ export const checkKey = (moduleId: string, checkId: string) => JSON.stringify([m
 export const emptyStudyRecords = (): StudyRecords => ({ entries: [], checks: {}, activeModuleId: '', undo: null })
 
 export function validDate(v: unknown): v is string {
-  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v
+  return (
+    typeof v === 'string' &&
+    /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+    !Number.isNaN(Date.parse(v)) &&
+    new Date(v).toISOString().slice(0, 10) === v
+  )
 }
 
 export function parseBudget(v: unknown): StudyBudget {
-  if (!object(v) || !['video', 'code', 'project', 'recap'].every(k => integer(v[k], 0, 1440))) throw new Error('各项时间需为 0–1440 的整数分钟。')
+  if (
+    !object(v) ||
+    !integer(v.video, 0, 1440) ||
+    !integer(v.code, 0, 1440) ||
+    !integer(v.project, 0, 1440) ||
+    !integer(v.recap, 0, 1440)
+  )
+    throw new Error('各项时间需为 0–1440 的整数分钟。')
   const b = { video: v.video, code: v.code, project: v.project, recap: v.recap }
   if (budgetTotal(b) < 5 || budgetTotal(b) > 1440) throw new Error('每日总投入需为 5–1440 分钟。')
   return b
 }
 
 export function parseProgram(v: unknown): StudyProgram {
-  if (!object(v) || !integer(v.days, 1, 1095) || !validDate(v.startDate) || !integer(v.lightEvery, 0, 30) || !integer(v.lightMinutes, 5, 1440)) {
+  if (
+    !object(v) ||
+    !integer(v.days, 1, 1095) ||
+    !validDate(v.startDate) ||
+    !integer(v.lightEvery, 0, 30) ||
+    !integer(v.lightMinutes, 5, 1440)
+  ) {
     throw new Error('请填写有效的计划天数、开始日期和复盘日安排。')
   }
-  const program: StudyProgram = { days: v.days, startDate: v.startDate, budget: parseBudget(v.budget), lightEvery: v.lightEvery, lightMinutes: v.lightMinutes }
+  const program: StudyProgram = {
+    days: v.days,
+    startDate: v.startDate,
+    budget: parseBudget(v.budget),
+    lightEvery: v.lightEvery,
+    lightMinutes: v.lightMinutes,
+  }
   if (v.lightTask !== undefined && v.lightTask !== null) {
-    if (!object(v.lightTask) || !text(v.lightTask.title, 200) || !text(v.lightTask.instructions)) throw new Error('复盘日安排需包含标题和操作要求。')
+    if (!object(v.lightTask) || !text(v.lightTask.title, 200) || !text(v.lightTask.instructions))
+      throw new Error('复盘日安排需包含标题和操作要求。')
     program.lightTask = { title: v.lightTask.title.trim(), instructions: v.lightTask.instructions.trim() }
   }
   if (v.calendar !== undefined) {
     const c = v.calendar
-    if (!object(c) || !Array.isArray(c.weekdays) || c.weekdays.length > 7 || c.weekdays.some((d: unknown) => !integer(d, 1, 7))
-      || new Set(c.weekdays).size !== c.weekdays.length || !object(c.overrides) || Object.keys(c.overrides).length > 3650) throw new Error('每周学习日或日期安排无效。')
+    if (
+      !object(c) ||
+      !Array.isArray(c.weekdays) ||
+      c.weekdays.length > 7 ||
+      c.weekdays.some((d: unknown) => !integer(d, 1, 7)) ||
+      new Set(c.weekdays).size !== c.weekdays.length ||
+      !object(c.overrides) ||
+      Object.keys(c.overrides).length > 3650
+    )
+      throw new Error('每周学习日或日期安排无效。')
     const overrides: Record<string, StudyBudget> = {}
     for (const [date, budget] of Object.entries(c.overrides)) {
       if (!validDate(date)) throw new Error('临时安排日期无效。')
@@ -52,7 +95,12 @@ export function parseProgram(v: unknown): StudyProgram {
     program.calendar = { weekdays: [...c.weekdays].sort((a, b) => a - b), overrides }
     if (c.weekendBudget !== undefined) program.calendar.weekendBudget = parseDayBudget(c.weekendBudget)
     if (c.pause !== undefined) {
-      if (!object(c.pause) || !validDate(c.pause.from) || (c.pause.until !== null && (!validDate(c.pause.until) || c.pause.until <= c.pause.from))) throw new Error('恢复日期须晚于暂停开始日期。')
+      if (
+        !object(c.pause) ||
+        !validDate(c.pause.from) ||
+        (c.pause.until !== null && (!validDate(c.pause.until) || c.pause.until <= c.pause.from))
+      )
+        throw new Error('恢复日期须晚于暂停开始日期。')
       program.calendar.pause = { from: c.pause.from, until: c.pause.until }
     }
   }
@@ -61,7 +109,14 @@ export function parseProgram(v: unknown): StudyProgram {
 
 /** 单日允许休息，也允许少于五分钟的临时安排。 */
 export function parseDayBudget(v: unknown): StudyBudget {
-  if (!object(v) || !['video', 'code', 'project', 'recap'].every(k => integer(v[k], 0, 1440))) throw new Error('各项时间需为 0–1440 的整数分钟。')
+  if (
+    !object(v) ||
+    !integer(v.video, 0, 1440) ||
+    !integer(v.code, 0, 1440) ||
+    !integer(v.project, 0, 1440) ||
+    !integer(v.recap, 0, 1440)
+  )
+    throw new Error('各项时间需为 0–1440 的整数分钟。')
   const budget = { video: v.video, code: v.code, project: v.project, recap: v.recap }
   if (budgetTotal(budget) > 1440) throw new Error('每日总投入不能超过 1440 分钟。')
   return budget
@@ -76,26 +131,64 @@ export function isPaused(program: StudyProgram | undefined, date: string) {
 }
 
 export function parseStage(v: unknown): StagePractice {
-  if (!object(v) || !integer(v.startDay, 1, 1095) || !integer(v.endDay, v.startDay, 1095) || !text(v.goal) || !text(v.project) || !text(v.skipWhen)) {
+  if (
+    !object(v) ||
+    !integer(v.startDay, 1, 1095) ||
+    !integer(v.endDay, v.startDay, 1095) ||
+    !text(v.goal) ||
+    !text(v.project) ||
+    !text(v.skipWhen)
+  ) {
     throw new Error('阶段需包含有效的日期范围、目标、交付物和跳过条件。')
   }
-  if (!Array.isArray(v.tasks) || !Array.isArray(v.checks) || v.tasks.length > 50 || v.checks.length > 30) throw new Error('阶段任务或验收清单格式不正确。')
+  if (!Array.isArray(v.tasks) || !Array.isArray(v.checks) || v.tasks.length > 50 || v.checks.length > 30)
+    throw new Error('阶段任务或验收清单格式不正确。')
   const seen = new Set<string>()
-  const tasks = v.tasks.map((t: any): StageTask => {
-    if (!object(t) || !text(t.id, 100) || seen.has(t.id) || !Object.hasOwn(WORK_LABELS, t.kind) || !text(t.title, 200) || !text(t.instructions)) {
+  const tasks = v.tasks.map((t: unknown): StageTask => {
+    if (
+      !object(t) ||
+      !text(t.id, 100) ||
+      seen.has(t.id) ||
+      typeof t.kind !== 'string' ||
+      !Object.hasOwn(WORK_LABELS, t.kind) ||
+      !text(t.title, 200) ||
+      !text(t.instructions)
+    ) {
       throw new Error('实践任务需包含唯一编号、类型、标题和操作要求。')
     }
     seen.add(t.id)
-    return { id: t.id, kind: t.kind as WorkKind, title: t.title.trim(), instructions: t.instructions.trim(), ...(t.repeat === true ? { repeat: true } : {}) }
+    return {
+      id: t.id,
+      kind: t.kind as WorkKind,
+      title: t.title.trim(),
+      instructions: t.instructions.trim(),
+      ...(t.repeat === true ? { repeat: true } : {}),
+    }
   })
   seen.clear()
-  const checks = v.checks.map((c: any) => {
-    if (!object(c) || !text(c.id, 100) || seen.has(c.id) || !['exercise', 'project'].includes(c.kind) || !text(c.text)) throw new Error('验收项需包含唯一编号、类型和验收要求。')
+  const checks = v.checks.map((c: unknown) => {
+    if (
+      !object(c) ||
+      !text(c.id, 100) ||
+      seen.has(c.id) ||
+      typeof c.kind !== 'string' ||
+      !['exercise', 'project'].includes(c.kind) ||
+      !text(c.text)
+    )
+      throw new Error('验收项需包含唯一编号、类型和验收要求。')
     seen.add(c.id)
     return { id: c.id, kind: c.kind as 'exercise' | 'project', text: c.text.trim() }
   })
-  return { startDay: v.startDay, endDay: v.endDay, goal: v.goal.trim(), project: v.project.trim(), skipWhen: v.skipWhen.trim(), tasks, checks,
-    ...(v.budget ? { budget: parseBudget(v.budget) } : {}) }
+  return {
+    startDay: v.startDay,
+    endDay: v.endDay,
+    goal: v.goal.trim(),
+    project: v.project.trim(),
+    skipWhen: v.skipWhen.trim(),
+    tasks,
+    checks,
+    ...(v.budget ? { budget: parseBudget(v.budget) } : {}),
+  }
 }
 
 /** 计划第几天（开始日为第 1 天）。日期均为本地日期键，按 UTC 零点换算，不受时区影响。 */
@@ -105,15 +198,17 @@ export function programDay(program: StudyProgram, date: string) {
 export function programDate(program: StudyProgram, day: number) {
   return new Date(Date.parse(program.startDate) + (day - 1) * DAY).toISOString().slice(0, 10)
 }
-export const isLightDay = (program: StudyProgram, day: number) => day >= 1 && !!program.lightEvery && day % program.lightEvery === 0
+export const isLightDay = (program: StudyProgram, day: number) =>
+  day >= 1 && !!program.lightEvery && day % program.lightEvery === 0
 
 export function stageForDay(modules: KnowledgeModule[], day: number) {
-  return modules.find(m => m.practice && day >= m.practice.startDay && day <= m.practice.endDay)
+  return modules.find((m) => m.practice && day >= m.practice.startDay && day <= m.practice.endDay)
 }
 
 export function budgetForDay(program: StudyProgram, stage: StagePractice | undefined, day: number): StudyBudget {
   if (day < 1) return emptyBudget()
-  const date = programDate(program, day), calendar = program.calendar
+  const date = programDate(program, day),
+    calendar = program.calendar
   if (isPaused(program, date)) return emptyBudget()
   if (calendar?.overrides[date]) return { ...calendar.overrides[date] }
   const weekday = new Date(date).getUTCDay() || 7
@@ -130,21 +225,35 @@ export function dailyBudget(program: StudyProgram, stage: StagePractice | undefi
  * 按各阶段每日看课额度推算剩余视频在计划第几天看完；超出计划后按基础分配继续推算。
  * 返回 null 表示没有剩余视频，Infinity 表示看课额度为 0 无法完成。
  */
-export function videoFinishDay(program: StudyProgram, modules: KnowledgeModule[], date: string, remainingSeconds: number, consumedToday = 0): number | null {
+export function videoFinishDay(
+  program: StudyProgram,
+  modules: KnowledgeModule[],
+  date: string,
+  remainingSeconds: number,
+  consumedToday = 0,
+): number | null {
   if (remainingSeconds <= 0) return null
   let left = remainingSeconds
   const start = Math.max(1, programDay(program, date))
   for (let day = start; day < start + 3650; day++) {
     const stage = day <= program.days ? stageForDay(modules, day)?.practice : undefined
-    left -= Math.max(0, budgetForDay(program, stage, day).video * 60 - (day === programDay(program, date) ? consumedToday : 0))
+    left -= Math.max(
+      0,
+      budgetForDay(program, stage, day).video * 60 - (day === programDay(program, date) ? consumedToday : 0),
+    )
     if (left <= 0) return day
   }
   return Infinity
 }
 
 function taskDone(records: StudyRecords, moduleId: string, task: StageTask, date: string) {
-  return records.entries.some(e => e.moduleId === moduleId && e.taskId === task.id && e.done
-    && (task.repeat ? e.date === date : e.title === task.title))
+  return records.entries.some(
+    (e) =>
+      e.moduleId === moduleId &&
+      e.taskId === task.id &&
+      e.done &&
+      (task.repeat ? e.date === date : e.title === task.title),
+  )
 }
 
 export interface WorkContext {
@@ -163,13 +272,20 @@ export interface WorkContext {
 export function arrangeWork(ctx: WorkContext, records: StudyRecords): WorkEntry[] {
   const { date, moduleId, stage, budget } = ctx
   const owner = moduleId || 'program'
-  const result = records.entries.filter(e => e.date === date && (e.moduleId === owner || e.minutes > 0 || e.done || !!e.evidence.trim()))
-    .filter(e => e.done || e.minutes > 0 || !!e.evidence.trim() || (budget[e.kind] > 0 && (!ctx.light || e.taskId === LIGHT_TASK_ID)))
-    .map(e => ({ ...e }))
+  const result = records.entries
+    .filter((e) => e.date === date && (e.moduleId === owner || e.minutes > 0 || e.done || !!e.evidence.trim()))
+    .filter(
+      (e) =>
+        e.done ||
+        e.minutes > 0 ||
+        !!e.evidence.trim() ||
+        (budget[e.kind] > 0 && (!ctx.light || e.taskId === LIGHT_TASK_ID)),
+    )
+    .map((e) => ({ ...e }))
   // 减量后保留已有投入，只缩减尚未投入的目标；休息日不再新增实践。
   for (const kind of WORK_KINDS) {
-    let available = Math.max(0, budget[kind] - result.filter(e => e.kind === kind).reduce((n, e) => n + e.minutes, 0))
-    for (const entry of result.filter(e => e.kind === kind && !e.done)) {
+    let available = Math.max(0, budget[kind] - result.filter((e) => e.kind === kind).reduce((n, e) => n + e.minutes, 0))
+    for (const entry of result.filter((e) => e.kind === kind && !e.done)) {
       const remaining = available
       entry.targetMinutes = entry.minutes + remaining
       available -= remaining
@@ -177,24 +293,48 @@ export function arrangeWork(ctx: WorkContext, records: StudyRecords): WorkEntry[
   }
   if (budgetTotal(budget) === 0) return result
   if (ctx.light) {
-    if (!result.some(e => e.taskId === LIGHT_TASK_ID)) {
-      result.push({ id: `${date}:${owner}:${LIGHT_TASK_ID}`, date, moduleId: owner, taskId: LIGHT_TASK_ID, kind: 'recap', title: ctx.light.title,
-        instructions: ctx.light.instructions, targetMinutes: ctx.light.minutes, minutes: 0, evidence: '', done: false })
+    if (!result.some((e) => e.taskId === LIGHT_TASK_ID)) {
+      result.push({
+        id: `${date}:${owner}:${LIGHT_TASK_ID}`,
+        date,
+        moduleId: owner,
+        taskId: LIGHT_TASK_ID,
+        kind: 'recap',
+        title: ctx.light.title,
+        instructions: ctx.light.instructions,
+        targetMinutes: ctx.light.minutes,
+        minutes: 0,
+        evidence: '',
+        done: false,
+      })
     }
     return result
   }
   if (!stage) return result
   for (const kind of WORK_KINDS) {
     if (budget[kind] <= 0) continue
-    const mine = result.filter(e => e.kind === kind && e.moduleId === owner)
-    if (mine.some(e => !e.done)) continue
+    const mine = result.filter((e) => e.kind === kind && e.moduleId === owner)
+    if (mine.some((e) => !e.done)) continue
     const remaining = budget[kind] - mine.reduce((n, e) => n + e.minutes, 0)
     if (mine.length && remaining <= 0) continue
-    const candidates = stage.tasks.filter(t => t.kind === kind && !mine.some(e => e.taskId === t.id) && !taskDone(records, owner, t, date))
-    const task = candidates.find(t => !t.repeat) ?? candidates[0]
+    const candidates = stage.tasks.filter(
+      (t) => t.kind === kind && !mine.some((e) => e.taskId === t.id) && !taskDone(records, owner, t, date),
+    )
+    const task = candidates.find((t) => !t.repeat) ?? candidates[0]
     if (!task) continue
-    result.push({ id: `${date}:${owner}:${task.id}`, date, moduleId: owner, taskId: task.id, kind, title: task.title, instructions: task.instructions,
-      targetMinutes: mine.length ? remaining : budget[kind], minutes: 0, evidence: '', done: false })
+    result.push({
+      id: `${date}:${owner}:${task.id}`,
+      date,
+      moduleId: owner,
+      taskId: task.id,
+      kind,
+      title: task.title,
+      instructions: task.instructions,
+      targetMinutes: mine.length ? remaining : budget[kind],
+      minutes: 0,
+      evidence: '',
+      done: false,
+    })
   }
   return result
 }
@@ -203,47 +343,110 @@ export function restoreStudyRecords(raw: unknown): StudyRecords {
   const result = emptyStudyRecords()
   if (!object(raw)) return result
   const seen = new Set<string>()
-  if (Array.isArray(raw.entries)) for (const e of raw.entries.slice(-5000)) {
-    if (!object(e) || !text(e.id, 1000) || seen.has(e.id) || !validDate(e.date) || !text(e.moduleId, 100) || !text(e.taskId, 200)
-      || !Object.hasOwn(WORK_LABELS, e.kind) || !text(e.title, 200) || typeof e.instructions !== 'string'
-      || !integer(e.targetMinutes, 0, 1440) || !integer(e.minutes, 0, 1440) || typeof e.evidence !== 'string' || e.evidence.length > 6000 || typeof e.done !== 'boolean') continue
-    seen.add(e.id)
-    result.entries.push({ id: e.id, date: e.date, moduleId: e.moduleId, taskId: e.taskId, kind: e.kind, title: e.title, instructions: e.instructions,
-      targetMinutes: e.targetMinutes, minutes: e.minutes, evidence: e.evidence, done: e.done })
-  }
-  if (object(raw.checks)) for (const [key, c] of Object.entries(raw.checks)) {
-    if (object(c) && text(c.text) && typeof c.evidence === 'string' && c.evidence.length <= 6000 && typeof c.passed === 'boolean' && Number.isFinite(c.updatedAt)) {
-      result.checks[key] = { text: c.text, evidence: c.evidence, passed: c.passed && !!c.evidence.trim(), updatedAt: c.updatedAt }
+  if (Array.isArray(raw.entries))
+    for (const e of raw.entries.slice(-5000)) {
+      if (
+        !object(e) ||
+        !text(e.id, 1000) ||
+        seen.has(e.id) ||
+        !validDate(e.date) ||
+        !text(e.moduleId, 100) ||
+        !text(e.taskId, 200) ||
+        typeof e.kind !== 'string' ||
+        !Object.hasOwn(WORK_LABELS, e.kind) ||
+        !text(e.title, 200) ||
+        typeof e.instructions !== 'string' ||
+        !integer(e.targetMinutes, 0, 1440) ||
+        !integer(e.minutes, 0, 1440) ||
+        typeof e.evidence !== 'string' ||
+        e.evidence.length > 6000 ||
+        typeof e.done !== 'boolean'
+      )
+        continue
+      seen.add(e.id)
+      result.entries.push({
+        id: e.id,
+        date: e.date,
+        moduleId: e.moduleId,
+        taskId: e.taskId,
+        kind: e.kind as WorkKind,
+        title: e.title,
+        instructions: e.instructions,
+        targetMinutes: e.targetMinutes,
+        minutes: e.minutes,
+        evidence: e.evidence,
+        done: e.done,
+      })
     }
-  }
+  if (object(raw.checks))
+    for (const [key, c] of Object.entries(raw.checks)) {
+      if (
+        object(c) &&
+        text(c.text) &&
+        typeof c.evidence === 'string' &&
+        c.evidence.length <= 6000 &&
+        typeof c.passed === 'boolean' &&
+        typeof c.updatedAt === 'number' &&
+        Number.isFinite(c.updatedAt)
+      ) {
+        result.checks[key] = {
+          text: c.text,
+          evidence: c.evidence,
+          passed: c.passed && !!c.evidence.trim(),
+          updatedAt: c.updatedAt,
+        }
+      }
+    }
   result.activeModuleId = typeof raw.activeModuleId === 'string' ? raw.activeModuleId.slice(0, 100) : ''
   // 路线快照在撤销时按当前课程目录再次校验。
-  if (object(raw.undo) && object(raw.undo.plan) && ['all', 'route'].includes(raw.undo.view) && typeof raw.undo.label === 'string') {
-    result.undo = { plan: raw.undo.plan as LearningPlan, includeOptional: raw.undo.includeOptional === true, view: raw.undo.view,
-      label: raw.undo.label.slice(0, 100), at: Number.isFinite(raw.undo.at) ? raw.undo.at : 0, scheduleOnly: raw.undo.scheduleOnly === true }
+  if (
+    object(raw.undo) &&
+    object(raw.undo.plan) &&
+    (raw.undo.view === 'all' || raw.undo.view === 'route') &&
+    typeof raw.undo.label === 'string'
+  ) {
+    result.undo = {
+      plan: raw.undo.plan as unknown as LearningPlan,
+      includeOptional: raw.undo.includeOptional === true,
+      view: raw.undo.view,
+      label: raw.undo.label.slice(0, 100),
+      at: typeof raw.undo.at === 'number' && Number.isFinite(raw.undo.at) ? raw.undo.at : 0,
+      scheduleOnly: raw.undo.scheduleOnly === true,
+    }
     const previous = raw.undo.todayOverride
-    if (object(previous) && validDate(previous.date) && (previous.minutes === null || integer(previous.minutes, 0, 1440))) result.undo.todayOverride = { date: previous.date, minutes: previous.minutes }
+    if (
+      object(previous) &&
+      validDate(previous.date) &&
+      (previous.minutes === null || integer(previous.minutes, 0, 1440))
+    )
+      result.undo.todayOverride = { date: previous.date, minutes: previous.minutes }
   }
   return result
 }
 
 /** 仅把相对次序真正变化的公共课节记为重排，前面新增一课不会让所有序号都算变更。 */
 export function compareRoutes(before: GuideLesson[], after: GuideLesson[]) {
-  const old = new Set(before.map(l => l.path)), next = new Set(after.map(l => l.path))
-  const commonBefore = before.filter(l => next.has(l.path)).map(l => l.path)
-  const commonAfter = after.filter(l => old.has(l.path)).map(l => l.path)
+  const old = new Set(before.map((l) => l.path)),
+    next = new Set(after.map((l) => l.path))
+  const commonBefore = before.filter((l) => next.has(l.path)).map((l) => l.path)
+  const commonAfter = after.filter((l) => old.has(l.path)).map((l) => l.path)
   const positions = new Map(commonBefore.map((p, i) => [p, i]))
-  return { added: after.filter(l => !old.has(l.path)), removed: before.filter(l => !next.has(l.path)), moved: commonAfter.filter((p, i) => positions.get(p) !== i) }
+  return {
+    added: after.filter((l) => !old.has(l.path)),
+    removed: before.filter((l) => !next.has(l.path)),
+    moved: commonAfter.filter((p, i) => positions.get(p) !== i),
+  }
 }
 
 /** AI 重新规划时未返回实践安排，则沿用原计划中同编号阶段的安排。 */
 export function inheritProgram(next: LearningPlan, previous: LearningPlan | null) {
   if (!previous) return next
   if (!next.program && previous.program) next.program = clone(previous.program)
-  for (const m of next.modules) if (!m.practice) {
-    const old = previous.modules.find(p => p.id === m.id)
-    if (old?.practice) m.practice = clone(old.practice)
-  }
+  for (const m of next.modules)
+    if (!m.practice) {
+      const old = previous.modules.find((p) => p.id === m.id)
+      if (old?.practice) m.practice = clone(old.practice)
+    }
   return next
 }
 
@@ -251,9 +454,12 @@ export function inheritProgram(next: LearningPlan, previous: LearningPlan | null
 export function parsePracticeImport(raw: unknown, modules: KnowledgeModule[], current?: StudyProgram) {
   if (!object(raw)) throw new Error('实践计划格式不正确。')
   const program = raw.program === undefined || raw.program === null ? undefined : parseProgram(raw.program)
-  const ids = new Set(modules.map(m => m.id))
-  const list: Array<[unknown, unknown]> | null = Array.isArray(raw.stages) ? raw.stages.map((s: any) => [s?.moduleId, s])
-    : object(raw.stages) ? Object.entries(raw.stages) : null
+  const ids = new Set(modules.map((m) => m.id))
+  const list: Array<[unknown, unknown]> | null = Array.isArray(raw.stages)
+    ? raw.stages.map((s: unknown) => [object(s) ? s.moduleId : undefined, s])
+    : object(raw.stages)
+      ? Object.entries(raw.stages)
+      : null
   if (!list) throw new Error('实践计划缺少阶段安排。')
   const stages: Record<string, StagePractice> = {}
   for (const [id, stage] of list) {
@@ -264,7 +470,7 @@ export function parsePracticeImport(raw: unknown, modules: KnowledgeModule[], cu
   if (!program && !Object.keys(stages).length) throw new Error('实践计划为空。')
   const days = (program ?? current)?.days
   if (!days) throw new Error('请先设置完整学习计划的总天数。')
-  if (Object.values(stages).some(s => s.endDay > days)) throw new Error('阶段日期超出计划总天数。')
+  if (Object.values(stages).some((s) => s.endDay > days)) throw new Error('阶段日期超出计划总天数。')
   return { program, stages }
 }
 
@@ -276,20 +482,34 @@ export function applyPractice(plan: LearningPlan, practice: ReturnType<typeof pa
   for (const m of plan.modules) if (practice.stages[m.id]) m.practice = practice.stages[m.id]
 }
 
-export interface ProgressCount { done: number; total: number }
-export interface StageProgress { video: ProgressCount; exercise: ProgressCount; project: ProgressCount; complete: boolean }
+export interface ProgressCount {
+  done: number
+  total: number
+}
+export interface StageProgress {
+  video: ProgressCount
+  exercise: ProgressCount
+  project: ProgressCount
+  complete: boolean
+}
 
 /** 视频、练习和项目分别计数；验收项内容变化后原记录失效，需要重新确认。 */
-export function stageProgress(module: KnowledgeModule, route: GuideLesson[], progress: Record<string, VideoProgress>, records: StudyRecords): StageProgress {
-  const lessons = route.filter(l => l.moduleId === module.id)
-  const video = { done: lessons.filter(l => progress[l.path]?.done).length, total: lessons.length }
+export function stageProgress(
+  module: KnowledgeModule,
+  route: GuideLesson[],
+  progress: Record<string, VideoProgress>,
+  records: StudyRecords,
+): StageProgress {
+  const lessons = route.filter((l) => l.moduleId === module.id)
+  const video = { done: lessons.filter((l) => progress[l.path]?.done).length, total: lessons.length }
   const checks = module.practice?.checks ?? []
   const count = (kind: 'exercise' | 'project') => {
-    const items = checks.filter(c => c.kind === kind)
-    return { total: items.length, done: items.filter(c => checkPassed(records, module.id, c)).length }
+    const items = checks.filter((c) => c.kind === kind)
+    return { total: items.length, done: items.filter((c) => checkPassed(records, module.id, c)).length }
   }
-  const exercise = count('exercise'), project = count('project')
-  const complete = video.total + checks.length > 0 && [video, exercise, project].every(p => p.done >= p.total)
+  const exercise = count('exercise'),
+    project = count('project')
+  const complete = video.total + checks.length > 0 && [video, exercise, project].every((p) => p.done >= p.total)
   return { video, exercise, project, complete }
 }
 export function checkPassed(records: StudyRecords, moduleId: string, check: { id: string; text: string }) {
@@ -301,7 +521,11 @@ export function checkPassed(records: StudyRecords, moduleId: string, check: { id
 export function conciseLessonTitle(title: string) {
   let t = title.trim().replace(/^\d{1,4}(?:[\s._\-—–、:：]+|(?=[【[]))/, '')
   // 文件名常见“【AI_项目名（主题）】”形式，结尾括号可能缺失。
-  if (/^[【[]/.test(t)) t = t.slice(1).replace(/[】\]]\s*$/, '').trim()
+  if (/^[【[]/.test(t))
+    t = t
+      .slice(1)
+      .replace(/[】\]]\s*$/, '')
+      .trim()
   t = t.replace(/^AI大模型之[^_]+_/, '')
   const project = /^AI[_\s]+[^（(_\s]{2,12}[（(](.+)$/.exec(t)
   if (project) {
@@ -317,13 +541,18 @@ export function conciseLessonTitle(title: string) {
 export function conciseSource(dir: string) {
   const parts = dir.split('/').filter(Boolean)
   if (!parts.length) return ''
-  const chapter = parts[0]!.replace(/^\d{1,3}[_\s.\-、]*/, '').replace(/^尚硅谷(?:大模型)?(?:技术|项目)?之/, '') || parts[0]!
-  const day = parts.slice(1).map(p => /^day\s*0*(\d+)/i.exec(p)).find(Boolean)
+  const chapter =
+    parts[0]!.replace(/^\d{1,3}[_\s.\-、]*/, '').replace(/^尚硅谷(?:大模型)?(?:技术|项目)?之/, '') || parts[0]!
+  const day = parts
+    .slice(1)
+    .map((p) => /^day\s*0*(\d+)/i.exec(p))
+    .find(Boolean)
   return day ? `${chapter} · Day ${day[1]}` : chapter
 }
 
 export function formatMinutes(minutes: number) {
   if (minutes <= 0) return '0 分钟'
-  const h = Math.floor(minutes / 60), m = minutes % 60
+  const h = Math.floor(minutes / 60),
+    m = minutes % 60
   return h ? `${h} 小时${m ? ` ${m} 分钟` : ''}` : `${m} 分钟`
 }

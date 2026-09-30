@@ -10,8 +10,18 @@ const DONE_RATIO = 0.95
 
 type ProgressMap = Record<string, Record<string, VideoProgress>>
 
-export function createProgressStore(storage = { read: dbFetchAllProgress, write: dbSaveProgress }, delays = { save: 400, retry: 1000 }) {
-  const state = reactive({ map: {} as ProgressMap, ready: false, loading: false, saving: false, error: '', pendingCount: 0 })
+export function createProgressStore(
+  storage = { read: dbFetchAllProgress, write: dbSaveProgress },
+  delays = { save: 400, retry: 1000 },
+) {
+  const state = reactive({
+    map: {} as ProgressMap,
+    ready: false,
+    loading: false,
+    saving: false,
+    error: '',
+    pendingCount: 0,
+  })
   const pending = new Map<string, Parameters<typeof dbSaveProgress>[0]>()
   let loading: Promise<void> | undefined
   let saving: Promise<void> | undefined
@@ -24,18 +34,30 @@ export function createProgressStore(storage = { read: dbFetchAllProgress, write:
     if (loading) return loading
     state.loading = true
     loading = (async () => {
-      try { state.map = await storage.read(); state.ready = true; state.error = '' }
-      catch (error) { state.error = '播放进度读取失败，请重试后继续学习。'; throw error }
-      finally { state.loading = false; loading = undefined }
+      try {
+        state.map = await storage.read()
+        state.ready = true
+        state.error = ''
+      } catch (error) {
+        state.error = '播放进度读取失败，请重试后继续学习。'
+        throw error
+      } finally {
+        state.loading = false
+        loading = undefined
+      }
     })()
     return loading
   }
   function schedule(delay: number) {
     if (timer || disposed) return
-    timer = setTimeout(() => { timer = undefined; void flush().catch(() => {}) }, delay)
+    timer = setTimeout(() => {
+      timer = undefined
+      void flush().catch(() => {})
+    }, delay)
   }
   function flush(): Promise<void> {
-    clearTimeout(timer); timer = undefined
+    clearTimeout(timer)
+    timer = undefined
     if (saving) return saving
     if (!pending.size) return Promise.resolve()
     state.saving = true
@@ -43,17 +65,22 @@ export function createProgressStore(storage = { read: dbFetchAllProgress, write:
       try {
         while (pending.size) {
           const [key, item] = pending.entries().next().value!
-          if (!await storage.write(item)) throw new Error('播放进度保存失败，请重试。')
+          if (!(await storage.write(item))) throw new Error('播放进度保存失败，请重试。')
           // A newer edit for the same lesson must survive this write's completion.
           if (pending.get(key) === item) pending.delete(key)
           state.pendingCount = pending.size
         }
-        state.error = ''; retryDelay = delays.retry
+        state.error = ''
+        retryDelay = delays.retry
       } catch (error) {
         state.error = '播放进度尚未保存，正在重试。'
-        schedule(retryDelay); retryDelay = Math.min(30_000, retryDelay * 2)
+        schedule(retryDelay)
+        retryDelay = Math.min(30_000, retryDelay * 2)
         throw error
-      } finally { state.saving = false; saving = undefined }
+      } finally {
+        state.saving = false
+        saving = undefined
+      }
     })()
     return saving
   }
@@ -71,13 +98,7 @@ export function createProgressStore(storage = { read: dbFetchAllProgress, write:
     return state.map[courseId] ?? {}
   }
 
-  function update(
-    courseId: string,
-    path: string,
-    time: number,
-    duration: number,
-    opts: { ended?: boolean } = {},
-  ) {
+  function update(courseId: string, path: string, time: number, duration: number, opts: { ended?: boolean } = {}) {
     if (!state.ready || !Number.isFinite(time) || !Number.isFinite(duration) || duration <= 0) return
     const bucket = (state.map[courseId] ??= {})
     const prev = bucket[path]
@@ -113,8 +134,14 @@ export function createProgressStore(storage = { read: dbFetchAllProgress, write:
     update,
     markDone,
     flush,
-    retry: async () => { await loadFromDb(); await flush() },
-    dispose: () => { disposed = true; clearTimeout(timer) },
+    retry: async () => {
+      await loadFromDb()
+      await flush()
+    },
+    dispose: () => {
+      disposed = true
+      clearTimeout(timer)
+    },
   }
 }
 

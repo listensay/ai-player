@@ -18,21 +18,14 @@ export const SAMPLE_RATE = 16000
 export function decodeToPcm(inputPath, opts = {}) {
   const proc = spawn(
     ffmpegPath,
-    [
-      '-v', 'error',
-      '-nostdin',
-      '-i', inputPath,
-      '-vn',
-      '-ac', '1',
-      '-ar', String(SAMPLE_RATE),
-      '-f', 'f32le',
-      '-',
-    ],
+    ['-v', 'error', '-nostdin', '-i', inputPath, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', '-'],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   )
 
   let processError = null
-  proc.on('error', err => { processError = err })
+  proc.on('error', (err) => {
+    processError = err
+  })
   let stderr = ''
   proc.stderr.on('data', (d) => (stderr += d))
 
@@ -60,7 +53,10 @@ export function decodeToPcm(inputPath, opts = {}) {
       const code = await new Promise((resolve) => {
         if (proc.exitCode !== null) resolve(proc.exitCode)
         else if (proc.signalCode !== null) resolve(null)
-        else { proc.once('exit', resolve); proc.once('error', () => resolve(-1)) }
+        else {
+          proc.once('exit', resolve)
+          proc.once('error', () => resolve(-1))
+        }
       })
       if (code !== 0 && !opts.signal?.aborted) {
         const detail = stderr.trim()

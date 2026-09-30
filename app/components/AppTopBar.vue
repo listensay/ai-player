@@ -1,5 +1,4 @@
 <script setup lang="ts">
-
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 import { RouterLink } from 'vue-router'
@@ -23,14 +22,19 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <header class="flex h-14 shrink-0 items-center gap-2 border-b border-linen bg-pure-white px-3 sm:gap-4 sm:px-4 md:px-5">
+  <header
+    class="flex h-14 shrink-0 items-center gap-2 border-b border-linen bg-pure-white px-3 sm:gap-4 sm:px-4 md:px-5"
+  >
     <RouterLink to="/" aria-label="AI Player 首页" class="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
       <span class="h-3.5 w-3.5 rounded-full bg-brand-orange" aria-hidden="true" />
       <span class="text-body font-bold tracking-[-0.03em] text-charcoal-ink">AI Player</span>
     </RouterLink>
 
     <!-- 课程名称与集数进度 -->
-    <div v-if="courseName && currentView === 'player'" class="hidden min-w-0 items-center gap-3 border-l border-linen pl-4 md:flex">
+    <div
+      v-if="courseName && currentView === 'player'"
+      class="hidden min-w-0 items-center gap-3 border-l border-linen pl-4 md:flex"
+    >
       <span class="truncate text-body-sm font-medium text-charcoal-ink" :title="courseName">{{ courseName }}</span>
       <span v-if="total" class="tabular hidden shrink-0 text-caption text-stone xl:inline">
         共 {{ total }} 节 · 已完成 {{ done }} 节
@@ -42,7 +46,11 @@ const emit = defineEmits<{
       <div class="flex items-center rounded-xl border border-linen bg-page-cream p-0.5 text-caption font-medium">
         <RouterLink
           class="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1 transition-all"
-          :class="currentView === 'dashboard' ? 'bg-pure-white text-charcoal-ink font-bold shadow-xs' : 'text-stone hover:text-charcoal-ink'"
+          :class="
+            currentView === 'dashboard'
+              ? 'bg-pure-white text-charcoal-ink font-bold shadow-xs'
+              : 'text-stone hover:text-charcoal-ink'
+          "
           title="查看课程概览"
           aria-label="概览"
           :to="`/courses/${courseId}`"
@@ -53,7 +61,11 @@ const emit = defineEmits<{
         </RouterLink>
         <RouterLink
           class="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1 transition-all"
-          :class="currentView === 'player' ? 'bg-pure-white text-charcoal-ink font-bold shadow-xs' : 'text-stone hover:text-charcoal-ink'"
+          :class="
+            currentView === 'player'
+              ? 'bg-pure-white text-charcoal-ink font-bold shadow-xs'
+              : 'text-stone hover:text-charcoal-ink'
+          "
           title="播放与笔记"
           aria-label="播放器"
           :to="{ path: `/courses/${courseId}/player`, query: { lesson: videoPath } }"
@@ -69,25 +81,60 @@ const emit = defineEmits<{
 
     <!-- 右侧工具栏 -->
     <div class="flex shrink-0 items-center gap-1.5">
-      <RouterLink to="/study" class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream" active-class="bg-page-cream text-deep-indigo" aria-label="学习管理" title="学习管理">
+      <RouterLink
+        to="/study"
+        class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream"
+        active-class="bg-page-cream text-deep-indigo"
+        aria-label="学习管理"
+        title="学习管理"
+      >
         <AppIcon name="bell" :size="18" /><span class="hidden xl:inline">学习管理</span>
       </RouterLink>
-      <RouterLink to="/settings" class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream" active-class="bg-page-cream text-deep-indigo" aria-label="设置" title="设置">
+      <RouterLink
+        to="/settings"
+        class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream"
+        active-class="bg-page-cream text-deep-indigo"
+        aria-label="设置"
+        title="设置"
+      >
         <AppIcon name="settings" :size="18" /><span class="hidden xl:inline">设置</span>
       </RouterLink>
-      <UiButton v-if="courseName" variant="ghost" size="sm" title="AI 导学" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('guide')">
+      <UiButton
+        v-if="courseName"
+        variant="ghost"
+        size="sm"
+        title="AI 导学"
+        class="max-sm:h-8 max-sm:w-8 max-sm:p-0"
+        @click="emit('guide')"
+      >
         <AppIcon name="sparkles" :size="17" class="text-deep-indigo" />
         <span class="hidden sm:inline">AI 导学</span>
       </UiButton>
-      <UiButton variant="text" size="sm" title="打开桌面挂件" aria-label="桌面挂件" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('companion')">
+      <UiButton
+        variant="text"
+        size="sm"
+        title="打开桌面挂件"
+        aria-label="桌面挂件"
+        class="max-sm:h-8 max-sm:w-8 max-sm:p-0"
+        @click="emit('companion')"
+      >
         <AppIcon name="pip" :size="18" />
         <span class="hidden xl:inline">桌面挂件</span>
       </UiButton>
-      <UiButton variant="text" size="sm" title="快捷键（?）" aria-label="快捷键" class="max-sm:h-8 max-sm:w-8 max-sm:p-0" @click="emit('help')">
+      <UiButton
+        variant="text"
+        size="sm"
+        title="快捷键（?）"
+        aria-label="快捷键"
+        class="max-sm:h-8 max-sm:w-8 max-sm:p-0"
+        @click="emit('help')"
+      >
         <AppIcon name="keyboard" :size="18" />
         <span class="hidden xl:inline">快捷键</span>
       </UiButton>
-      <UiButton v-if="courseName" variant="ghost" size="sm" title="返回首页" @click="emit('close')"><span class="hidden sm:inline">返回首页</span><span class="sm:hidden">首页</span></UiButton>
+      <UiButton v-if="courseName" variant="ghost" size="sm" title="返回首页" @click="emit('close')"
+        ><span class="hidden sm:inline">返回首页</span><span class="sm:hidden">首页</span></UiButton
+      >
     </div>
   </header>
 </template>

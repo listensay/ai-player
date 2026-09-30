@@ -9,7 +9,12 @@ export interface KnowledgeModule {
 
 export type WorkKind = 'code' | 'project' | 'recap'
 /** 每日时间分配（分钟）。video 为看课 / 回看额度，其余为实践时间。 */
-export interface StudyBudget { video: number; code: number; project: number; recap: number }
+export interface StudyBudget {
+  video: number
+  code: number
+  project: number
+  recap: number
+}
 export interface StudyCalendar {
   /** 周一为 1，周日为 7。 */
   weekdays: number[]
@@ -30,8 +35,18 @@ export interface StudyProgram {
   calendar?: StudyCalendar
 }
 /** repeat 为每日重复任务（如复盘），完成状态只对当天有效。 */
-export interface StageTask { id: string; kind: WorkKind; title: string; instructions: string; repeat?: boolean }
-export interface StageCheck { id: string; kind: 'exercise' | 'project'; text: string }
+export interface StageTask {
+  id: string
+  kind: WorkKind
+  title: string
+  instructions: string
+  repeat?: boolean
+}
+export interface StageCheck {
+  id: string
+  kind: 'exercise' | 'project'
+  text: string
+}
 export interface StagePractice {
   startDay: number
   endDay: number
@@ -55,8 +70,21 @@ export interface WorkEntry {
   evidence: string
   done: boolean
 }
-export interface CheckEvidence { text: string; evidence: string; passed: boolean; updatedAt: number }
-export interface RouteRevision { plan: LearningPlan; includeOptional: boolean; view: 'all' | 'route'; label: string; at: number; scheduleOnly?: boolean; todayOverride?: { date: string; minutes: number | null } }
+export interface CheckEvidence {
+  text: string
+  evidence: string
+  passed: boolean
+  updatedAt: number
+}
+export interface RouteRevision {
+  plan: LearningPlan
+  includeOptional: boolean
+  view: 'all' | 'route'
+  label: string
+  at: number
+  scheduleOnly?: boolean
+  todayOverride?: { date: string; minutes: number | null }
+}
 export interface StudyRecords {
   entries: WorkEntry[]
   checks: Record<string, CheckEvidence>

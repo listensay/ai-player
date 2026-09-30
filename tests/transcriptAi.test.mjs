@@ -69,12 +69,30 @@ test('validateTranscriptCorrections 只接受每个输入句子恰好出现一�
   assert.equal(corrections.size, 2)
   assert.equal(corrections.get(1), 'useState')
   assert.equal(corrections.get(2), '正常句子')
-  for (const items of [[], [{ id: 1, text: 'useState' }],
-    [{ id: 1, text: 'useState' }, { id: 1, text: '重复' }],
-    [{ id: 1, text: 'useState' }, { id: 999, text: '伪造' }],
-    [{ id: 1, text: 'useState' }, { id: '2', text: '字符串 ID' }],
-    [{ id: 1, text: 'useState' }, { id: 2, text: '  ' }],
-    [{ id: 1, text: 'useState' }, { id: 2, text: 'a'.repeat(2001) }]]) {
+  for (const items of [
+    [],
+    [{ id: 1, text: 'useState' }],
+    [
+      { id: 1, text: 'useState' },
+      { id: 1, text: '重复' },
+    ],
+    [
+      { id: 1, text: 'useState' },
+      { id: 999, text: '伪造' },
+    ],
+    [
+      { id: 1, text: 'useState' },
+      { id: '2', text: '字符串 ID' },
+    ],
+    [
+      { id: 1, text: 'useState' },
+      { id: 2, text: '  ' },
+    ],
+    [
+      { id: 1, text: 'useState' },
+      { id: 2, text: 'a'.repeat(2001) },
+    ],
+  ]) {
     assert.throws(() => validateTranscriptCorrections({ items }, batch), /校对/)
   }
 })

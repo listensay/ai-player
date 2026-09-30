@@ -5,8 +5,13 @@ import type { usePlayer } from './usePlayer'
 import { formatTime } from '~/utils/time'
 
 /** Note commands capture their lesson and playhead before loading the editor. */
-export function useNoteWorkspace(key: Ref<string>, rightTab: Ref<'knowledge' | 'notes' | 'transcript'>,
-  player: ReturnType<typeof usePlayer>, notify: (message: string) => void, reveal: () => void = () => {}) {
+export function useNoteWorkspace(
+  key: Ref<string>,
+  rightTab: Ref<'knowledge' | 'notes' | 'transcript'>,
+  player: ReturnType<typeof usePlayer>,
+  notify: (message: string) => void,
+  reveal: () => void = () => {},
+) {
   const noteEditor = shallowRef<NoteEditorHandle | null>(null)
   async function ready(expected: string) {
     if (!expected || key.value !== expected) throw new Error('课节已切换，请重新操作。')
@@ -20,23 +25,37 @@ export function useNoteWorkspace(key: Ref<string>, rightTab: Ref<'knowledge' | '
     return editor
   }
   async function quoteToNote(text: string) {
-    try { (await ready(key.value)).insertInline(text); notify('已插入笔记') }
-    catch (error) { notify((error as Error).message) }
+    try {
+      ;(await ready(key.value)).insertInline(text)
+      notify('已插入笔记')
+    } catch (error) {
+      notify((error as Error).message)
+    }
   }
   async function noteAt(seconds: number) {
-    try { const editor = await ready(key.value); editor.insertTimestamp(seconds); editor.focus() }
-    catch (error) { notify((error as Error).message) }
+    try {
+      const editor = await ready(key.value)
+      editor.insertTimestamp(seconds)
+      editor.focus()
+    } catch (error) {
+      notify((error as Error).message)
+    }
   }
-  function insertTimestamp() { if (player.state.ready) void noteAt(player.state.currentTime) }
+  function insertTimestamp() {
+    if (player.state.ready) void noteAt(player.state.currentTime)
+  }
   async function screenshot() {
     if (!player.state.ready) return
-    const expected = key.value, seconds = player.state.currentTime
+    const expected = key.value,
+      seconds = player.state.currentTime
     try {
       const frame = await player.captureFrame()
       if (!frame) throw new Error('视频尚未加载，请稍后截图。')
       await (await ready(expected)).insertScreenshot(frame.blob, seconds, frame.ratio)
       notify(`已截图 ${formatTime(seconds, true)}`)
-    } catch (error) { notify(`截图保存失败：${(error as Error).message}`) }
+    } catch (error) {
+      notify(`截图保存失败：${(error as Error).message}`)
+    }
   }
   async function saveNote() {
     try {
@@ -44,7 +63,9 @@ export function useNoteWorkspace(key: Ref<string>, rightTab: Ref<'knowledge' | '
       await editor.save()
       if (editor.hasUnsavedChanges()) throw new Error('笔记尚未保存，请重试。')
       notify('笔记已保存')
-    } catch (error) { notify((error as Error).message) }
+    } catch (error) {
+      notify((error as Error).message)
+    }
   }
   return { noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote }
 }

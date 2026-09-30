@@ -19,7 +19,12 @@ export function restSessionIfNeeded(session: CompanionSession, now: number) {
   }
 }
 
-export function recordCompanionPlayback(session: CompanionSession, previous: PlaybackSample | null, current: PlaybackSample, now: number) {
+export function recordCompanionPlayback(
+  session: CompanionSession,
+  previous: PlaybackSample | null,
+  current: PlaybackSample,
+  now: number,
+) {
   restSessionIfNeeded(session, now)
   // A suspended WebView or a sleeping computer must never become study time.
   const gap = previous ? (current.at - previous.at) / 1000 : 0
@@ -38,7 +43,7 @@ export function snoozeCompanionCare(session: CompanionSession) {
 
 /** Only claim a timed concept while the playhead is inside its source range. */
 export function companionConcept(points: KnowledgePoint[], seconds: number, concepts: string[]) {
-  const point = points.find(p => p.start <= seconds && seconds < p.end)
+  const point = points.find((p) => p.start <= seconds && seconds < p.end)
   if (point) return { label: '知识点', title: point.title, detail: point.text }
   if (concepts.length) return { label: '关键概念', title: concepts.slice(0, 3).join(' · '), detail: '暂停查看。' }
   return { label: '关键概念', title: '暂无知识点', detail: '本节未生成知识点。' }
@@ -67,7 +72,22 @@ export const COMPANION_ACTION_EVENT = 'playbo-action'
 export type CompanionAction = { type: 'sync' | 'toggle' | 'rest' | 'snooze'; lessonKey?: string }
 
 export function emptyCompanionSnapshot(): CompanionSnapshot {
-  return { lessonKey: '', lesson: '', course: '', ready: false, playing: false, buffering: false, blocked: false,
-    currentTime: 0, duration: 0, sessionSeconds: 0, mood: 'idle', message: '选择课节开始。',
-    celebration: '', careDue: false, restRemaining: 0, concept: companionConcept([], 0, []) }
+  return {
+    lessonKey: '',
+    lesson: '',
+    course: '',
+    ready: false,
+    playing: false,
+    buffering: false,
+    blocked: false,
+    currentTime: 0,
+    duration: 0,
+    sessionSeconds: 0,
+    mood: 'idle',
+    message: '选择课节开始。',
+    celebration: '',
+    careDue: false,
+    restRemaining: 0,
+    concept: companionConcept([], 0, []),
+  }
 }

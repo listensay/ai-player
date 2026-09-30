@@ -1,7 +1,20 @@
 import type { DailyContext } from './dailyPlan.ts'
 import { calculateDay } from './dailyPlan.ts'
 import { buildSchedule } from './guide.ts'
-import { addDays, budgetForDay, budgetTotal, checkPassed, emptyBudget, isPaused, parseProgram, programDate, programDay, stageForDay, validDate, videoFinishDay } from './studyProgram.ts'
+import {
+  addDays,
+  budgetForDay,
+  budgetTotal,
+  checkPassed,
+  emptyBudget,
+  isPaused,
+  parseProgram,
+  programDate,
+  programDay,
+  stageForDay,
+  validDate,
+  videoFinishDay,
+} from './studyProgram.ts'
 
 /** Rebuild only future dates; progress, evidence and completed tasks remain owned by their original records. */
 export function deferLearningPlan(context: DailyContext, date: string, resumeDate: string) {
@@ -9,7 +22,8 @@ export function deferLearningPlan(context: DailyContext, date: string, resumeDat
   const source = context.plan
   const program = parseProgram(source.program)
   if (!validDate(date) || !validDate(resumeDate)) throw new Error('请选择有效的恢复日期。')
-  const today = programDay(program, date), resume = programDay(program, resumeDate)
+  const today = programDay(program, date),
+    resume = programDay(program, resumeDate)
   if (!Number.isInteger(resume) || !Number.isInteger(today) || resume <= today || resume - today > 1095)
     throw new Error('恢复日期须晚于今天，且休息时间不能超过 1095 天。')
   if (context.enabled === false) throw new Error('请先恢复课程，再顺延学习计划。')
@@ -27,13 +41,21 @@ export function deferLearningPlan(context: DailyContext, date: string, resumeDat
   if (!addedDays) throw new Error('所选日期前已经安排休息，无需再次顺延。')
 
   const current = calculateDay(context, date)
-  const stages = plan.modules.filter(m => m.practice).sort((a, b) => a.practice!.startDay - b.practice!.startDay)
-  const pending = stages.filter(module => {
+  const stages = plan.modules.filter((m) => m.practice).sort((a, b) => a.practice!.startDay - b.practice!.startDay)
+  const pending = stages.filter((module) => {
     const stage = module.practice!
-    return current.route.some(l => l.moduleId === module.id && !context.progress[l.path]?.done)
-      || stage.tasks.some(t => !t.repeat && !context.records.entries.some(e => e.moduleId === module.id && e.taskId === t.id && e.title === t.title && e.done))
-      || stage.checks.some(c => !checkPassed(context.records, module.id, c))
-      || (stage.endDay >= today && stage.tasks.some(t => t.repeat))
+    return (
+      current.route.some((l) => l.moduleId === module.id && !context.progress[l.path]?.done) ||
+      stage.tasks.some(
+        (t) =>
+          !t.repeat &&
+          !context.records.entries.some(
+            (e) => e.moduleId === module.id && e.taskId === t.id && e.title === t.title && e.done,
+          ),
+      ) ||
+      stage.checks.some((c) => !checkPassed(context.records, module.id, c)) ||
+      (stage.endDay >= today && stage.tasks.some((t) => t.repeat))
+    )
   })
   const first = pending[0]?.practice
   // An overdue unfinished stage keeps at least one learning day when it is carried forward.
@@ -42,9 +64,15 @@ export function deferLearningPlan(context: DailyContext, date: string, resumeDat
     const stage = module.practice!
     if (module !== pending[0] || stage.startDay >= today) stage.startDay += shift
     stage.endDay += shift
-    const seconds = buildSchedule(current.route.filter(l => l.moduleId === module.id), current.durations, context.progress, plan.dailyMinutes).remainingSeconds
+    const seconds = buildSchedule(
+      current.route.filter((l) => l.moduleId === module.id),
+      current.durations,
+      context.progress,
+      plan.dailyMinutes,
+    ).remainingSeconds
     if (seconds > 0) {
-      let left = seconds, finish = Math.max(resume, stage.startDay)
+      let left = seconds,
+        finish = Math.max(resume, stage.startDay)
       for (; finish <= 1095; finish++) {
         left -= budgetForDay(program, stage, finish).video * 60
         if (left <= 0) break
@@ -55,7 +83,7 @@ export function deferLearningPlan(context: DailyContext, date: string, resumeDat
       shift += extra
     }
   }
-  program.days = Math.max(program.days + shift, resume, ...stages.map(m => m.practice!.endDay))
+  program.days = Math.max(program.days + shift, resume, ...stages.map((m) => m.practice!.endDay))
   const finish = videoFinishDay(program, plan.modules, resumeDate, current.schedule.remainingSeconds)
   if (finish === Infinity) throw new Error('现有观看时间无法排完剩余课节，请先增加每周学习时间。')
   if (finish !== null) program.days = Math.max(program.days, finish)

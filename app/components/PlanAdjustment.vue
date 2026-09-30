@@ -42,7 +42,12 @@ const form = reactive({
   totalDays: 30,
 })
 const kinds = computed(() => [
-  ...(guide.program.value ? [{ title: '顺延未完成安排', value: 'defer' }, { title: '临时休息', value: 'rest' }] : []),
+  ...(guide.program.value
+    ? [
+        { title: '顺延未完成安排', value: 'defer' },
+        { title: '临时休息', value: 'rest' },
+      ]
+    : []),
   { title: '调整今天', value: 'today' },
   { title: '每周安排', value: 'weekly' },
   { title: '暂停学习', value: 'pause' },
@@ -59,11 +64,16 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'].map((title, i
   title: `周${title}`,
   value: index + 1,
 }))
-const unavailable = computed(() => !guide.guideReady.value || !guide.recordsReady.value || !!guide.state.busy || !guide.schedulingEnabled.value)
+const unavailable = computed(
+  () => !guide.guideReady.value || !guide.recordsReady.value || !!guide.state.busy || !guide.schedulingEnabled.value,
+)
 const canDefer = computed(() => !!guide.program.value && !isPaused(guide.program.value, guide.todayDate.value))
 const remainingToday = computed(() => {
   const day = calculateDay(guide.dayContext.value, guide.todayDate.value)
-  return day.today.items.filter(i => !i.done).length + day.work.filter(i => !i.done && i.targetMinutes > i.minutes).length
+  return (
+    day.today.items.filter((i) => !i.done).length +
+    day.work.filter((i) => !i.done && i.targetMinutes > i.minutes).length
+  )
 })
 function begin(kind?: AdjustmentKind) {
   base.value = guide.planForScheduling()
@@ -95,12 +105,16 @@ watch(
   },
   { deep: true, flush: 'sync' },
 )
-watch(() => [guide.dayContext.value.progress, guide.state.today, guide.state.records.entries, guide.state.records.checks], () => {
-  if (open.value && preview.value) {
-    preview.value = null
-    error.value = '学习进度已变化，请重新预览。'
-  }
-}, { deep: true })
+watch(
+  () => [guide.dayContext.value.progress, guide.state.today, guide.state.records.entries, guide.state.records.checks],
+  () => {
+    if (open.value && preview.value) {
+      preview.value = null
+      error.value = '学习进度已变化，请重新预览。'
+    }
+  },
+  { deep: true },
+)
 watch(
   () => guide.todayDate.value,
   () => {
@@ -122,8 +136,11 @@ function prepare() {
   if (!base.value || stale.value) return
   try {
     if (form.kind === 'defer' || form.kind === 'rest') {
-      preview.value = deferLearningPlan({ ...guide.dayContext.value, plan: base.value }, guide.todayDate.value,
-        form.kind === 'defer' ? addDays(guide.todayDate.value, 1) : form.until)
+      preview.value = deferLearningPlan(
+        { ...guide.dayContext.value, plan: base.value },
+        guide.todayDate.value,
+        form.kind === 'defer' ? addDays(guide.todayDate.value, 1) : form.until,
+      )
       error.value = ''
       return
     }
@@ -204,8 +221,12 @@ function apply() {
       @click="begin()"
       >{{ guide.program.value ? '调整计划' : '设置学习计划' }}</UiButton
     >
-    <UiButton v-if="canDefer" size="sm" :disabled="unavailable || !remainingToday" @click="begin('defer')">顺延未完成安排</UiButton>
-    <UiButton v-if="canDefer" size="sm" variant="text" :disabled="unavailable" @click="begin('rest')">临时休息</UiButton>
+    <UiButton v-if="canDefer" size="sm" :disabled="unavailable || !remainingToday" @click="begin('defer')"
+      >顺延未完成安排</UiButton
+    >
+    <UiButton v-if="canDefer" size="sm" variant="text" :disabled="unavailable" @click="begin('rest')"
+      >临时休息</UiButton
+    >
     <UiButton
       v-if="guide.state.records.undo?.scheduleOnly"
       variant="text"
@@ -227,8 +248,18 @@ function apply() {
         </p>
         <VSelect v-model="form.kind" label="调整内容" :items="kinds" />
         <template v-if="form.kind === 'defer' || form.kind === 'rest'">
-          <VTextField v-if="form.kind === 'rest'" v-model="form.until" type="date" :min="addDays(guide.todayDate.value, 1)" label="恢复日期" />
-          <p class="text-body-sm text-stone">{{ form.kind === 'defer' ? '今天剩余安排移至下个学习日。' : '从今天起暂停新增任务，到恢复日期继续学习。' }}保留每日投入，自动顺延阶段和结束日期。</p>
+          <VTextField
+            v-if="form.kind === 'rest'"
+            v-model="form.until"
+            type="date"
+            :min="addDays(guide.todayDate.value, 1)"
+            label="恢复日期"
+          />
+          <p class="text-body-sm text-stone">
+            {{
+              form.kind === 'defer' ? '今天剩余安排移至下个学习日。' : '从今天起暂停新增任务，到恢复日期继续学习。'
+            }}保留每日投入，自动顺延阶段和结束日期。
+          </p>
           <p class="text-caption text-stone">已完成事项、观看进度和实践记录保留；周末与原定休息日继续生效。</p>
         </template>
         <template v-else-if="form.kind === 'weekly'">
@@ -328,7 +359,10 @@ function apply() {
         >
           <h3 class="text-body font-bold">调整预览</h3>
           <dl class="mt-3 grid grid-cols-2 gap-3 text-body-sm">
-            <template v-if="preview.resumeDate"><dt>下次学习日期</dt><dd>{{ preview.resumeDate }}</dd></template>
+            <template v-if="preview.resumeDate"
+              ><dt>下次学习日期</dt>
+              <dd>{{ preview.resumeDate }}</dd></template
+            >
             <dt>今日剩余任务</dt>
             <dd>
               {{

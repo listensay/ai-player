@@ -121,12 +121,22 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
     match endpoint {
         "library" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
-                ("SELECT * FROM course_library WHERE id=?", vec![SqlValue::Text(canonical(db, id)?)])
+                (
+                    "SELECT * FROM course_library WHERE id=?",
+                    vec![SqlValue::Text(canonical(db, id)?)],
+                )
             } else {
-                ("SELECT * FROM course_library ORDER BY pinned DESC,last_opened_at DESC", vec![])
+                (
+                    "SELECT * FROM course_library ORDER BY pinned DESC,last_opened_at DESC",
+                    vec![],
+                )
             };
             let list: Vec<Value> = rows(db, query, args)?.iter().map(|r| json!({"id":r["id"],"name":r["name"],"videoCount":r["video_count"],"lastOpenedAt":r["last_opened_at"],"lastVideoPath":r["last_video_path"],"status":r["status"],"pinned":r["pinned"]==1})).collect();
-            Ok(if q["id"].is_string() { list.into_iter().next().unwrap_or(Value::Null) } else { json!(list) })
+            Ok(if q["id"].is_string() {
+                list.into_iter().next().unwrap_or(Value::Null)
+            } else {
+                json!(list)
+            })
         }
         "day-snapshots" => {
             let mut result = json!({});
@@ -143,11 +153,16 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                 let id = entry["id"].as_str().ok_or("课程编号无效")?;
                 let data = (|| -> Result<Value> {
                     let query = json!({"courseId":id});
-                    Ok(json!({"guide":read(db,"guide",&query)?,"progress":read(db,"progress",&query)?,
+                    Ok(
+                        json!({"guide":read(db,"guide",&query)?,"progress":read(db,"progress",&query)?,
                         "days":read(db,"check-in",&query)?,"snapshots":read(db,"day-snapshots",&query)?,
-                        "records":read(db,"settings",&json!({"key":format!("study-records:{id}")}))?}))
+                        "records":read(db,"settings",&json!({"key":format!("study-records:{id}")}))?}),
+                    )
                 })();
-                result.push(match data { Ok(data) => json!({"course":entry,"data":data}), Err(error) => json!({"course":entry,"error":error}) });
+                result.push(match data {
+                    Ok(data) => json!({"course":entry,"data":data}),
+                    Err(error) => json!({"course":entry,"error":error}),
+                });
             }
             Ok(json!(result))
         }
@@ -243,7 +258,13 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
             )?;
             // 损坏的数据与“没有记录”必须区分，避免前端用空值覆盖可恢复内容。
             if let Some(row) = list.first() {
-                for key in ["plan_json", "metadata_json", "mastery_json", "questions_json", "today_json"] {
+                for key in [
+                    "plan_json",
+                    "metadata_json",
+                    "mastery_json",
+                    "questions_json",
+                    "today_json",
+                ] {
                     if let Some(value) = row[key].as_str() {
                         serde_json::from_str::<Value>(value)
                             .map_err(|_| "导学记录格式异常，原始数据已保留".to_string())?;
@@ -272,7 +293,8 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                     vec![sql(&json!(key))],
                 )?;
                 return match values.first() {
-                    Some(row) => serde_json::from_str(row["value_json"].as_str().unwrap_or("null")).map_err(|_| "设置记录格式异常，原始数据已保留".to_string()),
+                    Some(row) => serde_json::from_str(row["value_json"].as_str().unwrap_or("null"))
+                        .map_err(|_| "设置记录格式异常，原始数据已保留".to_string()),
                     None => Ok(Value::Null),
                 };
             }
@@ -290,16 +312,32 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
     if endpoint == "ai-batch-cache" {
         if method == "POST" {
             let key = text(b, "key")?;
-            if !key.starts_with("ai-batches:v1:") { return Err("无效的 AI 批次键".into()); }
-            let raw: Option<String> = db.query_row("SELECT value_json FROM app_settings WHERE key=?", [key], |r| r.get(0))
-                .optional().map_err(|e| e.to_string())?;
+            if !key.starts_with("ai-batches:v1:") {
+                return Err("无效的 AI 批次键".into());
+            }
+            let raw: Option<String> = db
+                .query_row(
+                    "SELECT value_json FROM app_settings WHERE key=?",
+                    [key],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
             if let Some(raw) = raw {
                 let mut value: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-                if value["version"] != 1 || !value["values"].is_array() { return Err("无效的 AI 批次记录".into()); }
+                if value["version"] != 1 || !value["values"].is_array() {
+                    return Err("无效的 AI 批次记录".into());
+                }
                 value["completedAt"] = json!(now());
-                db.execute("UPDATE app_settings SET value_json=? WHERE key=?", params![value.to_string(), key]).map_err(|e| e.to_string())?;
+                db.execute(
+                    "UPDATE app_settings SET value_json=? WHERE key=?",
+                    params![value.to_string(), key],
+                )
+                .map_err(|e| e.to_string())?;
             }
-        } else if method != "DELETE" { return Err("不支持的数据操作".into()); }
+        } else if method != "DELETE" {
+            return Err("不支持的数据操作".into());
+        }
         // Incomplete and legacy checkpoints have no completedAt and are never removed.
         let cutoff = now() - 30 * 24 * 60 * 60 * 1000;
         let removed = db.execute("DELETE FROM app_settings WHERE key LIKE 'ai-batches:v1:%' AND CASE WHEN json_valid(value_json) THEN json_type(value_json,'$.completedAt')='integer' AND json_extract(value_json,'$.completedAt') < ? ELSE 0 END", [cutoff]).map_err(|e| e.to_string())?;
@@ -392,8 +430,14 @@ mod persistence_tests {
         db
     }
     fn save_guide(db: &mut Connection, plan: Value) -> Result<Value> {
-        request(db, "guide", "POST", json!({}), json!({"courseId":"one", "plan":plan,
-            "metadata":{}, "view":"route", "includeOptional":false, "mastery":{}, "questions":[], "today":null}))
+        request(
+            db,
+            "guide",
+            "POST",
+            json!({}),
+            json!({"courseId":"one", "plan":plan,
+            "metadata":{}, "view":"route", "includeOptional":false, "mastery":{}, "questions":[], "today":null}),
+        )
     }
 
     #[test]
@@ -401,30 +445,78 @@ mod persistence_tests {
         let mut db = database();
         let old = super::now() - 31 * 24 * 60 * 60 * 1000;
         for (key, value) in [
-            ("ai-batches:v1:old", json!({"version":1,"values":[1],"completedAt":old})),
+            (
+                "ai-batches:v1:old",
+                json!({"version":1,"values":[1],"completedAt":old}),
+            ),
             ("ai-batches:v1:pending", json!({"version":1,"values":[1]})),
-            ("ai-batches:v1:recent", json!({"version":1,"values":[1],"completedAt":super::now()})),
+            (
+                "ai-batches:v1:recent",
+                json!({"version":1,"values":[1],"completedAt":super::now()}),
+            ),
             ("user-setting", json!({"completedAt":old})),
         ] {
-            request(&mut db, "settings", "POST", json!({}), json!({"key":key,"value":value})).unwrap();
+            request(
+                &mut db,
+                "settings",
+                "POST",
+                json!({}),
+                json!({"key":key,"value":value}),
+            )
+            .unwrap();
         }
         let result = request(&mut db, "ai-batch-cache", "DELETE", json!({}), json!({})).unwrap();
         assert_eq!(result["removed"], 1);
-        for key in ["ai-batches:v1:pending", "ai-batches:v1:recent", "user-setting"] {
-            assert_ne!(super::read(&db, "settings", &json!({"key":key})).unwrap(), Value::Null);
+        for key in [
+            "ai-batches:v1:pending",
+            "ai-batches:v1:recent",
+            "user-setting",
+        ] {
+            assert_ne!(
+                super::read(&db, "settings", &json!({"key":key})).unwrap(),
+                Value::Null
+            );
         }
-        request(&mut db, "ai-batch-cache", "POST", json!({}), json!({"key":"ai-batches:v1:pending"})).unwrap();
-        assert!(super::read(&db, "settings", &json!({"key":"ai-batches:v1:pending"})).unwrap()["completedAt"].is_i64());
-        assert!(request(&mut db, "ai-batch-cache", "POST", json!({}), json!({"key":"user-setting"})).is_err());
+        request(
+            &mut db,
+            "ai-batch-cache",
+            "POST",
+            json!({}),
+            json!({"key":"ai-batches:v1:pending"}),
+        )
+        .unwrap();
+        assert!(
+            super::read(&db, "settings", &json!({"key":"ai-batches:v1:pending"})).unwrap()
+                ["completedAt"]
+                .is_i64()
+        );
+        assert!(request(
+            &mut db,
+            "ai-batch-cache",
+            "POST",
+            json!({}),
+            json!({"key":"user-setting"})
+        )
+        .is_err());
     }
 
     #[test]
     fn image_lookup_by_name_is_scoped_and_returns_only_requested_image() {
         let mut db = database();
-        for (course, name, content) in [("one", "a.png", "old"), ("two", "a.png", "other-course"), ("one", "b.png", "other-image"), ("one", "a.png", "new")] {
+        for (course, name, content) in [
+            ("one", "a.png", "old"),
+            ("two", "a.png", "other-course"),
+            ("one", "b.png", "other-image"),
+            ("one", "a.png", "new"),
+        ] {
             request(&mut db, "note-images", "POST", json!({}), json!({"courseId":course,"videoPath":"lesson.mp4","name":name,"dataBase64":content})).unwrap();
         }
-        let result = super::read(&db, "note-images", &json!({"courseId":"one","videoPath":"lesson.mp4","name":"a.png"})).unwrap();
+        let result = super::read(
+            &db,
+            "note-images",
+            &json!({"courseId":"one","videoPath":"lesson.mp4","name":"a.png"}),
+        )
+        .unwrap();
         assert_eq!(result.as_array().unwrap().len(), 1);
         assert_eq!(result[0]["data_base64"], "new");
     }
@@ -433,40 +525,121 @@ mod persistence_tests {
     fn library_survives_recent_removal_and_metadata_refresh() {
         let mut db = database();
         for index in 0..24 {
-            request(&mut db,"recent-courses","POST",json!({}),json!({"id":format!("course-{index}"),"name":"课程","videoCount":3})).unwrap();
+            request(
+                &mut db,
+                "recent-courses",
+                "POST",
+                json!({}),
+                json!({"id":format!("course-{index}"),"name":"课程","videoCount":3}),
+            )
+            .unwrap();
         }
-        request(&mut db,"library","POST",json!({}),json!({"id":"course-0","status":"archived","pinned":true})).unwrap();
-        request(&mut db,"recent-courses","DELETE",json!({"id":"course-0"}),Value::Null).unwrap();
-        assert_eq!(request(&mut db,"library","GET",json!({}),Value::Null).unwrap().as_array().unwrap().len(),24);
-        assert_eq!(request(&mut db,"recent-courses","GET",json!({}),Value::Null).unwrap().as_array().unwrap().len(),20);
-        request(&mut db,"recent-courses","POST",json!({}),json!({"id":"course-0","name":"新名称","videoCount":4})).unwrap();
-        let entry = request(&mut db,"library","GET",json!({"id":"course-0"}),Value::Null).unwrap();
-        assert_eq!(entry["status"],"archived"); assert_eq!(entry["pinned"],true); assert_eq!(entry["videoCount"],4);
-        assert!(request(&mut db,"library","POST",json!({}),json!({"id":"course-0","status":"invalid"})).is_err());
+        request(
+            &mut db,
+            "library",
+            "POST",
+            json!({}),
+            json!({"id":"course-0","status":"archived","pinned":true}),
+        )
+        .unwrap();
+        request(
+            &mut db,
+            "recent-courses",
+            "DELETE",
+            json!({"id":"course-0"}),
+            Value::Null,
+        )
+        .unwrap();
+        assert_eq!(
+            request(&mut db, "library", "GET", json!({}), Value::Null)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            24
+        );
+        assert_eq!(
+            request(&mut db, "recent-courses", "GET", json!({}), Value::Null)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            20
+        );
+        request(
+            &mut db,
+            "recent-courses",
+            "POST",
+            json!({}),
+            json!({"id":"course-0","name":"新名称","videoCount":4}),
+        )
+        .unwrap();
+        let entry = request(
+            &mut db,
+            "library",
+            "GET",
+            json!({"id":"course-0"}),
+            Value::Null,
+        )
+        .unwrap();
+        assert_eq!(entry["status"], "archived");
+        assert_eq!(entry["pinned"], true);
+        assert_eq!(entry["videoCount"], 4);
+        assert!(request(
+            &mut db,
+            "library",
+            "POST",
+            json!({}),
+            json!({"id":"course-0","status":"invalid"})
+        )
+        .is_err());
     }
 
     #[test]
     fn snapshots_preserve_initial_budget_and_reject_older_writes() {
         let mut db = database();
-        for (time, minutes) in [(10,60),(20,30),(15,90)] {
+        for (time, minutes) in [(10, 60), (20, 30), (15, 90)] {
             request(&mut db,"day-snapshots","POST",json!({}),json!({"courseId":"one","snapshot":{"date":"2026-09-26","plannedMinutes":minutes,"capturedAt":time,"tasks":[]}})).unwrap();
         }
-        let data = request(&mut db,"day-snapshots","GET",json!({"courseId":"one"}),Value::Null).unwrap();
-        assert_eq!(data["2026-09-26"]["plannedMinutes"],30);
-        assert_eq!(data["2026-09-26"]["initialMinutes"],60);
+        let data = request(
+            &mut db,
+            "day-snapshots",
+            "GET",
+            json!({"courseId":"one"}),
+            Value::Null,
+        )
+        .unwrap();
+        assert_eq!(data["2026-09-26"]["plannedMinutes"], 30);
+        assert_eq!(data["2026-09-26"]["initialMinutes"], 60);
         assert!(request(&mut db,"day-snapshots","POST",json!({}),json!({"courseId":"one","snapshot":{"date":"bad","plannedMinutes":30,"capturedAt":30,"tasks":[]}})).is_err());
     }
 
     #[test]
     fn dashboard_isolates_corrupt_course_and_omits_credentials() {
         let mut db = database();
-        for id in ["one","two"] { request(&mut db,"recent-courses","POST",json!({}),json!({"id":id,"name":id})).unwrap(); }
+        for id in ["one", "two"] {
+            request(
+                &mut db,
+                "recent-courses",
+                "POST",
+                json!({}),
+                json!({"id":id,"name":id}),
+            )
+            .unwrap();
+        }
         db.execute("INSERT INTO learning_guides(course_id,plan_json,updated_at) VALUES ('one','{broken',1)", []).unwrap();
-        request(&mut db,"settings","POST",json!({}),json!({"key":"ai-settings","value":{"apiKey":"private-test-key"}})).unwrap();
-        let data = request(&mut db,"dashboard","GET",json!({}),Value::Null).unwrap();
+        request(
+            &mut db,
+            "settings",
+            "POST",
+            json!({}),
+            json!({"key":"ai-settings","value":{"apiKey":"private-test-key"}}),
+        )
+        .unwrap();
+        let data = request(&mut db, "dashboard", "GET", json!({}), Value::Null).unwrap();
         let entries = data.as_array().unwrap();
-        assert!(entries.iter().find(|e|e["course"]["id"]=="one").unwrap()["error"].is_string());
-        assert!(entries.iter().find(|e|e["course"]["id"]=="two").unwrap()["data"].is_object());
+        assert!(entries.iter().find(|e| e["course"]["id"] == "one").unwrap()["error"].is_string());
+        assert!(entries.iter().find(|e| e["course"]["id"] == "two").unwrap()["data"].is_object());
         assert!(!data.to_string().contains("private-test-key"));
     }
 
@@ -476,29 +649,68 @@ mod persistence_tests {
         save_guide(&mut db, Value::Null).unwrap();
         save_guide(&mut db, json!({"summary":"保留的学习路线"})).unwrap();
         assert!(save_guide(&mut db, Value::Null).is_err());
-        let restored = request(&mut db, "guide", "GET", json!({"courseId":"one"}), Value::Null).unwrap();
+        let restored = request(
+            &mut db,
+            "guide",
+            "GET",
+            json!({"courseId":"one"}),
+            Value::Null,
+        )
+        .unwrap();
         assert_eq!(restored["plan"]["summary"], "保留的学习路线");
     }
 
     #[test]
     fn guide_history_keeps_twenty_versions_without_metadata_churn() {
         let mut db = database();
-        for revision in 0..25 { save_guide(&mut db, json!({"revision":revision})).unwrap(); }
-        let before: i64 = db.query_row("SELECT COUNT(*) FROM learning_guide_history", [], |r|r.get(0)).unwrap();
+        for revision in 0..25 {
+            save_guide(&mut db, json!({"revision":revision})).unwrap();
+        }
+        let before: i64 = db
+            .query_row("SELECT COUNT(*) FROM learning_guide_history", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(before, 20);
-        db.execute("UPDATE learning_guides SET metadata_json='{}', today_json='{}'", []).unwrap();
-        let after: i64 = db.query_row("SELECT COUNT(*) FROM learning_guide_history", [], |r|r.get(0)).unwrap();
+        db.execute(
+            "UPDATE learning_guides SET metadata_json='{}', today_json='{}'",
+            [],
+        )
+        .unwrap();
+        let after: i64 = db
+            .query_row("SELECT COUNT(*) FROM learning_guide_history", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(after, before);
-        let newest: String = db.query_row("SELECT plan_json FROM learning_guide_history ORDER BY id DESC LIMIT 1", [], |r|r.get(0)).unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&newest).unwrap()["revision"], 23);
+        let newest: String = db
+            .query_row(
+                "SELECT plan_json FROM learning_guide_history ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&newest).unwrap()["revision"],
+            23
+        );
     }
 
     #[test]
     fn corrupt_guide_is_a_read_error_not_an_empty_plan() {
         let mut db = database();
         db.execute("INSERT INTO learning_guides(course_id,plan_json,updated_at) VALUES ('one','{broken',1)", []).unwrap();
-        assert!(request(&mut db, "guide", "GET", json!({"courseId":"one"}), Value::Null).is_err());
-        let original: String = db.query_row("SELECT plan_json FROM learning_guides", [], |r|r.get(0)).unwrap();
+        assert!(request(
+            &mut db,
+            "guide",
+            "GET",
+            json!({"courseId":"one"}),
+            Value::Null
+        )
+        .is_err());
+        let original: String = db
+            .query_row("SELECT plan_json FROM learning_guides", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(original, "{broken");
     }
 
@@ -506,10 +718,24 @@ mod persistence_tests {
     fn stale_window_cannot_reduce_study_time_or_remove_check_in() {
         let mut db = database();
         for (seconds, checked) in [(3600, json!(123)), (0, Value::Null)] {
-            request(&mut db, "check-in", "POST", json!({}), json!({"courseId":"one","days":[{
-                "date":"2026-09-25","seconds":seconds,"targetSeconds":3600,"checkedAt":checked}]})).unwrap();
+            request(
+                &mut db,
+                "check-in",
+                "POST",
+                json!({}),
+                json!({"courseId":"one","days":[{
+                "date":"2026-09-25","seconds":seconds,"targetSeconds":3600,"checkedAt":checked}]}),
+            )
+            .unwrap();
         }
-        let saved = request(&mut db, "check-in", "GET", json!({"courseId":"one"}), Value::Null).unwrap();
+        let saved = request(
+            &mut db,
+            "check-in",
+            "GET",
+            json!({"courseId":"one"}),
+            Value::Null,
+        )
+        .unwrap();
         assert_eq!(saved["2026-09-25"]["seconds"], 3600.0);
         assert_eq!(saved["2026-09-25"]["checkedAt"], 123);
     }

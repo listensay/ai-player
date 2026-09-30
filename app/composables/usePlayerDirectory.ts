@@ -17,7 +17,7 @@ export function usePlayerDirectory() {
     media.addEventListener('change', syncWidth)
   })
   onBeforeUnmount(() => media?.removeEventListener('change', syncWidth))
-  const treeVisible = computed(() => wide.value ? desktopTreeOpen.value : treeOpen.value)
+  const treeVisible = computed(() => (wide.value ? desktopTreeOpen.value : treeOpen.value))
   function toggleTree() {
     if (wide.value) desktopTreeOpen.value = !desktopTreeOpen.value
     else treeOpen.value = !treeOpen.value

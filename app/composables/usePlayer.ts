@@ -7,6 +7,7 @@ export const MAX_RATE = 3
 
 interface PlayerState {
   ready: boolean
+  frameReady: boolean
   playing: boolean
   buffering: boolean
   currentTime: number
@@ -21,6 +22,7 @@ interface PlayerState {
 
 const state = reactive<PlayerState>({
   ready: false,
+  frameReady: false,
   playing: false,
   buffering: false,
   currentTime: 0,
@@ -75,12 +77,14 @@ export function usePlayer() {
     video.volume = state.volume
     video.muted = state.muted
     state.ready = false
+    state.frameReady = false
     state.error = ''
   }
 
   function detach() {
     el = null
     state.ready = false
+    state.frameReady = false
     state.playing = false
     state.currentTime = 0
     state.duration = 0
@@ -170,7 +174,9 @@ export function usePlayer() {
       }
     } catch {
       state.fullscreenError = '全屏切换失败，请重试。'
-    } finally { fullscreenBusy = false }
+    } finally {
+      fullscreenBusy = false
+    }
   }
 
   /** 截取当前画面为 PNG（无损，方便以后 OCR），同时返回画面宽高比 */
@@ -189,6 +195,9 @@ export function usePlayer() {
 
   /** 由 VideoStage 在 <video> 事件里调用，同步状态 */
   const sync = {
+    loadedData() {
+      state.frameReady = true
+    },
     loadedMetadata(video: HTMLVideoElement) {
       state.duration = Number.isFinite(video.duration) ? video.duration : 0
       state.ready = true

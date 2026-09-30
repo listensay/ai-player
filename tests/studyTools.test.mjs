@@ -1,19 +1,46 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deliverReminder, emptyStudyTools, parseStudyTools, reminderDue, updateReminder } from '../app/utils/studyTools.ts'
+import {
+  deliverReminder,
+  emptyStudyTools,
+  parseStudyTools,
+  reminderDue,
+  updateReminder,
+} from '../app/utils/studyTools.ts'
 
-const reminder = (patch = {}) => ({ id: 'r', title: '复习课程', time: '20:00', weekdays: [1, 2, 3, 4, 5, 6, 7], courseId: '', enabled: true, pending: false, lastNotifiedDate: '', snoozedUntil: null, ...patch })
+const reminder = (patch = {}) => ({
+  id: 'r',
+  title: '复习课程',
+  time: '20:00',
+  weekdays: [1, 2, 3, 4, 5, 6, 7],
+  courseId: '',
+  enabled: true,
+  pending: false,
+  lastNotifiedDate: '',
+  snoozedUntil: null,
+  ...patch,
+})
 
 test('缺省数据可建立，损坏、未知版本和非法字段不能覆盖已有记录', () => {
   assert.deepEqual(parseStudyTools(null), emptyStudyTools())
-  for (const raw of [undefined, {}, { ...emptyStudyTools(), version: 2 }, { ...emptyStudyTools(), reminders: [reminder({ time: '24:00' })] },
-    { ...emptyStudyTools(), reminders: [reminder({ weekdays: [] })] }, { ...emptyStudyTools(), reminders: [reminder({ weekdays: [1, 1] })] },
+  for (const raw of [
+    undefined,
+    {},
+    { ...emptyStudyTools(), version: 2 },
+    { ...emptyStudyTools(), reminders: [reminder({ time: '24:00' })] },
+    { ...emptyStudyTools(), reminders: [reminder({ weekdays: [] })] },
+    { ...emptyStudyTools(), reminders: [reminder({ weekdays: [1, 1] })] },
     { ...emptyStudyTools(), reminders: [reminder({ lastNotifiedDate: '2026-02-30' })] },
-    { ...emptyStudyTools(), reminders: [reminder({ snoozedUntil: NaN })] }]) assert.throws(() => parseStudyTools(raw))
+    { ...emptyStudyTools(), reminders: [reminder({ snoozedUntil: NaN })] },
+  ])
+    assert.throws(() => parseStudyTools(raw))
 })
 
 test('仅有提醒的数据可保存，往返保留发送状态并隔离修改', () => {
-  const raw = { ...emptyStudyTools(), reminders: [reminder({ lastNotifiedDate: '2026-09-26', snoozedUntil: 1790453400000 })] }
+  const raw = {
+    ...emptyStudyTools(),
+    reminders: [reminder({ lastNotifiedDate: '2026-09-26', snoozedUntil: 1790453400000 })],
+  }
   const restored = parseStudyTools(JSON.parse(JSON.stringify(raw)))
   assert.deepEqual(restored, raw)
   restored.reminders[0].weekdays.pop()
@@ -21,8 +48,12 @@ test('仅有提醒的数据可保存，往返保留发送状态并隔离修改',
 })
 
 test('旧版目标与标签不会阻止提醒更新，保存时保留历史字段', () => {
-  const raw = { ...emptyStudyTools(), reminders: [reminder()],
-    goals: [{ id: 'g', kind: 'manual', current: 3 }], tags: [{ id: 't', name: '前端', courseIds: ['a', 'b'] }] }
+  const raw = {
+    ...emptyStudyTools(),
+    reminders: [reminder()],
+    goals: [{ id: 'g', kind: 'manual', current: 3 }],
+    tags: [{ id: 't', name: '前端', courseIds: ['a', 'b'] }],
+  }
   const restored = parseStudyTools(JSON.parse(JSON.stringify(raw)))
   updateReminder(restored, reminder({ title: '更新提醒', time: '21:00' }))
   const saved = parseStudyTools(JSON.parse(JSON.stringify(restored)))
@@ -56,7 +87,8 @@ test('稍后提醒跨午夜生效，等待期间不被当天定时提醒抢先�
 })
 
 test('编辑期间触发或延后的提醒不会被旧表单覆盖而重复发送', () => {
-  const data = emptyStudyTools(), draft = reminder()
+  const data = emptyStudyTools(),
+    draft = reminder()
   data.reminders.push(reminder({ lastNotifiedDate: '2026-09-26', pending: true }))
   updateReminder(data, { ...draft, title: '更新内容' })
   assert.equal(data.reminders[0].lastNotifiedDate, '2026-09-26')
@@ -81,23 +113,37 @@ test('延后至次日且超过当日提醒时间时合并发送，避免连续�
 })
 
 const { macReminderSnapshot, macReminderStatus } = await import('../app/utils/studyTools.ts')
-const macLink = (r) => ({ identifier: 'native-id', calendar: 'AI Player', exportedAt: 123, snapshot: macReminderSnapshot(r) })
+const macLink = (r) => ({
+  identifier: 'native-id',
+  calendar: 'AI Player',
+  exportedAt: 123,
+  snapshot: macReminderSnapshot(r),
+})
 
 test('同步快照识别标题、时间、重复日、关联课程修改；发送与延后不会误报待更新', () => {
-  const r = reminder(), link = macLink(r)
+  const r = reminder(),
+    link = macLink(r)
   assert.equal(macReminderStatus(r, undefined).label, '未添加')
   assert.equal(macReminderStatus(r, link).label, '已添加')
   for (const patch of [{ title: '新标题' }, { time: '21:00' }, { weekdays: [1] }, { courseId: 'other' }]) {
     assert.equal(macReminderStatus({ ...r, ...patch }, link).label, '修改后待更新')
   }
-  assert.equal(macReminderStatus({ ...r, pending: true, snoozedUntil: 1, lastNotifiedDate: '2026-09-26', weekdays: [...r.weekdays].reverse() }, link).pending, false)
+  assert.equal(
+    macReminderStatus(
+      { ...r, pending: true, snoozedUntil: 1, lastNotifiedDate: '2026-09-26', weekdays: [...r.weekdays].reverse() },
+      link,
+    ).pending,
+    false,
+  )
   // Restart retains the last successfully exported values, not the current edited draft.
   assert.equal(macReminderStatus({ ...r, time: '21:00' }, JSON.parse(JSON.stringify(link))).pending, true)
   assert.equal(macReminderStatus(r, { ...link, snapshot: undefined }).label, '修改后待更新')
 })
 
 test('停用、课程暂停、重新启用与同步失败都保留明确的待处理状态', () => {
-  const r = reminder(), link = macLink(r), disabled = { ...r, enabled: false }
+  const r = reminder(),
+    link = macLink(r),
+    disabled = { ...r, enabled: false }
   assert.equal(macReminderStatus(disabled, link).label, '停用待同步')
   assert.equal(macReminderStatus(r, link, false).label, '停用待同步')
   const pausedLink = { ...link, snapshot: macReminderSnapshot(r, false) }

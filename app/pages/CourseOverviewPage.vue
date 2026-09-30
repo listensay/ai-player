@@ -7,13 +7,13 @@ usePageTitle(() => `${course.value?.name ?? '课程概览'} · AI Player`)
 </script>
 
 <template>
-    <CourseDashboard
-      v-if="course"
-      :course="course"
-      :stats="stats"
-      :current-video="video"
-      @play="playVideoFromDashboard"
-      @segment="startSegment"
-      @guide="openGuide($event ?? 'plan')"
-    />
+  <CourseDashboard
+    v-if="course"
+    :course="course"
+    :stats="stats"
+    :current-video="video"
+    @play="playVideoFromDashboard"
+    @segment="startSegment"
+    @guide="openGuide($event ?? 'plan')"
+  />
 </template>

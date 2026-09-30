@@ -14,20 +14,28 @@ export function provideDesktopSettings() {
         const value = await databaseRequest<unknown>('settings', { query: { key: 'desktop-auto-open-companion' } })
         if (value !== null && typeof value !== 'boolean') throw new Error('invalid preference')
         state.autoOpenCompanion = value === true
-        state.ready = true; state.error = ''
-      } catch { state.error = '启动设置读取失败，请重试。' }
-      finally { loading = undefined }
+        state.ready = true
+        state.error = ''
+      } catch {
+        state.error = '启动设置读取失败，请重试。'
+      } finally {
+        loading = undefined
+      }
     })()
     return loading
   }
   async function setAutoOpenCompanion(value: boolean) {
     if (!state.ready || state.saving) return
-    state.saving = true; state.error = ''
+    state.saving = true
+    state.error = ''
     try {
       await databaseRequest('settings', { method: 'POST', body: { key: 'desktop-auto-open-companion', value } })
       state.autoOpenCompanion = value
-    } catch { state.error = '启动设置保存失败，请重试。' }
-    finally { state.saving = false }
+    } catch {
+      state.error = '启动设置保存失败，请重试。'
+    } finally {
+      state.saving = false
+    }
   }
   const settings = { state, load, setAutoOpenCompanion }
   provide(KEY, settings)

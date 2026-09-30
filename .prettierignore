@@ -1,0 +1,10 @@
+.cache
+.data
+dist
+node_modules
+src-tauri/runtime
+src-tauri/target
+src-tauri/gen
+package-lock.json
+public
+app-icons

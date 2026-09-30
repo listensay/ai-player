@@ -9,7 +9,7 @@ const rows = computed(() => [
   { label: '练习验收', item: props.progress.exercise },
   { label: '项目验收', item: props.progress.project },
 ])
-const percent = (done: number, total: number) => total ? `${Math.round((done / total) * 100)}%` : '0%'
+const percent = (done: number, total: number) => (total ? `${Math.round((done / total) * 100)}%` : '0%')
 </script>
 
 <template>
@@ -17,10 +17,15 @@ const percent = (done: number, total: number) => total ? `${Math.round((done / t
     <div v-for="row in rows" :key="row.label" class="min-w-0">
       <div class="flex items-baseline justify-between gap-2 text-caption">
         <dt class="truncate text-stone">{{ row.label }}</dt>
-        <dd class="tabular shrink-0 font-bold text-charcoal-ink">{{ row.item.total ? `${row.item.done}/${row.item.total}` : '未设置' }}</dd>
+        <dd class="tabular shrink-0 font-bold text-charcoal-ink">
+          {{ row.item.total ? `${row.item.done}/${row.item.total}` : '未设置' }}
+        </dd>
       </div>
       <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-linen" aria-hidden="true">
-        <div class="h-full rounded-full bg-charcoal-ink transition-all duration-300" :style="{ width: percent(row.item.done, row.item.total) }" />
+        <div
+          class="h-full rounded-full bg-charcoal-ink transition-all duration-300"
+          :style="{ width: percent(row.item.done, row.item.total) }"
+        />
       </div>
     </div>
   </dl>

@@ -5,8 +5,19 @@ import type { LessonMetadata, SubtitleCue } from '../types/guide'
 
 export async function readVideoDuration(file: File | CourseFileHandle, signal: AbortSignal): Promise<number | null> {
   if (signal.aborted) return null
-  const source = file instanceof File ? { url: URL.createObjectURL(file), release() { URL.revokeObjectURL(this.url) } } : await mediaSource(file)
-  if (signal.aborted) { source.release(); return null }
+  const source =
+    file instanceof File
+      ? {
+          url: URL.createObjectURL(file),
+          release() {
+            URL.revokeObjectURL(this.url)
+          },
+        }
+      : await mediaSource(file)
+  if (signal.aborted) {
+    source.release()
+    return null
+  }
   return new Promise((resolve) => {
     const video = document.createElement('video')
     const url = source.url
@@ -36,40 +47,54 @@ export async function readVideoDuration(file: File | CourseFileHandle, signal: A
 
 /** 批量读取容器头；少数无法直接读取的文件才使用三路播放器回退。 */
 export async function collectGuideMetadata(
-  videos: VideoEntry[], cache: Record<string, LessonMetadata>, signal: AbortSignal,
+  videos: VideoEntry[],
+  cache: Record<string, LessonMetadata>,
+  signal: AbortSignal,
   onEntry: (path: string, metadata: LessonMetadata) => void,
 ): Promise<void> {
   const fallback: Array<{ video: VideoEntry; metadata?: LessonMetadata }> = []
   for (let offset = 0; offset < videos.length && !signal.aborted; offset += 64) {
     const batch = videos.slice(offset, offset + 64)
     try {
-      const entries = await videoMetadataBatch(batch.map(video => ({ handle: video.handle, cached: cache[video.path] })))
+      const entries = await videoMetadataBatch(
+        batch.map((video) => ({ handle: video.handle, cached: cache[video.path] })),
+      )
       if (signal.aborted) return
-      const byPath = new Map(entries.map(entry => [entry.relative, entry]))
+      const byPath = new Map(entries.map((entry) => [entry.relative, entry]))
       for (const video of batch) {
         const entry = byPath.get(video.path)
-        if (!entry) { fallback.push({ video }); continue }
+        if (!entry) {
+          fallback.push({ video })
+          continue
+        }
         const metadata = { size: entry.size, modified: entry.modified, duration: entry.duration }
         if (entry.duration !== null || !entry.readable) onEntry(video.path, metadata)
         else fallback.push({ video, metadata })
       }
     } catch {
       // 旧桌面运行时或不支持的句柄仍可读取；单批失败不终止整个课程。
-      fallback.push(...batch.map(video => ({ video })))
+      fallback.push(...batch.map((video) => ({ video })))
     }
   }
   let cursor = 0
   async function worker() {
     while (!signal.aborted && cursor < fallback.length) {
-      const item = fallback[cursor++]!, video = item.video
+      const item = fallback[cursor++]!,
+        video = item.video
       let metadata: LessonMetadata = item.metadata ?? { duration: null, size: 0, modified: 0 }
       try {
-        const file = item.metadata ? { size: item.metadata.size, lastModified: item.metadata.modified } : await fileMetadata(video.handle)
+        const file = item.metadata
+          ? { size: item.metadata.size, lastModified: item.metadata.modified }
+          : await fileMetadata(video.handle)
         if (signal.aborted) return
         const old = cache[video.path]
-        metadata = old?.size === file.size && old.modified === file.lastModified && old.duration !== null
-          ? old : { size: file.size, modified: file.lastModified, duration: await readVideoDuration(video.handle, signal) }
-      } catch { /* 不支持的容器、失效句柄均按未知时长处理 */ }
+        metadata =
+          old?.size === file.size && old.modified === file.lastModified && old.duration !== null
+            ? old
+            : { size: file.size, modified: file.lastModified, duration: await readVideoDuration(video.handle, signal) }
+      } catch {
+        /* 不支持的容器、失效句柄均按未知时长处理 */
+      }
       if (!signal.aborted) onEntry(video.path, metadata)
     }
   }
@@ -83,16 +108,23 @@ function cueTime(raw: string): number | null {
 }
 
 export function parseSubtitles(raw: string): SubtitleCue[] {
-  const lines = raw.replace(/^\uFEFF/, '').replace(/\r/g, '').split('\n')
+  const lines = raw
+    .replace(/^\uFEFF/, '')
+    .replace(/\r/g, '')
+    .split('\n')
   const cues: SubtitleCue[] = []
   for (let i = 0; i < lines.length; i++) {
     const match = /^\s*(\S+)\s+-->\s+(\S+)/.exec(lines[i]!)
     if (!match) continue
-    const start = cueTime(match[1]!), end = cueTime(match[2]!)
+    const start = cueTime(match[1]!),
+      end = cueTime(match[2]!)
     if (start === null || end === null || end <= start) continue
     const text: string[] = []
     while (i + 1 < lines.length && lines[i + 1]!.trim()) text.push(lines[++i]!)
-    const content = text.join(' ').replace(/<[^>]*>/g, '').trim()
+    const content = text
+      .join(' ')
+      .replace(/<[^>]*>/g, '')
+      .trim()
     if (content) cues.push({ id: cues.length, start, end, text: content })
   }
   return cues
@@ -106,7 +138,9 @@ export async function loadLessonSubtitles(video: VideoEntry): Promise<SubtitleCu
       if (file.size > 5_000_000) continue
       const cues = parseSubtitles(await file.text())
       if (cues.length) return cues
-    } catch { /* 继续查找另一种字幕格式 */ }
+    } catch {
+      /* 继续查找另一种字幕格式 */
+    }
   }
   return []
 }

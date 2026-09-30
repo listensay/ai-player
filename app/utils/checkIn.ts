@@ -6,7 +6,11 @@ import { localDayKey } from './learningFeedback.ts'
 /** 用媒体推进确认有效播放，再按真实经过的时间计时，排除跳转与缓冲。 */
 export function effectivePlaybackSeconds(previous: PlaybackSample | null, current: PlaybackSample): number {
   if (!previous || !previous.playing || previous.seeking || current.seeking) return 0
-  if (![previous.at, current.at, previous.seconds, current.seconds, previous.rate].every(Number.isFinite) || previous.rate <= 0) return 0
+  if (
+    ![previous.at, current.at, previous.seconds, current.seconds, previous.rate].every(Number.isFinite) ||
+    previous.rate <= 0
+  )
+    return 0
   const elapsed = (current.at - previous.at) / 1000
   const mediaDelta = current.seconds - previous.seconds
   if (elapsed <= 0 || mediaDelta <= 0 || mediaDelta > elapsed * previous.rate + 0.75) return 0
@@ -36,7 +40,8 @@ export function setStudyTarget(day: StudyDay, minutes: number, now: number, extr
   checkStudyDay(day, now, extraSeconds)
 }
 export function checkStudyDay(day: StudyDay, now: number, extraSeconds = 0) {
-  if (day.checkedAt === null && day.targetSeconds > 0 && day.seconds + extraSeconds >= day.targetSeconds) day.checkedAt = now
+  if (day.checkedAt === null && day.targetSeconds > 0 && day.seconds + extraSeconds >= day.targetSeconds)
+    day.checkedAt = now
 }
 
 export function validDayKey(value: unknown): value is string {
@@ -49,12 +54,27 @@ export function restoreStudyDays(raw: unknown): Record<string, StudyDay> {
   const days: Record<string, StudyDay> = {}
   if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.days)) return days
   for (const value of raw.days.slice(-5000)) {
-    if (!isRecord(value) || !validDayKey(value.date)
-      || typeof value.seconds !== 'number' || !Number.isFinite(value.seconds) || value.seconds < 0 || value.seconds > 86400
-      || typeof value.targetSeconds !== 'number' || !Number.isInteger(value.targetSeconds) || value.targetSeconds < 300 || value.targetSeconds > 86400
-      || (value.checkedAt !== null && (typeof value.checkedAt !== 'number' || !Number.isFinite(value.checkedAt) || value.checkedAt < 0))) continue
-    days[value.date] = { date: value.date, seconds: value.seconds, targetSeconds: value.targetSeconds,
-      checkedAt: value.checkedAt !== null && value.seconds >= value.targetSeconds ? value.checkedAt as number : null }
+    if (
+      !isRecord(value) ||
+      !validDayKey(value.date) ||
+      typeof value.seconds !== 'number' ||
+      !Number.isFinite(value.seconds) ||
+      value.seconds < 0 ||
+      value.seconds > 86400 ||
+      typeof value.targetSeconds !== 'number' ||
+      !Number.isInteger(value.targetSeconds) ||
+      value.targetSeconds < 300 ||
+      value.targetSeconds > 86400 ||
+      (value.checkedAt !== null &&
+        (typeof value.checkedAt !== 'number' || !Number.isFinite(value.checkedAt) || value.checkedAt < 0))
+    )
+      continue
+    days[value.date] = {
+      date: value.date,
+      seconds: value.seconds,
+      targetSeconds: value.targetSeconds,
+      checkedAt: value.checkedAt !== null && value.seconds >= value.targetSeconds ? (value.checkedAt as number) : null,
+    }
   }
   return days
 }
@@ -72,12 +92,23 @@ export function calendarDays(year: number, month: number) {
 
 /** 从计划开始当天起标记未达标日期；未来、计划外和零目标休息日不标记。 */
 export function isMissedStudyDay(options: {
-  date: string; today: string; startDate?: string | null; endDate?: string | null
-  seconds: number; targetSeconds: number; checkedAt?: number | null
+  date: string
+  today: string
+  startDate?: string | null
+  endDate?: string | null
+  seconds: number
+  targetSeconds: number
+  checkedAt?: number | null
 }) {
-  return !!options.startDate && options.date >= options.startDate && options.date <= options.today
-    && (!options.endDate || options.date <= options.endDate) && options.checkedAt == null
-    && options.targetSeconds > 0 && options.seconds < options.targetSeconds
+  return (
+    !!options.startDate &&
+    options.date >= options.startDate &&
+    options.date <= options.today &&
+    (!options.endDate || options.date <= options.endDate) &&
+    options.checkedAt == null &&
+    options.targetSeconds > 0 &&
+    options.seconds < options.targetSeconds
+  )
 }
 
 export function studyStreak(days: Record<string, StudyDay>, today: string): number {
@@ -86,12 +117,17 @@ export function studyStreak(days: Record<string, StudyDay>, today: string): numb
   const cursor = new Date(year, month - 1, day)
   if (days[today]?.checkedAt == null) cursor.setDate(cursor.getDate() - 1)
   let count = 0
-  while (days[localDayKey(cursor)]?.checkedAt != null) { count++; cursor.setDate(cursor.getDate() - 1) }
+  while (days[localDayKey(cursor)]?.checkedAt != null) {
+    count++
+    cursor.setDate(cursor.getDate() - 1)
+  }
   return count
 }
 
 export function formatStudyClock(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds)), hours = Math.floor(total / 3600), minutes = Math.floor(total % 3600 / 60)
+  const total = Math.max(0, Math.floor(seconds)),
+    hours = Math.floor(total / 3600),
+    minutes = Math.floor((total % 3600) / 60)
   return `${hours ? `${hours}:` : ''}${String(minutes).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
