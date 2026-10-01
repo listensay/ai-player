@@ -170,16 +170,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
             </section>
           </template>
         </VideoStage>
-        <p v-if="video && segment.active.value" class="mt-3 shrink-0 text-caption text-stone">
-          本次片段 {{ formatTime(segment.active.value.start, true) }}–{{
-            formatTime(
-              player.state.duration > 0
-                ? Math.min(segment.active.value.end, player.state.duration)
-                : segment.active.value.end,
-              true,
-            )
-          }}
-        </p>
       </div>
 
       <!-- 笔记 / 逐字稿 -->

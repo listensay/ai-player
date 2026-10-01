@@ -405,9 +405,11 @@ export function useLessonPractice(
         },
       })
       if (controller.signal.aborted) return
+      const groupId = crypto.randomUUID()
       const pending: PracticeRecord[] = results.flatMap((questions, index) =>
         questions.map((question) => ({
           id: crypto.randomUUID(),
+          groupId,
           path,
           createdAt: Date.now(),
           scope,

@@ -10,6 +10,7 @@ import PracticeText from '~/components/PracticeText.vue'
 import PracticeAttachmentList from '~/components/PracticeAttachmentList.vue'
 import { PRACTICE_FILE_ACCEPT } from '~/utils/practiceAttachments'
 import { criterionPoints, GRADE_STATUS_LABELS } from '~/utils/practiceGrading'
+import { practiceGroup, practiceGroupScore } from '~/utils/practiceSession'
 import {
   PRACTICE_KIND_LABELS,
   KNOWLEDGE_LEVEL_LABELS,
@@ -58,14 +59,19 @@ const sourceLabels = {
   summary: '知识点总结',
 }
 const historyItems = computed(() =>
-  [...history.value].reverse().map((record, index) => ({
+  [...history.value].reverse().map((record) => ({
     value: record.id,
-    title: `第 ${index + 1} 题 · ${PRACTICE_KIND_LABELS[record.question.kind]}`,
+    title: `第 ${practiceGroup(history.value, record).findIndex((item) => item.id === record.id) + 1} 题 · ${PRACTICE_KIND_LABELS[record.question.kind]}`,
     subtitle: `${record.attempts.length ? '已作答' : '未作答'} · ${record.question.concepts.join('、')}`,
   })),
 )
-const questionNumber = computed(() => historyItems.value.findIndex((item) => item.value === current.value?.id) + 1)
+const group = computed(() => practiceGroup(history.value, current.value))
+const groupScore = computed(() => practiceGroupScore(group.value))
+const questionNumber = computed(() => group.value.findIndex((item) => item.id === current.value?.id) + 1)
+const lastQuestion = computed(() => questionNumber.value > 0 && questionNumber.value === group.value.length)
+const showGroupScore = computed(() => !daily && !!group.value.at(-1)?.attempts.length)
 const reachedLimit = computed(() => (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT)
+const canContinue = computed(() => !daily && !!attempt.value && (answerSubmitted.value || reachedLimit.value))
 const canGenerate = computed(
   () => state.historyReady && !state.busy && configured.value && hasMaterial.value && (!daily || !history.value.length),
 )
@@ -117,8 +123,8 @@ function choose(id: string, checked = true) {
   props.practice.updateDraft(JSON.stringify(ids))
 }
 function navigateQuestion(direction: number) {
-  const item = historyItems.value[questionNumber.value - 1 + direction]
-  if (item) props.practice.select(item.value)
+  const item = group.value[questionNumber.value - 1 + direction]
+  if (item) props.practice.select(item.id)
 }
 async function showMaterials() {
   view.value = 'materials'
@@ -201,14 +207,14 @@ async function upload(event: Event) {
             <template #selection
               ><span class="font-bold"
                 >第 {{ questionNumber || '—' }} 题
-                <span class="ml-1 font-normal text-stone">/ {{ history.length }}</span></span
+                <span class="ml-1 font-normal text-stone">/ {{ group.length }}</span></span
               ></template
             >
             <template #item="{ props: itemProps, item }"
               ><VListItem v-bind="itemProps" :subtitle="item.raw.subtitle"
             /></template>
           </VSelect>
-          <div v-if="!daily && history.length > 1 && current" class="flex shrink-0">
+          <div v-if="!daily && group.length > 1 && current" class="flex shrink-0">
             <UiButton
               variant="text"
               size="sm"
@@ -223,7 +229,7 @@ async function upload(event: Event) {
               size="sm"
               icon
               title="下一题"
-              :disabled="!!state.busy || questionNumber >= history.length"
+              :disabled="!!state.busy || lastQuestion"
               @click="navigateQuestion(1)"
               ><AppIcon name="chevron-right" :size="18"
             /></UiButton>
@@ -258,6 +264,23 @@ async function upload(event: Event) {
             }}<span v-if="latestScore !== undefined"> · 最新评分 {{ latestScore }} / 100</span
             ><span v-else-if="completedCount"> · {{ correctCount ? '回答正确' : '查看反馈后可修改作答' }}</span>
           </section>
+          <section
+            v-if="showGroupScore && view !== 'materials'"
+            aria-label="整组得分"
+            role="status"
+            class="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-linen bg-pure-white px-5 py-4"
+          >
+            <div>
+              <h3 class="text-body font-bold">整组得分</h3>
+              <p class="mt-1 text-body-sm text-stone">
+                已答 {{ groupScore.completed }} / {{ groupScore.total }} 题
+                <span v-if="groupScore.unanswered"> · 未答 {{ groupScore.unanswered }} 题，计 0 分</span>
+              </p>
+            </div>
+            <p class="text-heading font-bold text-deep-indigo">
+              {{ groupScore.score }}<span class="ml-2 text-body font-normal text-stone">/ 100 分</span>
+            </p>
+          </section>
           <section v-if="current && view !== 'materials'" :key="current.id" class="space-y-7" aria-label="当前练习">
             <div v-if="view === 'question'" class="space-y-6">
               <div class="flex items-center gap-3">
@@ -291,6 +314,7 @@ async function upload(event: Event) {
                       :model-value="selected.includes(option.id)"
                       :aria-label="`${option.id}. ${option.text}`"
                       :readonly="!!state.busy"
+                      hide-details
                       class="practice-option"
                       @update:model-value="choose(option.id, !!$event)"
                     >
@@ -714,9 +738,17 @@ async function upload(event: Event) {
             <UiButton v-if="current && view === 'materials'" variant="dark" @click="view = 'question'"
               >返回练习</UiButton
             >
-            <UiButton v-else-if="current && view === 'feedback'" variant="dark" @click="view = 'question'"
-              >返回作答</UiButton
-            >
+            <template v-else-if="current && view === 'feedback'">
+              <UiButton :variant="canContinue ? 'ghost' : 'dark'" @click="view = 'question'">返回作答</UiButton>
+              <UiButton v-if="canContinue && !lastQuestion" variant="dark" @click="navigateQuestion(1)"
+                >下一题<AppIcon name="chevron-right" :size="16"
+              /></UiButton>
+              <UiButton v-else-if="canContinue" variant="dark" @click="practice.close()">完成</UiButton>
+            </template>
+            <UiButton v-else-if="canContinue && !lastQuestion" variant="dark" @click="navigateQuestion(1)"
+              >下一题<AppIcon name="chevron-right" :size="16"
+            /></UiButton>
+            <UiButton v-else-if="canContinue" variant="dark" @click="practice.close()">完成</UiButton>
             <UiButton v-else-if="current" variant="dark" :disabled="!canReview" @click="practice.review()">{{
               submitLabel
             }}</UiButton>

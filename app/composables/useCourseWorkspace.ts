@@ -7,6 +7,7 @@ import { useKnowledgePreparation } from '~/composables/useKnowledgePreparation'
 import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
 import { useCompanion } from '~/composables/useCompanion'
+import { providePomodoro } from '~/composables/usePomodoro'
 import { usePlayer } from '~/composables/usePlayer'
 import { usePlayerDirectory } from '~/composables/usePlayerDirectory'
 import { useProgress } from '~/composables/useProgress'
@@ -40,6 +41,7 @@ export function provideCourseWorkspace() {
   const desktopSettings = provideDesktopSettings()
   const { stats } = store
   const player = usePlayer()
+  const pomodoro = providePomodoro(() => player.state.playing, player.pause)
 
   const stage = ref<{ toggleFullscreen: () => void } | null>(null)
 
@@ -177,6 +179,7 @@ export function provideCourseWorkspace() {
     { flush: 'sync' },
   )
   const companion = useCompanion({
+    pomodoro,
     desktopSettings,
     player,
     course,
@@ -201,6 +204,12 @@ export function provideCourseWorkspace() {
         const timeStr = hours > 0 ? `${hours} 小时${minutes > 0 ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`
         showToast(`今日学习 ${timeStr}，已打卡。`)
       }
+    },
+  )
+  watch(
+    () => pomodoro.snapshot.value.notice,
+    (notice) => {
+      if (notice) showToast(notice)
     },
   )
   const hasPrev = computed(() => !!video.value && !!guide.adjacent(video.value.path, -1))
@@ -476,6 +485,7 @@ export function provideCourseWorkspace() {
       practice.persist()
       checkIn.persist()
       await daily.flush()
+      await pomodoro.flush()
       await studyTools.flush()
       await flushDatabaseWrites()
     },
@@ -522,6 +532,7 @@ export function provideCourseWorkspace() {
   })
   const workspace = {
     companion,
+    pomodoro,
     reminderLinks,
     store,
     stats,

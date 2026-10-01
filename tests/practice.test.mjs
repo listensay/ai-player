@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
-import { createRenderer, reactive, ref } from 'vue'
+import { readFileSync } from 'node:fs'
+import { parse, compileScript } from '@vue/compiler-sfc'
+import ts from 'typescript'
+import { createRenderer, reactive, ref, nextTick, h as vueH } from 'vue'
 
 // 只替换网络、文件和数据库边界；使用实际 Vue 状态、题目校验及练习流程。
 const boundaries = {
@@ -29,6 +32,7 @@ const { appendPracticeRecord, restorePractice, isRepeatedPracticeQuestion, pract
   await import('../app/utils/practice.ts')
 const { readPracticeFile, validateAttachments } = await import('../app/utils/practiceAttachments.ts')
 const { criterionPoints, validatePracticeGrade } = await import('../app/utils/practiceGrading.ts')
+const { practiceGroup, practiceGroupScore } = await import('../app/utils/practiceSession.ts')
 const note =
   '变量用于给数据命名，列表可以保存多个值。访问列表元素使用索引，从零开始计数。列表推导式可以筛选和转换数据，避免重复编写循环。'
 const sources = [{ id: 's1', kind: 'note', text: note }]
@@ -565,4 +569,224 @@ test('评分要求覆盖全部功能，拒绝超分、重复项、总分错误�
   const old = restorePractice([record('legacy')], ['a.mp4'])[0]
   assert.equal(old.question.criterionPoints, undefined)
   assert.equal(old.attachments, undefined)
+})
+
+test('同次生成的题目独立成组，保存恢复后顺序和计分范围不变', async (t) => {
+  const h = harness(t, {
+    requestGuideJson: async () => ({ questions: [question('题目一'), question('题目二'), question('题目三')] }),
+  })
+  await open(h)
+  await h.practice.generate(3)
+  const first = h.practice.current.value
+  const group = practiceGroup(h.practice.history.value, first)
+  assert.equal(group.length, 3)
+  assert.ok(first.groupId)
+  assert.equal(new Set(group.map((r) => r.groupId)).size, 1)
+  assert.deepEqual(
+    group.map((r) => r.question.prompt),
+    ['题目一', '题目二', '题目三'],
+  )
+  h.io.requestGuideJson = async () => question('另一组题目')
+  await h.practice.generate()
+  const next = h.practice.current.value
+  assert.notEqual(next.groupId, first.groupId)
+  assert.equal(practiceGroup(h.practice.history.value, next).length, 1)
+  const restored = restorePractice(JSON.parse(JSON.stringify(h.practice.state.records)), ['a.mp4'])
+  assert.deepEqual(
+    practiceGroup(restored, first).map((r) => r.id),
+    group.map((r) => r.id),
+  )
+  assert.equal(h.saves.at(-1)[2].find((r) => r.id === first.id).groupId, first.groupId)
+})
+
+test('旧练习兼容无分组信息，只合并同课节同范围的旧题', () => {
+  const first = record('one')
+  const second = record('two')
+  const others = [
+    { ...record('new'), groupId: 'new-group' },
+    { ...record('scoped'), scope: { start: 0, end: 30 } },
+    record('another-video', 'b.mp4'),
+  ]
+  assert.deepEqual(
+    practiceGroup([...others, second, first], first).map((r) => r.id),
+    ['one', 'two'],
+  )
+  assert.deepEqual(practiceGroup([first], undefined), [])
+})
+
+test('整组百分制按最新提交等权汇总，支持部分正确、作业评分和未答', () => {
+  const graded = (id, result, score) => ({
+    ...record(id),
+    attempts: [
+      {
+        answer: 'answer',
+        at: 1,
+        feedback: {
+          result,
+          ...(score !== undefined ? { grade: { score, items: [] } } : {}),
+        },
+      },
+    ],
+  })
+  const items = [
+    graded('one', 'solid'),
+    graded('two', 'partial'),
+    graded('three', 'retry'),
+    graded('four', 'solid', 85),
+    record('five'),
+  ]
+  assert.deepEqual(practiceGroupScore(items), { total: 5, completed: 4, unanswered: 1, score: 47 })
+  items[2].attempts.push({ answer: 'corrected', at: 2, feedback: { result: 'solid' } })
+  items[0].draft = '未提交的修改'
+  assert.equal(practiceGroupScore(items).score, 67)
+  assert.equal(practiceGroupScore([graded('a', 'solid'), graded('b', 'solid'), graded('c', 'retry')]).score, 67)
+  assert.equal(practiceGroupScore([graded('a', 'solid'), graded('b', 'solid'), graded('c', 'solid')]).score, 100)
+  assert.deepEqual(practiceGroupScore([]), { total: 0, completed: 0, unanswered: 0, score: 0 })
+})
+
+// 编译真实弹窗模板，按钮和选择组件仅替换渲染外壳，练习状态与事件使用真实流程。
+async function mountDialog(t, practice) {
+  const { descriptor } = parse(readFileSync(new URL('../app/components/PracticeDialog.vue', import.meta.url), 'utf8'))
+  const code = compileScript(descriptor, { id: 'practice-dialog-test', inlineTemplate: true })
+    .content.replace(
+      /import \{ useGuide \} from [^\n]+/,
+      'const useGuide = () => ({ state: { mastery: {}, busy: false } })',
+    )
+    .replace(/import (\w+) from '~\/components\/[^\n]+/g, 'const $1 = globalThis.practiceDialogStubs.$1')
+    .replace(/from ['"]vue['"]/g, `from '${import.meta.resolve('vue')}'`)
+  const stub = (name) => ({
+    props: ['text', 'modelValue'],
+    setup(props, { slots, attrs }) {
+      return () =>
+        name === 'VDialog' && !props.modelValue
+          ? null
+          : vueH(
+              name === 'UiButton' ? 'button' : name,
+              attrs,
+              props.text ?? [slots.default?.(), slots.label?.(), slots.selection?.()],
+            )
+    },
+  })
+  globalThis.practiceDialogStubs = Object.fromEntries(
+    ['UiButton', 'AppIcon', 'PracticeText', 'PracticeAttachmentList', 'AiProfileSelector'].map((name) => [
+      name,
+      stub(name),
+    ]),
+  )
+  const { outputText } = ts.transpileModule(code, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  })
+  const Component = (await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)).default
+  const element = (type) => ({
+    type,
+    props: {},
+    style: {},
+    children: [],
+    parent: null,
+    focus() {},
+    scrollTo() {},
+    scrollIntoView() {},
+  })
+  const renderer = createRenderer({
+    createElement: element,
+    createText: (text) => ({ ...element('#text'), text }),
+    createComment: () => element('#comment'),
+    setText: (node, text) => {
+      node.text = text
+    },
+    setElementText: (node, text) => {
+      node.text = text
+      node.children = []
+    },
+    patchProp: (node, key, _old, value) => {
+      node.props[key] = value
+    },
+    insert(node, parent, anchor) {
+      if (node.parent) node.parent.children.splice(node.parent.children.indexOf(node), 1)
+      node.parent = parent
+      const index = anchor ? parent.children.indexOf(anchor) : -1
+      parent.children.splice(index < 0 ? parent.children.length : index, 0, node)
+    },
+    remove(node) {
+      node.parent?.children.splice(node.parent.children.indexOf(node), 1)
+      node.parent = null
+    },
+    parentNode: (node) => node.parent,
+    nextSibling: (node) => node.parent?.children[node.parent.children.indexOf(node) + 1] ?? null,
+  })
+  const root = element('root'),
+    app = renderer.createApp(Component, { practice })
+  for (const name of new Set(descriptor.template.content.match(/\bV[A-Z]\w+/g))) app.component(name, stub(name))
+  app.mount(root)
+  t.after(() => app.unmount())
+  await nextTick()
+  const walk = (node) => [node, ...node.children.flatMap(walk)]
+  const text = (node) => `${node.text ?? ''}${node.children.map(text).join('')}`.trim()
+  const button = (label) => walk(root).find((node) => node.type === 'button' && text(node) === label)
+  return {
+    button,
+    find: (type) => walk(root).find((node) => node.type === type),
+    text: () => text(root),
+    async click(label) {
+      const target = button(label)
+      assert.ok(target, `可找到按钮：${label}`)
+      assert.ok(!target.props.disabled, `按钮可用：${label}`)
+      target.props.onClick()
+      await nextTick()
+      await nextTick()
+    },
+  }
+}
+
+test('弹窗逐题提交后显示下一题，末题汇总分数并完成关闭，重新打开保留成绩', async (t) => {
+  const h = harness(t, {
+    requestGuideJson: async () => ({ questions: [question('第一题'), question('第二题'), question('第三题')] }),
+  })
+  await open(h)
+  await h.practice.generate(3)
+  const dialog = await mountDialog(t, h.practice)
+  assert.ok(dialog.button('提交作答').props.disabled)
+  assert.equal(dialog.button('下一题'), undefined)
+  for (const answer of ['A', 'B', 'A']) {
+    h.practice.updateDraft(JSON.stringify([answer]))
+    await nextTick()
+    await dialog.click('提交作答')
+    if (h.practice.current.value.question.prompt !== '第三题') {
+      assert.equal(dialog.button('完成'), undefined)
+      await dialog.click('下一题')
+    }
+  }
+  assert.equal(dialog.button('下一题'), undefined)
+  assert.match(dialog.text(), /整组得分.*已答 3 \/ 3 题.*67.*100 分/s)
+  await dialog.click('完成')
+  assert.equal(h.practice.state.open, false)
+  await open(h)
+  await nextTick()
+  assert.match(dialog.text(), /整组得分.*67/s)
+  await dialog.click('完成')
+})
+
+test('返回作答后可重新提交并更新总分，末题提前提交显示未答计零', async (t) => {
+  const h = harness(t, {
+    requestGuideJson: async () => ({ questions: [question('第一题'), question('第二题'), question('第三题')] }),
+  })
+  await open(h)
+  await h.practice.generate(3)
+  const group = practiceGroup(h.practice.history.value, h.practice.current.value)
+  h.practice.select(group.at(-1).id)
+  const dialog = await mountDialog(t, h.practice)
+  h.practice.updateDraft('["B"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  assert.match(dialog.text(), /未答 2 题，计 0 分/)
+  await dialog.click('返回作答')
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  assert.equal(dialog.button('完成'), undefined)
+  await dialog.click('重新提交')
+  assert.match(dialog.text(), /整组得分.*33.*100 分/s)
+  assert.ok(dialog.button('完成'))
+  await dialog.click('材料与设置')
+  assert.equal(dialog.button('完成'), undefined)
+  assert.ok(dialog.button('返回练习'))
 })

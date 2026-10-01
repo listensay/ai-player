@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppTopBar from '~/components/AppTopBar.vue'
 import UiButton from '~/components/UiButton.vue'
 import StudyReminderNotice from '~/components/StudyReminderNotice.vue'
@@ -16,18 +16,18 @@ onMounted(() => {
 })
 const progress = useProgress()
 const router = useRouter()
+const route = useRoute()
 const {
   stats,
-  transcripts,
   helpOpen,
   guideOpen,
   guideTab,
   reminderLinks,
   companion,
+  pomodoro,
   currentView,
   toast,
   course,
-  video,
   practice,
   daily,
   openDailyPractice,
@@ -46,43 +46,23 @@ const {
     >
       <AppTopBar
         :course-name="course?.name"
-        :course-id="course?.id"
-        :video-path="video?.path"
         :total="stats.total"
         :done="stats.done"
         :current-view="currentView"
+        :show-history-back="route.name === 'settings' || route.name === 'study-management'"
+        :pomodoro="pomodoro.snapshot.value"
+        @pomodoro-start="pomodoro.start()"
+        @pomodoro-pause="pomodoro.pause()"
+        @pomodoro-reset="pomodoro.reset()"
+        @pomodoro-settings="router.push({ path: '/settings', query: { section: 'pomodoro' } })"
+        @back="router.push(course ? `/courses/${course.id}` : '/')"
+        @history-back="router.back()"
         @help="helpOpen = true"
         @close="router.push('/')"
         @guide="openGuide()"
         @companion="companion.openMini()"
       />
 
-      <aside
-        v-if="transcripts.activeJobs.value"
-        aria-label="后台转写任务"
-        class="shrink-0 border-b border-linen bg-sunbeam-yellow/15 px-4 py-2 text-caption"
-      >
-        <div
-          v-for="task in transcripts.tasks.value"
-          :key="`${task.courseId}:${task.path}`"
-          class="flex items-center gap-3"
-        >
-          <span class="min-w-0 flex-1 truncate"
-            >正在转写：{{ task.title }} ·
-            {{ task.progress === null ? '等待处理' : `${Math.round(task.progress * 100)}%` }}</span
-          >
-          <button
-            type="button"
-            class="font-bold"
-            @click="router.push({ path: `/courses/${task.courseId}/player`, query: { lesson: task.path } })"
-          >
-            查看课节
-          </button>
-          <button type="button" class="text-stone" @click="transcripts.cancel(task.courseId, task.path)">
-            取消任务
-          </button>
-        </div>
-      </aside>
       <aside
         v-if="reminderLinks.error.value"
         role="alert"

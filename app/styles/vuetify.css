@@ -235,13 +235,16 @@
 .practice-option .v-label {
   white-space: normal;
   flex: 1;
+  min-width: 0;
   padding-block: 4px;
 }
+.practice-option.v-selection-control,
 .practice-option .v-selection-control {
-  align-items: flex-start;
+  align-items: center;
+  gap: 12px;
 }
-.practice-option .v-selection-control__input {
-  margin-top: 3px;
+.practice-option .v-selection-control__wrapper {
+  flex-shrink: 0;
 }
 .practice-answer-code textarea {
   font-family: var(--font-mono);

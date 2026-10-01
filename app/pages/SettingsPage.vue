@@ -7,15 +7,16 @@ import { useRoute } from 'vue-router'
 import AppIcon from '~/components/AppIcon.vue'
 import { usePageTitle } from '~/composables/usePageTitle'
 import { useDesktopSettings } from '~/composables/useDesktopSettings'
+import PomodoroSettingsPanel from '~/components/PomodoroSettingsPanel.vue'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
 import UiButton from '~/components/UiButton.vue'
 const settings = useDesktopSettings()
 const route = useRoute()
-const activeSection = ref<'companion' | 'ai' | 'about'>('companion')
+const activeSection = ref<'companion' | 'ai' | 'about' | 'pomodoro'>('companion')
 watch(
   () => route.query.section,
   (section) => {
-    activeSection.value = section === 'ai' || section === 'about' ? section : 'companion'
+    activeSection.value = section === 'ai' || section === 'about' || section === 'pomodoro' ? section : 'companion'
   },
   { immediate: true },
 )
@@ -119,6 +120,7 @@ usePageTitle('设置 · AI Player')
               <p v-if="reportError" role="alert" class="text-body-sm text-error">{{ reportError }}</p>
             </div>
           </section>
+          <PomodoroSettingsPanel v-if="activeSection === 'pomodoro'" />
           <AiSettingsPanel v-show="activeSection === 'ai'" id="settings-ai" />
         </div>
         <nav
@@ -154,6 +156,16 @@ usePageTitle('设置 · AI Player')
             @click="activeSection = 'about'"
           >
             <AppIcon name="clock" :size="18" />关于与诊断
+          </button>
+          <button
+            type="button"
+            aria-controls="settings-pomodoro"
+            :aria-current="activeSection === 'pomodoro' ? 'page' : undefined"
+            class="flex items-center gap-2 rounded-xl px-4 py-3 text-left text-body-sm font-bold hover:bg-linen/40 focus-visible:outline-2 focus-visible:outline-deep-indigo"
+            :class="activeSection === 'pomodoro' ? 'bg-pure-white text-deep-indigo' : 'text-stone'"
+            @click="activeSection = 'pomodoro'"
+          >
+            <AppIcon name="clock" :size="18" />番茄钟
           </button>
         </nav>
       </div>

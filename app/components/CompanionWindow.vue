@@ -25,7 +25,10 @@ async function send(type: CompanionAction['type']) {
   error.value = ''
   sending.value = type !== 'sync'
   try {
-    await emitTo('main', COMPANION_ACTION_EVENT, { type, lessonKey: state.value.lessonKey } satisfies CompanionAction)
+    await emitTo('main', COMPANION_ACTION_EVENT, {
+      type,
+      lessonKey: state.value.lessonKey,
+    } satisfies CompanionAction)
   } catch {
     error.value = '播放器连接失败。'
   } finally {

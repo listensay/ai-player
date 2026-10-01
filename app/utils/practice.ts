@@ -422,6 +422,7 @@ export function restorePractice(
       })
       records.push({
         id: r.id,
+        ...(typeof r.groupId === 'string' && r.groupId.trim() && r.groupId.length <= 100 ? { groupId: r.groupId } : {}),
         path: r.path,
         createdAt: r.createdAt,
         scope: r.scope as PracticeScope | null,

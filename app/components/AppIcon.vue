@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  RotateCcw,
   Settings,
   Bell,
   Plus,
@@ -42,6 +43,7 @@ import {
 
 // 使用 Lucide 的标准图标，统一圆角描边；不再维护手写 SVG 路径。
 const icons = {
+  reset: RotateCcw,
   settings: Settings,
   sparkles: Sparkles,
   route: Route,

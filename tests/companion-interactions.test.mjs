@@ -118,3 +118,42 @@ test('点击穿透后窗口失焦会收起菜单，卸载会移除监听', async
   app.unmount()
   assert.equal(windowEvents.size, 0)
 })
+
+test('桌宠移除番茄钟控件后，无视频、隐藏日常提示或主窗口弹窗时仍显示阶段消息', async (t) => {
+  const { pet, props } = mount(t)
+  props.state.ready = false
+  props.state.blocked = true
+  props.state.pomodoro = {
+    ready: true,
+    enabled: true,
+    visible: true,
+    phase: 'short-break',
+    status: 'running',
+    remainingSeconds: 300,
+    totalSeconds: 300,
+    completedFocuses: 1,
+    round: 1,
+    longBreakEvery: 4,
+    revision: 2,
+    notice: '专注完成，已开始短休息 5 分钟。',
+    error: '',
+  }
+  await nextTick()
+  pet.toggleQuiet()
+  props.state.pomodoro.revision++
+  await nextTick()
+  assert.equal(pet.bubbleVisible.value, true)
+  assert.match(pet.message.value, /专注完成/)
+  assert.equal(pet.pomodoro.value.remainingSeconds, 300)
+  pet.collapse()
+  assert.equal(pet.panelOpen.value, false)
+  props.state.pomodoro.notice = '休息结束，播放视频或手动开始下一次专注。'
+  props.state.pomodoro.revision++
+  await nextTick()
+  assert.equal(pet.panelOpen.value, true)
+  assert.match(pet.message.value, /休息结束/)
+  assert.doesNotMatch(descriptor.template.content, /PomodoroBadge|pomodoroStart|pomodoroPause|pomodoroReset/)
+  props.state.pomodoro.visible = false
+  await nextTick()
+  assert.equal(pet.pomodoro.value, undefined)
+})

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
-import { createRenderer, ref, computed, nextTick, h } from 'vue'
+import { createRenderer, ref, reactive, computed, nextTick, h } from 'vue'
 import { test } from 'node:test'
 
 // Render actual page templates; replace native video and editor internals only.
@@ -22,7 +22,7 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
     guide: { state: { today: { items: [] } }, configured: ref(false) },
     segment: { active: ref(null), reminder: ref(null) },
     checkIn: { isAchieved: ref(false), percent: ref(30), seconds: ref(600), targetSeconds: ref(1800), streak: ref(2) },
-    transcripts: { get: () => ({ status: 'ready' }) },
+    transcripts: { get: () => ({ status: 'transcribing', progress: null }) },
     hasPrev: ref(false),
     hasNext: ref(true),
     onVideoSample: nil,
@@ -91,7 +91,11 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
         /import \{ formatStudyClock, formatStudyHours \} from [^\n]+/,
         'const formatStudyClock = String, formatStudyHours = String',
       )
-      .replace(/import (\w+) from '~\/components\/[^\n]+/g, 'const $1 = globalThis.sidebarStubs.$1')
+      .replace(/import (\w+) from ['"](?:~\/components\/|\.\/)[^\n]+/g, 'const $1 = globalThis.sidebarStubs.$1')
+      .replace(
+        /from ['"]~\/utils\/pomodoro['"]/g,
+        `from '${new URL('../app/utils/pomodoro.ts', import.meta.url).href}'`,
+      )
       .replace(/import \{ RouterLink \} from [^\n]+/, 'const RouterLink = globalThis.sidebarStubs.RouterLink')
       .replace(/from ["']vue["']/g, `from '${import.meta.resolve('vue')}'`)
     const { outputText } = ts.transpileModule(code, {
@@ -144,6 +148,7 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
     await nextTick()
   }
   const results = []
+  assert.ok(walk(root).some((n) => n.props.title === '转写中' && n.text === '…'))
   await click('收起左侧目录')
   assert.equal(w.desktopTreeOpen.value, false)
   assert.equal(w.rightPanelOpen.value, true)
@@ -178,10 +183,41 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
   assert.equal(find('data-stub', 'TranscriptPanel').props['data-active'], true)
   results.push('逐字稿隐藏停用、展开保留页签')
   app.unmount()
+  globalThis.sidebarStubs.PomodoroBadge = await component('app/components/PomodoroBadge.vue')
+  const actions = []
+  const timer = reactive({
+    ready: true,
+    enabled: true,
+    visible: false,
+    phase: 'focus',
+    status: 'idle',
+    remainingSeconds: 1500,
+    totalSeconds: 1500,
+    completedFocuses: 0,
+    round: 1,
+    longBreakEvery: 4,
+    revision: 1,
+    notice: '',
+    error: '',
+  })
+  const headerProps = reactive({ courseName: '测试', currentView: 'player', pomodoro: timer })
+  const TopBar = await component('app/components/AppTopBar.vue')
   const header = element('root'),
-    top = renderer.createApp(await component('app/components/AppTopBar.vue'), {
-      courseName: '测试',
-      currentView: 'player',
+    top = renderer.createApp({
+      setup: () => () =>
+        h(TopBar, {
+          ...headerProps,
+          onPomodoroStart: () => actions.push('start'),
+          onPomodoroPause: () => actions.push('pause'),
+          onPomodoroReset: () => actions.push('reset'),
+          onPomodoroSettings: () => actions.push('settings'),
+          onBack: () => actions.push('back'),
+          onHistoryBack: () => actions.push('history-back'),
+          onClose: () => actions.push('close'),
+          onGuide: () => actions.push('guide'),
+          onCompanion: () => actions.push('companion'),
+          onHelp: () => actions.push('help'),
+        }),
     })
   top.mount(header)
   assert.ok(
@@ -190,6 +226,74 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
     ),
   )
   results.push('顶部目录按钮已移除')
+  const headerFind = (label) => walk(header).find((n) => n.props['aria-label'] === label)
+  const toolbarLabels = () =>
+    walk(headerFind('顶部操作'))
+      .filter((n) => n.props.title)
+      .map((n) => n.props.title)
+  assert.deepEqual(toolbarLabels(), ['返回视频信息'])
+  assert.equal(headerFind('AI 导学'), undefined)
+  assert.equal(headerFind('概览'), undefined)
+  assert.equal(headerFind('播放器'), undefined)
+  const headerElement = walk(header).find((n) => n.type === 'header')
+  assert.match(headerElement.props.class, /grid-cols-\[minmax\(0,1fr\)_auto_minmax\(0,1fr\)\]/)
+  assert.match(headerFind('播放器番茄钟').parent.props.class, /justify-center/)
+  assert.ok(headerFind('播放器番茄钟').parent.parent === headerElement)
+  assert.ok(headerFind('播放器番茄钟'), '桌宠提醒关闭不隐藏顶部番茄钟')
+  assert.equal(headerFind('番茄钟剩余时间').text, '25:00')
+  headerFind('开始番茄钟').props.onClick()
+  timer.status = 'running'
+  timer.remainingSeconds = 1499
+  await nextTick()
+  assert.equal(headerFind('番茄钟剩余时间').text, '24:59')
+  headerFind('暂停番茄钟').props.onClick()
+  timer.status = 'paused'
+  await nextTick()
+  headerFind('继续番茄钟').props.onClick()
+  headerFind('重置番茄钟').props.onClick()
+  headerFind('打开番茄钟设置').props.onClick()
+  assert.deepEqual(actions, ['start', 'pause', 'start', 'reset', 'settings'])
+  timer.phase = 'long-break'
+  timer.remainingSeconds = 900
+  timer.totalSeconds = 900
+  await nextTick()
+  assert.equal(headerFind('番茄钟剩余时间').text, '15:00')
+  assert.ok(walk(header).some((n) => n.text?.includes('长休息')))
+  timer.enabled = false
+  await nextTick()
+  assert.equal(headerFind('继续番茄钟').props.disabled, true)
+  assert.equal(headerFind('重置番茄钟').props.disabled, true)
+  assert.ok(!headerFind('打开番茄钟设置').props.disabled)
+  timer.enabled = true
+  timer.ready = false
+  await nextTick()
+  assert.equal(headerFind('继续番茄钟').props.disabled, true)
+  headerFind('返回视频信息').props.onClick()
+  headerProps.currentView = 'dashboard'
+  await nextTick()
+  assert.equal(headerFind('播放器番茄钟'), undefined)
+  assert.deepEqual(toolbarLabels(), ['AI 导学', '返回首页'])
+  assert.equal(headerFind('概览'), undefined)
+  assert.equal(headerFind('播放器'), undefined)
+  headerFind('AI 导学').props.onClick()
+  headerFind('返回首页').props.onClick()
+  assert.deepEqual(actions.slice(-3), ['back', 'guide', 'close'])
+  headerProps.courseName = ''
+  await nextTick()
+  assert.deepEqual(toolbarLabels(), ['学习管理', '设置', '打开桌面挂件', '快捷键（?）'])
+  headerFind('桌面挂件').props.onClick()
+  headerFind('快捷键').props.onClick()
+  assert.deepEqual(actions.slice(-2), ['companion', 'help'])
+  assert.equal(headerFind('返回上一页'), undefined)
+  headerProps.showHistoryBack = true
+  await nextTick()
+  assert.deepEqual(toolbarLabels(), ['学习管理', '设置', '打开桌面挂件', '快捷键（?）', '返回上一页'])
+  headerFind('返回上一页').props.onClick()
+  assert.equal(actions.at(-1), 'history-back')
+  assert.equal(headerFind('返回首页'), undefined)
+  headerProps.showHistoryBack = false
+  await nextTick()
+  assert.equal(headerFind('返回上一页'), undefined)
   top.unmount()
   assert.equal(results.length, 6)
 
@@ -197,4 +301,22 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
     delete globalThis.sidebarWorkspace
     delete globalThis.sidebarStubs
   })
+})
+
+test('应用顶部不渲染后台转写任务条，保留进度保存错误与提醒入口', () => {
+  const { descriptor } = parse(readFileSync(new URL('../app/app.vue', import.meta.url), 'utf8'))
+  assert.doesNotMatch(descriptor.template.content, /后台转写任务|正在转写：|transcripts\.activeJobs|transcripts\.tasks/)
+  assert.match(descriptor.template.content, /reminderLinks\.error\.value/)
+  assert.match(descriptor.template.content, /progress\.state\.error/)
+  assert.match(descriptor.template.content, /<StudyReminderNotice/)
+})
+
+test('设置与学习管理的返回按路由历史后退，不复用返回首页或课程信息', () => {
+  const { descriptor } = parse(readFileSync(new URL('../app/app.vue', import.meta.url), 'utf8'))
+  assert.match(
+    descriptor.template.content,
+    /:show-history-back="route\.name === 'settings' \|\| route\.name === 'study-management'"/,
+  )
+  assert.match(descriptor.template.content, /@history-back="router\.back\(\)"/)
+  assert.match(descriptor.template.content, /@close="router\.push\('\/'\)"/)
 })

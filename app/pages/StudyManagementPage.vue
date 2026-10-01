@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import ReminderTimePicker from '~/components/ReminderTimePicker.vue'
 import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { usePageTitle } from '~/composables/usePageTitle'
 import { useStudyTools } from '~/composables/useStudyTools'
 import { useLearningHome } from '~/composables/useLearningHome'
@@ -13,8 +12,7 @@ import StudyFormDialog from '~/components/StudyFormDialog.vue'
 
 usePageTitle('学习管理 · AI Player')
 const tools = useStudyTools(),
-  home = useLearningHome(),
-  router = useRouter()
+  home = useLearningHome()
 const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((title, i) => ({ title, value: i + 1 }))
 const courseOptions = computed(() => home.courses.value.map((c) => ({ title: c.course.name, value: c.course.id })))
 const scopeOptions = computed(() => [{ title: '全部课程', value: '' }, ...courseOptions.value])
@@ -122,7 +120,6 @@ const coursePaused = (id: string) =>
           <p class="text-caption font-bold text-stone">{{ home.date.value }}</p>
           <h1 class="mt-2 text-heading">学习管理</h1>
         </div>
-        <UiButton variant="text" @click="router.push('/')"><AppIcon name="arrow-left" :size="16" />返回首页</UiButton>
       </header>
       <p v-if="tools.state.error || home.error.value" role="alert" class="text-body-sm text-error">
         {{ tools.state.error || home.error.value }}

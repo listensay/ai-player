@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import type { createPomodoro } from './usePomodoro'
 import type { provideDesktopSettings } from './useDesktopSettings'
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
@@ -21,6 +22,7 @@ import {
 import type { CompanionAction, CompanionSnapshot } from '~/utils/companion'
 
 export function useCompanion(options: {
+  pomodoro?: ReturnType<typeof createPomodoro>
   desktopSettings: ReturnType<typeof provideDesktopSettings>
   player: ReturnType<typeof usePlayer>
   course: Ref<Course | null>
@@ -190,6 +192,7 @@ export function useCompanion(options: {
       careDue: session.careDue,
       restRemaining: restRemaining.value,
       concept: companionConcept(points, state.currentTime, options.concepts.value),
+      pomodoro: options.pomodoro?.snapshot.value,
     }
   })
   async function publish(force = false) {

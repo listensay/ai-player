@@ -1,3 +1,4 @@
+import type { PomodoroSnapshot } from '../types/pomodoro'
 import type { PlaybackSample } from '../types/practice'
 import type { KnowledgePoint } from '../types/knowledge'
 import { effectivePlaybackSeconds } from './checkIn.ts'
@@ -50,6 +51,7 @@ export function companionConcept(points: KnowledgePoint[], seconds: number, conc
 }
 
 export interface CompanionSnapshot {
+  pomodoro?: PomodoroSnapshot
   lessonKey: string
   lesson: string
   course: string
@@ -69,7 +71,10 @@ export interface CompanionSnapshot {
 }
 export const COMPANION_STATE_EVENT = 'playbo-state'
 export const COMPANION_ACTION_EVENT = 'playbo-action'
-export type CompanionAction = { type: 'sync' | 'toggle' | 'rest' | 'snooze'; lessonKey?: string }
+export type CompanionAction = {
+  type: 'sync' | 'toggle' | 'rest' | 'snooze'
+  lessonKey?: string
+}
 
 export function emptyCompanionSnapshot(): CompanionSnapshot {
   return {

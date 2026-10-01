@@ -108,7 +108,16 @@ function menuKeys(event: KeyboardEvent) {
         : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
   buttons[next]?.focus()
 }
-const attention = computed(() => props.error || props.state.celebration || (props.state.careDue ? 'care' : ''))
+const pomodoro = computed(() =>
+  props.desktop && props.state.pomodoro?.enabled && props.state.pomodoro.visible ? props.state.pomodoro : undefined,
+)
+const attention = computed(
+  () =>
+    props.error ||
+    props.state.celebration ||
+    (pomodoro.value?.notice ? `pomodoro:${pomodoro.value.revision}:${pomodoro.value.notice}` : '') ||
+    (props.state.careDue ? 'care' : ''),
+)
 const panelOpen = computed(() => expanded.value || (!!attention.value && dismissed.value !== attention.value))
 const canPlay = computed(() => props.connected && props.state.ready && !props.state.blocked && !props.busy)
 const controlLabel = computed(() =>
@@ -119,10 +128,13 @@ const message = computed(
     props.error ||
     (!props.connected
       ? '播放器连接中。'
-      : props.state.blocked
-        ? '先完成主窗口里的操作，再回来听课。'
-        : props.state.celebration ||
-          (props.state.careDue ? props.state.message : reaction.value || props.state.message)),
+      : props.state.celebration ||
+        pomodoro.value?.notice ||
+        (props.state.blocked
+          ? '先完成主窗口里的操作，再回来听课。'
+          : props.state.careDue
+            ? props.state.message
+            : reaction.value || props.state.message)),
 )
 let pointer: { id: number; x: number; y: number; lastX: number; lastY: number; dragged: boolean } | null = null
 let suppressClick = false
@@ -215,7 +227,11 @@ defineExpose({ collapse })
   <div
     ref="root"
     class="companion-pet"
-    :class="{ 'is-desktop': desktop, 'bubble-right': bubbleSide === 'right', 'bubble-below': bubbleBelow }"
+    :class="{
+      'is-desktop': desktop,
+      'bubble-right': bubbleSide === 'right',
+      'bubble-below': bubbleBelow,
+    }"
     @keydown="escape"
   >
     <Transition name="bubble"

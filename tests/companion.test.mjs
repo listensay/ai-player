@@ -313,3 +313,45 @@ test('相同状态只保留两秒心跳，显式同步仍立即回应', async (t
   await tick()
   assert.equal(globalThis.companionIO.events.length, before + 2)
 })
+
+test('桌宠保留番茄钟阶段消息快照，不再接受计时控制命令', async (t) => {
+  const h = harness(t),
+    actions = []
+  const timer = {
+    snapshot: ref({
+      ready: true,
+      enabled: true,
+      visible: true,
+      phase: 'short-break',
+      status: 'running',
+      remainingSeconds: 300,
+      totalSeconds: 300,
+      completedFocuses: 1,
+      round: 1,
+      longBreakEvery: 4,
+      revision: 7,
+      notice: '专注完成，已开始短休息 5 分钟。',
+      error: '',
+    }),
+    start: () => actions.push('start'),
+    pause: () => actions.push('pause'),
+    reset: () => actions.push('reset'),
+  }
+  h.options.pomodoro = timer
+  h.options.course.value = null
+  h.options.video.value = null
+  h.player.state.ready = false
+  await tick()
+  assert.match(h.companion.snapshot.value.pomodoro.notice, /专注完成/)
+  for (const type of ['pomodoro-start', 'pomodoro-pause', 'pomodoro-reset', 'pomodoro-settings'])
+    globalThis.companionIO.listener({
+      payload: { type, pomodoroRevision: 7, lessonKey: h.companion.snapshot.value.lessonKey },
+    })
+  assert.deepEqual(actions, [])
+  timer.snapshot.value.notice = '休息结束，播放视频或手动开始下一次专注。'
+  timer.snapshot.value.phase = 'focus'
+  timer.snapshot.value.status = 'idle'
+  timer.snapshot.value.revision++
+  await tick()
+  assert.match(h.companion.snapshot.value.pomodoro.notice, /休息结束/)
+})

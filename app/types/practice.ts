@@ -67,6 +67,8 @@ export type PracticeAttachmentContent =
   { kind: 'code'; text: string } | { kind: 'image'; mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string }
 export interface PracticeRecord {
   id: string
+  /** 同一次生成的题目共同计分；旧记录按课节与范围合并。 */
+  groupId?: string
   path: string
   createdAt: number
   scope: PracticeScope | null
