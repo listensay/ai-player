@@ -12,6 +12,7 @@ export type DatabaseCollection =
   | 'library'
   | 'dashboard'
   | 'day-snapshots'
+  | 'practice-scopes'
   | 'ai-batch-cache'
 export interface DatabaseOptions {
   method?: 'GET' | 'POST' | 'DELETE'

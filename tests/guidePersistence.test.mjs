@@ -398,3 +398,67 @@ test('调整遇到 HTTP 520 或残缺结果不替换已有路线', async (t) => 
   assert.equal(JSON.stringify(h.guide.state.plan), original)
   assert.equal(h.guide.state.pending, null)
 })
+
+test('已重置的今日安排从旧快照和练习范围恢复完成位置，保存重开不再重复', async (t) => {
+  const saved = stored(),
+    day = localDayKey(),
+    previous = localDayKey(new Date(Date.now() - 86400000))
+  saved.metadata = { 'a.mp4': { duration: 3600, size: 1, modified: 1 } }
+  saved.today = {
+    date: day,
+    minutes: 30,
+    override: null,
+    items: [
+      {
+        id: `${day}:lesson:a.mp4:0`,
+        path: 'a.mp4',
+        kind: 'lesson',
+        start: 0,
+        end: 1800,
+        seconds: 1800,
+        done: false,
+        estimated: false,
+      },
+    ],
+  }
+  const h = harness(t, {
+    dbFetchGuide: async () => saved,
+    databaseRequest: async (endpoint) =>
+      endpoint === 'day-snapshots'
+        ? {
+            [previous]: {
+              date: previous,
+              tasks: [{ id: `${previous}:lesson:a.mp4:0`, kind: 'lesson', title: 'a', done: true }],
+            },
+          }
+        : endpoint === 'practice-scopes'
+          ? [`daily:${previous}:comprehensive-v1:[["a.mp4",0,1800]]`]
+          : null,
+  })
+  await tick()
+  assert.equal(h.guide.state.today.items[0].start, 1800)
+  assert.equal(h.guide.schedule.value.remainingSeconds, 1800)
+  h.guide.persist()
+  await tick()
+  const snapshot = h.saves.at(-1)
+  assert.deepEqual(snapshot.today.completedBeforeToday, { 'a.mp4': 1800 })
+  h.app.unmount()
+  const reopened = harness(t, { dbFetchGuide: async () => snapshot })
+  await tick()
+  assert.equal(reopened.guide.state.today.items[0].start, 1800)
+})
+
+test('历史完成记录读取失败时暂停排课和保存，避免覆盖可恢复记录', async (t) => {
+  const h = harness(t, {
+    databaseRequest: async (endpoint) => {
+      if (endpoint === 'day-snapshots') throw Error('read failed')
+      return null
+    },
+  })
+  await tick()
+  h.guide.refreshToday()
+  h.guide.persist()
+  await tick()
+  assert.equal(h.guide.guideReady.value, false)
+  assert.equal(h.saves.length, 0)
+})

@@ -31,7 +31,7 @@ export function useLearningHome() {
       ])
       if (token !== generation) return
       if (!Array.isArray(raw)) throw new Error('课程库读取失败。')
-      courses.value = raw.map(restoreHomeCourse)
+      courses.value = raw.map((value) => restoreHomeCourse(value, date.value))
       availableMinutes.value =
         typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440 ? minutes : 0
       settingsReady.value = true

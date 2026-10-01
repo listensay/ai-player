@@ -43,6 +43,7 @@ import {
   videoFinishDay,
 } from '~/utils/studyProgram'
 import { useGuidePersistence } from '~/composables/useGuidePersistence'
+import { progressForPlanning, restoreCompletionHistory } from '~/utils/learningHistory'
 import { dbFetchGuide } from '~/utils/dbClient'
 import { databaseRequest } from '~/utils/database'
 import { calculateDayBudget, daySnapshot } from '~/utils/dailyPlan'
@@ -138,15 +139,10 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     ),
   )
   const schedule = computed(() =>
-    buildSchedule(
-      route.value,
-      durations.value,
-      course.value ? progress.courseProgress(course.value.id) : {},
-      state.plan?.dailyMinutes ?? 120,
-    ),
+    buildSchedule(route.value, durations.value, courseProgressMap.value, state.plan?.dailyMinutes ?? 120),
   )
   const risks = computed(() => dependencyRisks(state.plan?.lessons ?? [], state.includeOptional, masteredPaths.value))
-  const firstLesson = computed(() => route.value.find((l) => !progress.get(activeId, l.path)?.done) ?? route.value[0])
+  const firstLesson = computed(() => route.value.find((l) => !courseProgressMap.value[l.path]?.done) ?? route.value[0])
   const counts = computed(() => {
     const lessons = state.plan?.lessons ?? []
     return {
@@ -205,7 +201,14 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     for (const e of state.records.entries) if (e.minutes > 0) result[e.date] = (result[e.date] ?? 0) + e.minutes * 60
     return result
   })
-  const courseProgressMap = computed(() => (course.value ? progress.courseProgress(course.value.id) : {}))
+  const courseProgressMap = computed(() =>
+    progressForPlanning(
+      course.value ? progress.courseProgress(course.value.id) : {},
+      state.metadata,
+      state.today,
+      todayDate.value,
+    ),
+  )
   const stageProgressMap = computed(
     () =>
       new Map(
@@ -467,7 +470,11 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
         () => ({ ok: false as const, value: null }),
       )
       try {
-        const stored = await dbFetchGuide(current.id)
+        const [stored, snapshots, practiceScopes] = await Promise.all([
+          dbFetchGuide(current.id),
+          databaseRequest('day-snapshots', { query: { courseId: current.id } }),
+          databaseRequest('practice-scopes', { query: { courseId: current.id } }),
+        ])
         if (stale) return
         if (isRecord(stored)) {
           Object.assign(state, restoreFeedback(stored, activePaths))
@@ -491,6 +498,8 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
             state.includeOptional = stored.includeOptional === true
           }
         }
+        todayDate.value = localDayKey()
+        state.today = restoreCompletionHistory(state.today, todayDate.value, activePaths, snapshots, practiceScopes)
         guideReady.value = true
       } catch {
         if (stale) return

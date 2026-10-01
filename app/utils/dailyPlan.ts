@@ -12,6 +12,7 @@ import type {
 import type { VideoProgress } from '../types/course'
 import { buildSchedule, estimateDuration, orderedRoute } from './guide.ts'
 import { buildTodayPlan } from './learningFeedback.ts'
+import { completedBeforeDay, progressForPlanning } from './learningHistory.ts'
 import { dailyPracticeItems } from './dailyPracticeScope.ts'
 import {
   addDays,
@@ -45,7 +46,8 @@ function dayModule(context: DailyContext, date: string, route?: GuideLesson[]) {
     (plan?.program ? stageForDay(modules, programDay(plan.program, date)) : undefined)
   if (scheduled) return scheduled
   const lessons = route ?? orderedRoute(plan?.lessons ?? [], context.includeOptional)
-  const next = lessons.find((l) => !progress[l.path]?.done) ?? lessons[0]
+  const learnedProgress = progressForPlanning(progress, context.metadata, context.today, date)
+  const next = lessons.find((l) => !learnedProgress[l.path]?.done) ?? lessons[0]
   return modules.find((m) => m.id === next?.moduleId) ?? modules.find((m) => m.practice) ?? modules[0]
 }
 
@@ -94,9 +96,11 @@ export function calculateDayWork(context: DailyContext, date: string) {
 
 /** 首页与课程共用，只读取课程元数据，不扫描视频或启动 AI。 */
 export function calculateDay(context: DailyContext, date: string, override?: number | null) {
-  const { plan, progress } = context
+  const { plan } = context
+  const progress = progressForPlanning(context.progress, context.metadata, context.today, date)
+  const completed = completedBeforeDay(context.today, date)
   const route = orderedRoute(plan?.lessons ?? [], context.includeOptional)
-  const module = dayModule(context, date, route)
+  const module = dayModule({ ...context, progress }, date, route)
   const { previous, selected, base, budget } = dayBudget(context, date, module, override)
   const durations = Object.fromEntries(
     [...new Set([...route.map((l) => l.path), ...Object.keys(context.metadata)])].map((path) => [
@@ -119,9 +123,11 @@ export function calculateDay(context: DailyContext, date: string, override?: num
     previous,
     selected,
     estimate,
+    completed,
   )
   // 提前学习只扩展视频列表，不提高今日打卡目标或改动后续日期的预算。
   today.minutes = budget.video
+  if (Object.keys(completed).length) today.completedBeforeToday = completed
   if (extraDays.length) {
     today.extraDays = extraDays.map((entry) => ({ ...entry }))
     today.practiceItemIds = dailyPracticeItems(previous, date).map((item) => item.id)
@@ -174,7 +180,7 @@ export interface DaySnapshot {
   plannedMinutes: number
   initialMinutes: number
   capturedAt: number
-  tasks: Array<{ id: string; title: string; done: boolean; kind: string }>
+  tasks: Array<{ id: string; title: string; done: boolean; kind: string; path?: string; start?: number; end?: number }>
 }
 
 export function daySnapshot(context: DailyContext, date: string): DaySnapshot {
@@ -190,6 +196,7 @@ export function daySnapshot(context: DailyContext, date: string): DaySnapshot {
         title: item.path.split('/').at(-1) ?? item.path,
         done: item.done,
         kind: item.kind,
+        ...(item.kind !== 'question' ? { path: item.path, start: item.start, end: item.end } : {}),
       })),
       ...result.work
         .filter((item) => item.done || result.budget[item.kind] > 0)

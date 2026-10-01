@@ -138,6 +138,22 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                 json!(list)
             })
         }
+        "practice-scopes" => {
+            let id = canonical(db, text(q, "courseId")?)?;
+            let value = read(
+                db,
+                "settings",
+                &json!({"key":format!("daily-practice:{id}")}),
+            )?;
+            Ok(json!(value
+                .as_object()
+                .map(|records| records
+                    .keys()
+                    .filter(|key| key.starts_with("daily:"))
+                    .cloned()
+                    .collect::<Vec<_>>())
+                .unwrap_or_default()))
+        }
         "day-snapshots" => {
             let mut result = json!({});
             for row in rows(db, "SELECT date,snapshot_json FROM daily_plan_snapshots WHERE course_id=? ORDER BY date DESC LIMIT 366", vec![course()?])? {
@@ -155,7 +171,7 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                     let query = json!({"courseId":id});
                     Ok(
                         json!({"guide":read(db,"guide",&query)?,"progress":read(db,"progress",&query)?,
-                        "days":read(db,"check-in",&query)?,"snapshots":read(db,"day-snapshots",&query)?,
+                        "days":read(db,"check-in",&query)?,"snapshots":read(db,"day-snapshots",&query)?,"practiceScopes":read(db,"practice-scopes",&query)?,
                         "records":read(db,"settings",&json!({"key":format!("study-records:{id}")}))?}),
                     )
                 })();
@@ -429,6 +445,24 @@ mod persistence_tests {
         db.execute_batch(include_str!("schema.sql")).unwrap();
         db
     }
+    #[test]
+    fn history_scope_read_excludes_answers_and_other_settings() {
+        let mut db = database();
+        request(
+            &mut db,
+            "settings",
+            "POST",
+            json!({}),
+            json!({"key":"daily-practice:one", "value":{
+                "daily:2026-09-30:[[\"a.mp4\",0,300]]":[{"draft":"private answer"}], "other":[]
+            }}),
+        )
+        .unwrap();
+        let value = read(&db, "practice-scopes", &json!({"courseId":"one"})).unwrap();
+        assert_eq!(value, json!(["daily:2026-09-30:[[\"a.mp4\",0,300]]"]));
+        assert!(!value.to_string().contains("private answer"));
+    }
+
     fn save_guide(db: &mut Connection, plan: Value) -> Result<Value> {
         request(
             db,

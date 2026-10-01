@@ -1,6 +1,7 @@
 import type { ConceptMastery, GuideLesson, LearningQuestion, MasteryLevel, TodayItem, TodayPlan } from '../types/guide'
 import type { VideoProgress } from '../types/course'
 import { estimateDuration, isRecord, retainPrerequisites } from './guide.ts'
+import { SEGMENT_EPSILON } from './learningHistory.ts'
 import { validDate } from './studyProgram.ts'
 
 export const MASTERY_LABELS: Record<MasteryLevel, string> = {
@@ -61,8 +62,18 @@ export function buildTodayPlan(
   previous: TodayPlan | null = null,
   override: number | null = null,
   estimate = estimateDuration(durations),
+  completedBeforeToday: Record<string, number> = {},
 ): TodayPlan {
-  const previousItems = previous?.date === date ? previous.items.filter((i) => i.kind !== 'question') : []
+  const previousItems =
+    previous?.date === date
+      ? previous.items.filter(
+          (item) =>
+            item.kind !== 'question' &&
+            (item.done ||
+              item.kind === 'review' ||
+              item.end > (completedBeforeToday[item.path] ?? 0) + SEGMENT_EPSILON),
+        )
+      : []
   const byPath = new Map(lessons.map((lesson) => [lesson.path, lesson]))
   const reviewByPath = new Map<string, boolean>()
   function needsReview(path: string) {
@@ -104,9 +115,16 @@ export function buildTodayPlan(
     const completedEnd = completedEnds.get(lesson.path) ?? 0
     const pending = pendingByPath.get(lesson.path)?.find((item) => item.kind === kind && item.end > completedEnd)
     // 同一天刷新沿用原片段起点，已投入的观看时间仍占预算，避免边看边补入后续课程。
-    const start = Math.min(duration, Math.max(completedEnd, pending?.start ?? (review ? 0 : p?.time || 0)))
+    const start = Math.min(
+      duration,
+      Math.max(
+        completedEnd,
+        review ? 0 : (completedBeforeToday[lesson.path] ?? 0),
+        pending?.start ?? (review ? 0 : p?.time || 0),
+      ),
+    )
     const seconds = Math.min(available, Math.max(0, duration - start))
-    if (!seconds) continue
+    if (seconds <= SEGMENT_EPSILON) continue
     items.push({
       id: pending?.start === start ? pending.id : `${date}:${kind}:${lesson.path}:${start}`,
       kind,
@@ -251,6 +269,14 @@ export function restoreFeedback(raw: Record<string, unknown>, paths: string[]) {
         ? t.override
         : null
     today = { date: t.date, minutes: t.minutes, override, items }
+    if (isRecord(t.completedBeforeToday)) {
+      const completed = Object.fromEntries(
+        Object.entries(t.completedBeforeToday).filter(
+          ([path, end]) => known.has(path) && typeof end === 'number' && Number.isFinite(end) && end > 0,
+        ),
+      ) as Record<string, number>
+      if (Object.keys(completed).length) today.completedBeforeToday = completed
+    }
     if (Array.isArray(t.extraDays)) {
       const extraDays: NonNullable<TodayPlan['extraDays']> = []
       for (const entry of t.extraDays.slice(0, 1095)) {

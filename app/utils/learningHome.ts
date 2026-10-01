@@ -2,7 +2,8 @@ import type { LibraryCourse } from '../types/course'
 import type { StudyDay } from '../types/checkIn'
 import type { DailyContext, DaySnapshot } from './dailyPlan.ts'
 import { isRecord, validateLearningPlan } from './guide.ts'
-import { restoreFeedback } from './learningFeedback.ts'
+import { restoreCompletionHistory } from './learningHistory.ts'
+import { restoreFeedback, localDayKey } from './learningFeedback.ts'
 import { parseProgram, restoreStudyRecords } from './studyProgram.ts'
 
 export interface HomeCourse {
@@ -13,7 +14,7 @@ export interface HomeCourse {
   error: string
 }
 
-export function restoreHomeCourse(raw: unknown): HomeCourse {
+export function restoreHomeCourse(raw: unknown, today = localDayKey()): HomeCourse {
   if (
     !isRecord(raw) ||
     !isRecord(raw.course) ||
@@ -109,6 +110,13 @@ export function restoreHomeCourse(raw: unknown): HomeCourse {
         throw new Error('每日计划记录格式异常。')
       result.snapshots[date] = value as unknown as DaySnapshot
     }
+    result.context.today = restoreCompletionHistory(
+      result.context.today,
+      today,
+      paths,
+      result.snapshots,
+      data.practiceScopes,
+    )
   } catch (error) {
     result.context = null
     result.error = (error as Error).message

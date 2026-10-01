@@ -202,6 +202,8 @@ export interface TodayItem {
   done: boolean
 }
 export interface TodayPlan {
+  /** Confirmed task endpoints from previous dates; never counted against today’s budget. */
+  completedBeforeToday?: Record<string, number>
   date: string
   minutes: number
   override: number | null
