@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { useId } from 'vue'
 import type { CompanionMood } from '~/utils/companion'
-withDefaults(defineProps<{ mood?: CompanionMood; size?: number; playing?: boolean }>(), {
+withDefaults(defineProps<{ mood?: CompanionMood; size?: number; playing?: boolean; bondLevel?: number }>(), {
   mood: 'idle',
   size: 76,
   playing: false,
+  bondLevel: 1,
 })
 const id = useId().replace(/:/g, '')
 </script>
@@ -12,7 +13,14 @@ const id = useId().replace(/:/g, '')
 <template>
   <svg
     class="playbo"
-    :class="[`playbo--${mood}`, { 'is-playing': playing }]"
+    :class="[
+      `playbo--${mood}`,
+      {
+        'is-playing': playing,
+        'bond-sway': mood === 'idle' && bondLevel === 2,
+        'bond-bounce': mood === 'idle' && bondLevel >= 3,
+      },
+    ]"
     :width="size"
     :height="size"
     viewBox="0 0 1120 1160"
@@ -292,6 +300,42 @@ const id = useId().replace(/:/g, '')
   .playbo-shadow,
   .playbo-sleep-mark {
     animation: none !important;
+  }
+}
+</style>
+
+<style scoped>
+@media (prefers-reduced-motion: no-preference) {
+  .bond-sway {
+    animation: bond-sway 4s ease-in-out infinite;
+    transform-origin: 50% 90%;
+  }
+  .bond-bounce {
+    animation: bond-bounce 5s ease-in-out infinite;
+  }
+}
+@keyframes bond-sway {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+@keyframes bond-bounce {
+  0%,
+  70%,
+  100% {
+    transform: translateY(0);
+  }
+  80%,
+  90% {
+    transform: translateY(-5px);
+  }
+  85%,
+  95% {
+    transform: translateY(0);
   }
 }
 </style>

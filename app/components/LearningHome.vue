@@ -163,7 +163,7 @@ function taskTitle(path: string) {
     <p v-if="error || store.state.error" role="alert" class="text-body-sm text-error">
       {{ error || store.state.error }}
     </p>
-    <p v-if="partial" role="status" class="text-caption text-error">部分课程读取失败，汇总暂不包含这些课程。</p>
+    <p v-if="partial" role="status" class="text-caption text-error">部分课程读取失败。</p>
     <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div class="min-w-0 space-y-6">
         <section v-if="resume" class="rounded-3xl bg-sunbeam-yellow p-6 md:p-7" aria-label="继续学习">
@@ -436,9 +436,7 @@ function taskTitle(path: string) {
               已记录计划 {{ formatMinutes(selected.plannedMinutes) }} · 任务
               {{ selected.tasks.filter((t) => t.done).length }} / {{ selected.tasks.length }}
             </p>
-            <p v-if="selected.missingPlan || selected.plannedMinutes === null" class="mt-2 text-caption text-stone">
-              {{ selectedDate > date ? '尚未产生学习记录。' : '未保存完整历史计划，仅统计已有记录。' }}
-            </p>
+            <p v-if="selectedDate > date" class="mt-2 text-caption text-stone">尚未产生学习记录。</p>
             <VExpansionPanels v-if="selected.details.length" class="mt-3"
               ><VExpansionPanel v-for="detail in selected.details" :key="detail.id" :value="detail.id"
                 ><VExpansionPanelTitle

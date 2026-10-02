@@ -350,18 +350,6 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           <span v-else-if="selectedDetail.isChecked" class="text-study-complete font-medium"> 当日目标已完成 </span>
         </div>
       </div>
-
-      <!-- 规则说明 -->
-      <p class="mt-4 text-caption leading-relaxed text-stone">
-        绿色勾号表示已打卡；从计划开始当天起，截至今天未达时长目标的日期显示红叉。未来日期和休息日不标叉。
-      </p>
-      <p v-if="!compact" class="mt-4 text-caption leading-relaxed text-stone">
-        <strong>打卡规则</strong>：{{
-          checkIn?.includesWork.value
-            ? '当日有效观看时长与记录的实践时长合计达标后自动打卡。'
-            : '当日有效学习时长达标后自动打卡。'
-        }}倍速按实际播放时间计时，暂停、缓冲和跳转不计时。
-      </p>
     </div>
   </div>
 </template>

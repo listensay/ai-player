@@ -259,10 +259,6 @@ async function remove() {
           :placeholder="draft.provider === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.example.com/v1'"
           label="服务地址"
         />
-        <p v-if="draft.provider === 'anthropic'" class="text-caption text-stone">
-          官方地址：https://api.anthropic.com/v1；也可填写兼容 Anthropic 的服务地址。
-        </p>
-        <p v-else class="text-caption text-stone">本机 Ollama 可使用 http://localhost:11434/v1。</p>
         <div class="flex flex-wrap items-start gap-3">
           <VCombobox
             :model-value="draft.modelIds"
@@ -288,7 +284,6 @@ async function remove() {
             loadingModels ? '读取中…' : '读取模型列表'
           }}</UiButton>
         </div>
-        <p class="text-caption text-stone">可从列表多选，或输入模型 ID 后按回车添加。配置名称仅用于区分配置。</p>
         <VSelect
           v-if="draft.modelIds.length"
           v-model="draft.model"
@@ -298,9 +293,7 @@ async function remove() {
         />
         <p v-if="modelError" role="alert" class="text-caption text-error">{{ modelError }}</p>
         <p v-else-if="modelIds.length" role="status" class="text-caption text-stone">
-          已读取 {{ modelIds.length }} 个模型。<template v-if="draft.model && !modelIds.includes(draft.model.trim())"
-            >当前 ID 不在返回列表中，请核对模型权限；部分服务只返回部分模型。</template
-          >
+          已读取 {{ modelIds.length }} 个模型。
         </p>
         <VSelect
           v-if="draft.provider === 'anthropic'"
@@ -312,9 +305,6 @@ async function remove() {
             { title: '1M（100 万 token）', value: '1m' },
           ]"
         />
-        <p v-if="draft.provider === 'anthropic' && draft.contextWindow === '1m'" class="text-caption text-stone">
-          需所选模型和服务支持 1M 上下文。
-        </p>
         <VTextField
           v-model="draft.apiKey"
           type="password"
@@ -331,7 +321,6 @@ async function remove() {
           required
           label="响应时限（分钟）"
         />
-        <p class="text-caption text-stone">配置与密钥保存在本地，切换配置仅影响新请求。</p>
         <div class="flex flex-wrap gap-2">
           <UiButton @click="testConnection">{{ testing ? '测试中…' : '测试导学' }}</UiButton>
           <UiButton type="submit" variant="primary">{{ ai.state.saving ? '保存中…' : '保存并使用' }}</UiButton>
@@ -344,11 +333,7 @@ async function remove() {
           >
         </div>
         <div v-if="confirmingDelete" class="rounded-xl border border-error/30 p-4 text-body-sm">
-          <p>
-            确认删除“{{ draft.name }}”？{{
-              editingId === ai.state.collection.activeId ? '删除后需选择其他 AI 配置。' : ''
-            }}
-          </p>
+          <p>确认删除“{{ draft.name }}”？</p>
           <div class="mt-3 flex gap-2">
             <UiButton size="sm" @click="remove">确认删除</UiButton
             ><UiButton size="sm" variant="text" @click="confirmingDelete = false">取消</UiButton>
@@ -373,19 +358,11 @@ async function remove() {
           {{ testReport.success ? '导学测试通过' : '导学测试未通过' }}
         </p>
         <p class="mt-2 break-words">{{ testReport.detail }}</p>
-        <p v-if="testReport.success" class="mt-2 text-caption text-stone">
-          {{
-            usesDraft ? '此配置已启用。' : '点击「保存并使用」后，导学才会使用这份配置。'
-          }}实际课程较大时仍可能受服务额度、上下文或网关时限影响。
+        <p v-if="testReport.success && !usesDraft" class="mt-2 text-caption text-stone">
+          点击「保存并使用」后启用此配置。
         </p>
       </div>
-      <p class="text-caption text-stone">
-        测试使用当前表单和两节虚拟课，沿用响应时限，不会保存配置或发送你的课程资料。
-      </p>
     </form>
-    <p class="mt-4 text-caption leading-relaxed text-stone">
-      使用 AI 时，相关课程信息、疑问、字幕、笔记或作答会发送至所选服务，视频与截图不会上传。
-    </p>
     <VSnackbar
       v-model="notice.open"
       location="top right"

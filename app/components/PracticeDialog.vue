@@ -368,7 +368,7 @@ async function upload(event: Event) {
                     rows="6"
                     :readonly="!!state.busy"
                     :class="{ 'practice-answer-code': current.question.kind === 'code' }"
-                    :placeholder="current.question.kind === 'code' ? '输入代码，仅评阅，不执行。' : undefined"
+                    :placeholder="current.question.kind === 'code' ? '输入代码…' : undefined"
                     @update:model-value="practice.updateDraft($event ?? '')"
                   />
                   <section aria-label="上传作业" class="space-y-3">
@@ -389,10 +389,6 @@ async function upload(event: Event) {
                       @click="uploadInput?.click()"
                       >添加代码或图片</UiButton
                     >
-                    <p class="text-caption leading-relaxed text-stone">
-                      支持多份代码文件和 PNG、JPEG、WebP 图片，可只上传文件，也可补充说明。每次最多 8 个文件，其中最多 4
-                      张图片；代码为 UTF-8，图片会适当缩小。
-                    </p>
                     <PracticeAttachmentList
                       v-if="practice.attachments.value.length"
                       :attachments="practice.attachments.value"
@@ -402,9 +398,6 @@ async function upload(event: Event) {
                       :disabled="!!state.busy || reachedLimit"
                       @remove="practice.removeAttachment"
                     />
-                    <p class="text-caption text-stone">
-                      提交时，作业文字和所选文件会发送给当前 AI 进行评阅。图片需使用支持识图的模型。
-                    </p>
                   </section>
                 </template>
               </form>
@@ -449,9 +442,6 @@ async function upload(event: Event) {
               <section v-if="attempt.feedback.grade" aria-label="功能评分" class="space-y-4">
                 <p class="text-heading font-bold text-deep-indigo">
                   {{ attempt.feedback.grade.score }}<span class="ml-2 text-body text-stone">/ 100 分</span>
-                </p>
-                <p class="text-caption text-stone">
-                  根据代码静态分析和图片可见内容评分；“待验证”表示需要补充实现证据。
                 </p>
                 <ol class="space-y-3">
                   <li
@@ -550,7 +540,6 @@ async function upload(event: Event) {
               <VExpansionPanel v-if="attempt && !daily" value="mastery">
                 <VExpansionPanelTitle>记录掌握程度</VExpansionPanelTitle>
                 <VExpansionPanelText>
-                  <p class="mb-3 text-caption text-stone">反馈仅针对本次作答，知识掌握程度需单独记录。</p>
                   <div
                     v-for="concept in current.question.concepts"
                     :key="concept"
@@ -625,11 +614,8 @@ async function upload(event: Event) {
                       {{ sources.filter((s) => s.kind === 'summary').length }} 个知识点
                     </p>
                     <p v-if="state.materialNotice" class="text-body-sm text-stone">{{ state.materialNotice }}</p>
-                    <p v-if="daily" class="text-body-sm font-medium">
-                      今日只生成一道综合大题，将当天所学运用于同一个完整任务，可按步骤统一作答。
-                    </p>
                     <VSelect
-                      v-else
+                      v-if="!daily"
                       v-model="state.questionCount"
                       label="每组题数"
                       :items="[3, 5, 8]"

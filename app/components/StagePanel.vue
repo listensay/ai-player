@@ -102,7 +102,6 @@ const budgetText = computed(() => {
 
     <section v-if="practice.checks.length" aria-label="验收清单">
       <h5 class="font-bold">验收清单</h5>
-      <p class="mt-1 text-caption text-stone">填写仓库链接、测试结果或演示说明后，可标记通过。</p>
       <ul class="mt-2 space-y-2">
         <li
           v-for="check in practice.checks"

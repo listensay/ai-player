@@ -1,0 +1,231 @@
+<script setup lang="ts">
+import { toRef } from 'vue'
+import type { HomeCourse } from '~/utils/learningHome'
+import { useStudyInsights } from '~/composables/useStudyInsights'
+import UiButton from './UiButton.vue'
+import PlayboMascot from './PlayboMascot.vue'
+const props = defineProps<{ courses: HomeCourse[]; today: string; loading: boolean; error: string }>()
+const emit = defineEmits<{ reminder: [time: string]; refresh: [] }>()
+const insights = useStudyInsights(toRef(props, 'courses'), toRef(props, 'today'))
+const { data, kind, offset, ready, busy, exporting, markdown } = insights
+function refresh() {
+  emit('refresh')
+  void insights.load()
+}
+</script>
+
+<template>
+  <section aria-label="学习成长与复盘" class="space-y-5">
+    <div class="pane overflow-hidden bg-pure-white p-5 md:p-7">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="text-caption font-bold tracking-widest text-deep-indigo">PLAYBO · 学习数据</p>
+          <h2 class="mt-2 text-heading">学习成长与复盘</h2>
+        </div>
+        <UiButton size="sm" variant="ghost" :disabled="loading || insights.loading.value || busy" @click="refresh"
+          >刷新记录</UiButton
+        >
+      </div>
+      <p v-if="loading || insights.loading.value" role="status" class="mt-4 text-body-sm text-stone">
+        正在汇总本地记录…
+      </p>
+      <p v-if="error || insights.error.value" role="alert" class="mt-4 text-body-sm text-error">
+        {{ error || insights.error.value }}
+      </p>
+      <p v-if="data.incomplete" role="alert" class="mt-3 text-caption text-error">
+        部分课程读取失败，统计不完整；请先刷新记录。
+      </p>
+      <template v-if="ready && !loading && !error">
+        <div class="mt-6 flex flex-wrap items-center gap-3">
+          <label class="text-caption font-bold"
+            >报告周期
+            <select
+              v-model="kind"
+              aria-label="报告周期"
+              class="ml-2 rounded-lg border border-linen bg-page-cream px-3 py-2"
+            >
+              <option value="week">周报</option>
+              <option value="month">月报</option>
+            </select>
+          </label>
+          <label class="text-caption font-bold"
+            >时间范围
+            <select
+              v-model="offset"
+              aria-label="时间范围"
+              class="ml-2 rounded-lg border border-linen bg-page-cream px-3 py-2"
+            >
+              <option :value="0">本期（截至今日）</option>
+              <option :value="-1">上一完整周期</option>
+            </select>
+          </label>
+          <span class="text-caption text-stone">{{ data.period.start }} — {{ data.period.end }}</span>
+        </div>
+        <div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div
+            v-for="metric in [
+              { label: '学习投入 / 小时', value: (data.seconds / 3600).toFixed(1) },
+              { label: '达标打卡 / 天', value: data.checked },
+              { label: '完成专注 / 次', value: data.focusCompleted },
+              { label: '标记已掌握 / 个', value: data.mastered.length },
+            ]"
+            :key="metric.label"
+            class="rounded-2xl bg-page-cream p-4"
+          >
+            <p class="text-heading tabular">{{ metric.value }}</p>
+            <p class="mt-1 text-caption text-stone">{{ metric.label }}</p>
+          </div>
+        </div>
+        <div class="mt-6 border-t border-linen pt-5">
+          <h3 class="text-subheading">AI 学习报告</h3>
+          <p v-if="!insights.ai.configured.value" class="mt-2 text-caption text-stone">
+            请先在设置中配置 AI 服务。{{ insights.ai.state.error }}
+          </p>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <UiButton :disabled="busy || !insights.ai.configured.value || data.incomplete" @click="insights.generate">{{
+              busy ? '正在生成…' : '生成 AI 复盘'
+            }}</UiButton>
+            <UiButton v-if="busy" variant="ghost" @click="insights.cancel">取消</UiButton>
+            <UiButton
+              variant="ghost"
+              :disabled="busy || exporting || data.incomplete"
+              @click="insights.exportReport('md')"
+              >导出 Markdown</UiButton
+            >
+            <UiButton
+              variant="ghost"
+              :disabled="busy || exporting || data.incomplete"
+              @click="insights.exportReport('png')"
+              >导出长图 PNG</UiButton
+            >
+          </div>
+          <p v-if="insights.notice.value" role="status" class="mt-3 text-caption text-deep-indigo">
+            {{ insights.notice.value }}
+          </p>
+          <details class="mt-4 rounded-xl border border-linen p-4">
+            <summary class="cursor-pointer text-body-sm font-bold">预览报告</summary>
+            <pre class="mt-4 whitespace-pre-wrap break-words font-sans text-body-sm leading-7">{{ markdown }}</pre>
+          </details>
+        </div>
+      </template>
+    </div>
+    <template v-if="ready && !loading && !error">
+      <div class="pane bg-pure-white p-5 md:p-7">
+        <h3 class="text-subheading">专注时段分析</h3>
+        <div
+          class="mt-5 flex h-32 items-end gap-1"
+          role="img"
+          aria-label="24 小时专注完成次数柱状图，具体数字见下方表格"
+        >
+          <div
+            v-for="hour in data.hours"
+            :key="hour.hour"
+            class="flex h-full min-w-0 flex-1 flex-col justify-end"
+            :title="`${hour.hour} 时：完成 ${hour.completed} 次`"
+          >
+            <div
+              class="min-h-1 rounded-t bg-brand-orange"
+              :style="{
+                height: `${Math.max(3, (hour.completed / Math.max(1, ...data.hours.map((h) => h.completed))) * 100)}%`,
+              }"
+            />
+          </div>
+        </div>
+        <div class="mt-2 flex justify-between text-caption text-stone">
+          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+        </div>
+        <p v-if="!data.best" class="mt-5 text-body-sm text-stone">暂无时段建议</p>
+        <div v-else class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-page-cream p-4">
+          <p class="text-body-sm">
+            {{ String(data.best.hour).padStart(2, '0') }}:00 · 中断率
+            {{ Math.round((data.best.interrupted / data.best.samples) * 100) }}% · {{ data.best.samples }} 次记录
+          </p>
+          <UiButton size="sm" @click="emit('reminder', `${String(data.best.hour).padStart(2, '0')}:00`)"
+            >按此时段创建提醒</UiButton
+          >
+        </div>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-caption text-stone">查看小时数据</summary>
+          <div class="max-h-64 overflow-auto">
+            <table class="w-full text-left text-caption">
+              <thead>
+                <tr>
+                  <th>开始小时</th>
+                  <th>已结束</th>
+                  <th>完成</th>
+                  <th>有中断</th>
+                  <th>课程打卡</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="hour in data.hours" :key="hour.hour">
+                  <td class="py-2">{{ hour.hour }}:00</td>
+                  <td>{{ hour.samples }}</td>
+                  <td>{{ hour.completed }}</td>
+                  <td>{{ hour.interrupted }}</td>
+                  <td>{{ hour.checkIns }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+      <div class="pane bg-pure-white p-5 md:p-7">
+        <h3 class="text-subheading">里程碑勋章</h3>
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <article
+            v-for="badge in data.badges"
+            :key="badge.id"
+            class="rounded-2xl border p-4"
+            :class="badge.unlocked ? 'border-brand-orange bg-page-cream' : 'border-linen'"
+          >
+            <p class="text-caption font-bold" :class="badge.unlocked ? 'text-deep-indigo' : 'text-stone'">
+              {{ badge.unlocked ? '已达成' : '未达成' }}
+            </p>
+            <h4 class="mt-2 text-body-sm font-bold">{{ badge.name }}</h4>
+            <progress
+              class="badge-progress mt-4 h-2 w-full overflow-hidden rounded-full"
+              :aria-label="badge.name"
+              :value="Math.min(badge.value, badge.target)"
+              :max="badge.target"
+            />
+            <p class="mt-1 text-caption text-stone">{{ badge.value }} / {{ badge.target }}</p>
+          </article>
+        </div>
+      </div>
+      <div class="pane flex flex-wrap items-center gap-5 bg-pure-white p-5 md:p-7">
+        <PlayboMascot :size="110" :bond-level="data.growth.level" />
+        <div class="min-w-0 flex-1">
+          <p class="text-caption font-bold text-deep-indigo">
+            PLAYBO · Lv.{{ data.growth.level }} {{ data.growth.label }}
+          </p>
+          <h3 class="mt-2 text-subheading">累计学习 {{ data.growth.days }} 天</h3>
+          <p class="mt-2 text-body-sm text-stone">
+            累计投入 {{ (data.growth.totalSeconds / 3600).toFixed(1) }} 小时 · 亲密度 {{ data.growth.points
+            }}{{ data.growth.next ? ` / ${data.growth.next}` : ' · 当前最高等级' }}
+          </p>
+        </div>
+      </div>
+    </template>
+  </section>
+</template>
+
+<style scoped>
+.badge-progress {
+  appearance: none;
+  border: 0;
+  background: #eee6df;
+}
+.badge-progress::-webkit-progress-bar {
+  background: #eee6df;
+  border-radius: 999px;
+}
+.badge-progress::-webkit-progress-value {
+  background: #f88a49;
+  border-radius: 999px;
+}
+.badge-progress::-moz-progress-bar {
+  background: #f88a49;
+  border-radius: 999px;
+}
+</style>

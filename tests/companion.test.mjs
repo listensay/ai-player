@@ -89,6 +89,11 @@ test('知识点跟随片段边界，空隙显示课程概念，没有材料时�
 // Exercise Vue watchers and cross-window controls, mocking only the native I/O boundary.
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '~/utils/database')
+      return {
+        url: 'data:text/javascript,export const flushDatabaseWrites = async () => {}; export const databaseRequest = async () => []',
+        shortCircuit: true,
+      }
     if (specifier === '~/utils/platform')
       return {
         url: 'data:text/javascript,export const desktopInvoke = async (...args) => { globalThis.companionIO.commands.push(args) }',

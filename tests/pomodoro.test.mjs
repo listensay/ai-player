@@ -86,21 +86,113 @@ test('每四次专注自动进入长休息，休息结束等待手动开始下�
     assert.equal(timer.status, 'idle')
   }
 })
-test('关闭重开恢复进行中的倒计时，离线超时仅结算一段且不重复加次数', async () => {
+test('重新启动始终初始化为专注待开始：同日、跨日、运行中与暂停状态均不补发提醒', async () => {
+  const yesterday = new Date('2026-10-01T21:00:00+08:00').getTime()
+  for (const launchAt of [yesterday + 10_000, yesterday + 3_600_000, yesterday + 86_400_000]) {
+    for (const phase of ['focus', 'short-break', 'long-break']) {
+      for (const status of ['idle', 'paused', 'running']) {
+        const stored = restorePomodoro(null)
+        Object.assign(stored.settings, {
+          focusMinutes: 40,
+          shortBreakMinutes: 7,
+          longBreakMinutes: 20,
+          showOnCompanion: false,
+        })
+        Object.assign(stored.timer, {
+          phase,
+          status,
+          completedFocuses: 7,
+          remainingMs: 120_000,
+          endsAt: status === 'running' ? yesterday + 120_000 : null,
+          revision: yesterday,
+        })
+        const original = structuredClone(stored)
+        const effects = []
+        const writes = []
+        const timer = createPomodoro(
+          { read: async () => stored, write: async (record) => writes.push(structuredClone(record)) },
+          () => launchAt,
+          {
+            onPhaseEnd: (phase) => effects.push(phase),
+            onBreakStart: () => effects.push('pause-video'),
+            onStart: () => effects.push('start'),
+          },
+        )
+        await timer.load()
+        timer.tick()
+        timer.tick()
+        assert.equal(timer.snapshot.value.phase, 'focus')
+        assert.equal(timer.snapshot.value.status, 'idle')
+        assert.equal(timer.snapshot.value.remainingSeconds, 2400)
+        assert.equal(timer.snapshot.value.completedFocuses, 0)
+        assert.equal(timer.snapshot.value.round, 1)
+        assert.equal(timer.snapshot.value.notice, '')
+        assert.equal(timer.state.timer.endsAt, null)
+        assert.ok(timer.state.timer.revision > original.timer.revision)
+        assert.deepEqual(timer.state.settings, original.settings)
+        assert.deepEqual(effects, [])
+        assert.equal(writes.length, 1)
+        assert.equal(writes[0].timer.status, 'idle')
+        assert.equal(writes[0].timer.phase, 'focus')
+        assert.deepEqual(stored, original)
+      }
+    }
+  }
+})
+
+test('重启保留已完成历史，旧活动会话记为放弃，不按离线截止时间计为完成', async () => {
   const h = fixture()
   await h.timer.load()
   h.timer.start()
+  h.advance(1500_000)
+  h.timer.startFocus()
   await h.timer.flush()
   const stored = h.read()
-  const restored = createPomodoro({ read: async () => stored, write: async () => {} }, () => 1000 + 3_600_000)
-  await restored.load()
-  assert.equal(restored.snapshot.value.completedFocuses, 1)
-  assert.equal(restored.snapshot.value.phase, 'short-break')
-  restored.tick()
-  restored.tick()
-  assert.equal(restored.snapshot.value.completedFocuses, 1)
-  assert.equal(restored.snapshot.value.status, 'running')
-  assert.equal(restored.state.timer.endsAt, 1000 + 3_600_000 + 300_000)
+  const completed = structuredClone(stored.focusHistory[0])
+  let saved
+  const launchAt = h.clock() + 86_400_000
+  const timer = createPomodoro(
+    {
+      read: async () => stored,
+      write: async (value) => {
+        saved = structuredClone(value)
+      },
+    },
+    () => launchAt,
+  )
+  await timer.load()
+  assert.deepEqual(saved.focusHistory[0], completed)
+  assert.equal(saved.focusHistory[1].outcome, 'abandoned')
+  assert.equal(saved.focusHistory[1].endedAt, launchAt)
+  assert.equal(saved.timer.completedFocuses, 0)
+  timer.startFocus()
+  assert.equal(timer.state.focusHistory.length, 3)
+  assert.equal(timer.state.focusHistory[2].startedAt, launchAt)
+  assert.equal(timer.state.focusHistory[2].outcome, 'active')
+  await timer.flush()
+})
+
+test('重复或并发加载不重置本次计时，保持页面切换与窗口聚焦后的专注和休息', async () => {
+  const h = fixture()
+  const first = h.timer.load()
+  assert.equal(h.timer.load(), first)
+  await first
+  h.timer.start()
+  h.advance(60_000)
+  const running = structuredClone(h.read())
+  const deadline = h.timer.state.timer.endsAt
+  await h.timer.load()
+  assert.equal(h.timer.state.timer.endsAt, deadline)
+  assert.equal(h.timer.snapshot.value.remainingSeconds, 1440)
+  h.advance(1440_000)
+  const breakDeadline = h.timer.state.timer.endsAt
+  await h.timer.load()
+  h.timer.tick()
+  assert.equal(h.timer.state.timer.endsAt, breakDeadline)
+  assert.equal(h.timer.snapshot.value.phase, 'short-break')
+  assert.equal(h.timer.snapshot.value.completedFocuses, 1)
+  assert.equal(running.timer.phase, 'focus')
+  await h.timer.flush()
 })
 test('修改时长从下一段生效，禁用会暂停，重新启用可继续；重置从第一轮开始', async () => {
   const h = fixture()
@@ -187,20 +279,18 @@ test('三个阶段按结束前的阶段发声，重复 tick 不重放，暂停/�
   await h.timer.flush()
 })
 
-test('恢复已超时的计时只提示一次，声音失败不影响结算、保存或下一轮', async () => {
-  const stored = restorePomodoro(null)
-  stored.timer.status = 'running'
-  stored.timer.endsAt = 500
+test('本次运行休眠后只结算一次，声音失败不影响结算、保存或下一轮', async () => {
   let calls = 0,
-    saved
+    saved,
+    now = 1000
   const timer = createPomodoro(
     {
-      read: async () => stored,
+      read: async () => null,
       write: async (value) => {
         saved = value
       },
     },
-    () => 1000,
+    () => now,
     {
       onPhaseEnd: () => {
         calls++
@@ -209,6 +299,9 @@ test('恢复已超时的计时只提示一次，声音失败不影响结算、�
     },
   )
   await timer.load()
+  timer.start()
+  now += 3_600_000
+  timer.tick()
   timer.tick()
   await timer.flush()
   assert.equal(calls, 1)
@@ -249,8 +342,10 @@ test('休息阶段播放切回新专注，保留完成次数且不伪造休息�
     for (const status of ['idle', 'paused', 'running']) {
       const stored = restorePomodoro(null)
       Object.assign(stored.timer, { phase, status, completedFocuses: 4, endsAt: status === 'running' ? 50_000 : null })
-      const h = fixture(stored)
+      const h = fixture()
       await h.timer.load()
+      // This is a break reached within the running app, not restored at startup.
+      Object.assign(h.timer.state.timer, stored.timer)
       h.timer.startFocus()
       assert.equal(h.timer.snapshot.value.phase, 'focus')
       assert.equal(h.timer.snapshot.value.status, 'running')
@@ -379,51 +474,43 @@ test('完整四轮：专注到点自动休息并暂停视频，休息到点只�
   }
 })
 
-test('休息重开保留剩余时间，已超时的休息只提醒一次且不自动专注', async (t) => {
+test('重启清除旧休息后，加载前或加载后播放视频均开始新专注，不暂停视频', async (t) => {
   for (const phase of ['short-break', 'long-break']) {
-    const stored = restorePomodoro(null)
-    Object.assign(stored.timer, { phase, status: 'running', completedFocuses: 4, endsAt: 121_000 })
-    let pauses = 0
-    const h = fixture(stored, {
-      onBreakStart: () => {
-        pauses++
-      },
-    })
-    watchPlayback(t, h.timer, true)
-    await h.timer.load()
-    await nextTick()
-    assert.equal(h.timer.snapshot.value.phase, phase)
-    assert.equal(h.timer.snapshot.value.remainingSeconds, 120)
-    assert.equal(pauses, 1)
-    assert.deepEqual(h.sounds, [])
-    h.advance(120_000)
-    await nextTick()
-    assert.equal(h.timer.snapshot.value.phase, 'focus')
-    assert.equal(h.timer.snapshot.value.status, 'idle')
-    assert.deepEqual(h.sounds, [phase])
-    stored.timer.endsAt = 500
-    const expired = fixture(stored)
-    const playing = watchPlayback(t, expired.timer, true)
-    await expired.timer.load()
-    await nextTick()
-    expired.timer.tick()
-    assert.equal(expired.timer.snapshot.value.status, 'idle')
-    assert.deepEqual(expired.sounds, [phase])
-    playing.value = false
-    await nextTick()
-    playing.value = true
-    await nextTick()
-    assert.equal(expired.timer.snapshot.value.status, 'running')
+    for (const endsAt of [500, 121_000]) {
+      for (const initialPlaying of [false, true]) {
+        const stored = restorePomodoro(null)
+        Object.assign(stored.timer, { phase, status: 'running', completedFocuses: 4, endsAt })
+        let pauses = 0
+        const h = fixture(stored, {
+          onBreakStart: () => {
+            pauses++
+          },
+        })
+        const playing = watchPlayback(t, h.timer, initialPlaying)
+        await h.timer.load()
+        await nextTick()
+        assert.equal(h.timer.snapshot.value.phase, 'focus')
+        assert.equal(h.timer.snapshot.value.status, initialPlaying ? 'running' : 'idle')
+        assert.equal(h.timer.snapshot.value.completedFocuses, 0)
+        assert.equal(h.timer.snapshot.value.remainingSeconds, 1500)
+        assert.equal(h.timer.snapshot.value.notice, '')
+        assert.equal(pauses, 0)
+        assert.deepEqual(h.sounds, [])
+        playing.value = true
+        await nextTick()
+        assert.equal(h.timer.snapshot.value.status, 'running')
+        assert.equal(h.timer.state.focusHistory.length, 1)
+        await h.timer.flush()
+      }
+    }
   }
 })
 
-test('专注超时加载、播放与暂停同时到点时，自动休息不会被旧操作跳过或暂停', async (t) => {
-  for (const action of ['load', 'startFocus', 'pause']) {
-    const stored = restorePomodoro(null)
-    Object.assign(stored.timer, { status: 'running', endsAt: action === 'load' ? 500 : 2000 })
+test('本次专注的播放与暂停命令恰好到点时，不跳过或暂停自动休息', async (t) => {
+  for (const action of ['startFocus', 'pause']) {
     let now = 1000,
       pauses = 0
-    const timer = createPomodoro({ read: async () => stored, write: async () => {} }, () => now, {
+    const timer = createPomodoro({ read: async () => null, write: async () => {} }, () => now, {
       onBreakStart: () => {
         pauses++
       },
@@ -431,10 +518,8 @@ test('专注超时加载、播放与暂停同时到点时，自动休息不会�
     watchPlayback(t, timer, true)
     await timer.load()
     await nextTick()
-    if (action !== 'load') {
-      now = 2000
-      timer[action]()
-    }
+    now = timer.state.timer.endsAt
+    timer[action]()
     await nextTick()
     timer.tick()
     assert.equal(timer.snapshot.value.phase, 'short-break')
@@ -467,4 +552,65 @@ test('播放器暂停失败不阻断自动休息和提示音，禁用时不自�
   assert.equal(h.timer.snapshot.value.status, 'paused')
   assert.equal(pauses, 1)
   await h.timer.flush()
+})
+
+test('专注会话持久化：暂停不重复开始，完成按截止时刻记录，重置记录放弃', async () => {
+  const h = fixture()
+  await h.timer.load()
+  h.timer.start()
+  h.advance(10000)
+  h.timer.pause()
+  assert.equal(h.timer.state.focusHistory.length, 1)
+  assert.equal(h.timer.state.focusHistory[0].interruptions, 1)
+  h.timer.start()
+  h.advance(1490000)
+  await h.timer.flush()
+  assert.equal(h.read().focusHistory[0].outcome, 'completed')
+  const reloaded = fixture(h.read())
+  await reloaded.timer.load()
+  assert.equal(reloaded.timer.state.focusHistory.length, 1)
+  h.timer.startFocus()
+  h.timer.reset()
+  assert.equal(h.timer.state.focusHistory[1].outcome, 'abandoned')
+  h.timer.reset()
+  assert.equal(h.timer.state.focusHistory.length, 2)
+})
+
+test('关闭番茄钟计为一次中断，历史不因计时设置改变而丢失', async () => {
+  const h = fixture()
+  await h.timer.load()
+  h.timer.start()
+  await h.timer.saveSettings({ ...h.timer.state.settings, enabled: false })
+  assert.equal(h.timer.state.focusHistory[0].interruptions, 1)
+  await h.timer.saveSettings({ ...h.timer.state.settings, enabled: true })
+  h.timer.start()
+  assert.equal(h.timer.state.focusHistory.length, 1)
+})
+
+test('启动初始化保存失败不恢复旧休息，重试保存不丢失设置和历史', async () => {
+  const stored = restorePomodoro(null)
+  stored.settings.enabled = false
+  stored.settings.focusMinutes = 30
+  Object.assign(stored.timer, { phase: 'long-break', status: 'paused', completedFocuses: 4 })
+  let fail = true,
+    saved
+  const timer = createPomodoro({
+    read: async () => stored,
+    write: async (value) => {
+      if (fail) throw Error('disk')
+      saved = value
+    },
+  })
+  await timer.load()
+  assert.equal(timer.state.ready, true)
+  assert.equal(timer.snapshot.value.phase, 'focus')
+  assert.equal(timer.snapshot.value.status, 'idle')
+  assert.equal(timer.snapshot.value.remainingSeconds, 1800)
+  assert.equal(timer.snapshot.value.enabled, false)
+  assert.match(timer.state.error, /尚未保存/)
+  fail = false
+  await timer.persist()
+  assert.equal(saved.timer.phase, 'focus')
+  assert.equal(saved.settings.enabled, false)
+  assert.equal(timer.state.error, '')
 })

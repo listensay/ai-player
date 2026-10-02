@@ -1,3 +1,4 @@
+import { restoreFocusHistory } from './studyInsights.ts'
 import type { PomodoroPhase, PomodoroRecord, PomodoroSettings, PomodoroTimer } from '../types/pomodoro'
 import { isRecord } from './guide.ts'
 export const POMODORO_LABELS: Record<PomodoroPhase, string> = {
@@ -78,6 +79,7 @@ export function restorePomodoro(raw: unknown): PomodoroRecord {
     throw Error('番茄钟计时记录格式异常。')
   return {
     version: 1,
+    focusHistory: restoreFocusHistory(raw.focusHistory),
     settings,
     timer: {
       phase: timer.phase as PomodoroTimer['phase'],
@@ -95,7 +97,7 @@ export function remainingPomodoroMs(timer: PomodoroTimer, now: number) {
     ? Math.max(0, Math.min(timer.durationMs, timer.endsAt - now))
     : timer.remainingMs
 }
-/** End at most one interval. Sleeping or closing the app never fabricates multiple rounds. */
+/** During this app session, end at most one interval after sleep; startup discards old deadlines. */
 export function finishPomodoro(timer: PomodoroTimer, settings: PomodoroSettings, now: number): string {
   if (timer.status !== 'running' || timer.endsAt === null || now < timer.endsAt) return ''
   const previous = timer.phase
@@ -107,7 +109,7 @@ export function finishPomodoro(timer: PomodoroTimer, settings: PomodoroSettings,
   timer.revision++
   timer.durationMs = pomodoroDuration(settings, timer.phase)
   timer.remainingMs = timer.durationMs
-  // Start a full break when completion is observed, including after sleep/relaunch.
+  // Start a full break when completion is observed in the current app session, including after sleep.
   timer.endsAt = previous === 'focus' ? now + timer.durationMs : null
   return previous === 'focus'
     ? `专注完成，已开始${POMODORO_LABELS[timer.phase]} ${timer.durationMs / 60_000} 分钟。`

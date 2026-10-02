@@ -1,3 +1,6 @@
+import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
+import { buildStudyInsights, digestPeriod } from '~/utils/studyInsights'
+import { restoreHomeCourse } from '~/utils/learningHome'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { createPomodoro } from './usePomodoro'
 import type { provideDesktopSettings } from './useDesktopSettings'
@@ -42,6 +45,26 @@ export function useCompanion(options: {
   const now = ref(Date.now())
   const restUntil = ref(0)
   const celebration = ref('')
+  const bondLevel = ref(1)
+  let growthVersion = 0
+  async function refreshGrowth() {
+    const token = ++growthVersion
+    try {
+      await flushDatabaseWrites()
+      const raw = await databaseRequest<unknown[]>('dashboard')
+      if (disposed || token !== growthVersion || !Array.isArray(raw)) return
+      const courses = raw.map((value) => restoreHomeCourse(value))
+      if (courses.some((c) => c.error)) return
+      bondLevel.value = buildStudyInsights(
+        courses,
+        { notes: [], practices: [] },
+        [],
+        digestPeriod('week', 0),
+      ).growth.level
+    } catch {
+      /* Growth decoration must never block playback or overwrite learning records. */
+    }
+  }
   const opening = ref(false)
   const error = ref('')
   let previous: PlaybackSample | null = null
@@ -81,6 +104,7 @@ export function useCompanion(options: {
   function celebrate(message: string, key: string) {
     if (celebrated.has(key)) return
     celebrated.add(key)
+    void refreshGrowth()
     clearTimeout(celebrationTimer)
     celebration.value = message
     celebrationTimer = setTimeout(() => {
@@ -162,6 +186,7 @@ export function useCompanion(options: {
         ? (options.knowledge.get(course.value.id, video.value.path).summary?.points ?? [])
         : []
     return {
+      bondLevel: bondLevel.value,
       lessonKey: lessonKey.value,
       lesson: video.value?.title ?? '',
       course: course.value?.name ?? '',
@@ -237,6 +262,7 @@ export function useCompanion(options: {
     }
   }
   onMounted(async () => {
+    void refreshGrowth()
     ticker = setInterval(() => {
       now.value = Date.now()
       restSessionIfNeeded(session, now.value)

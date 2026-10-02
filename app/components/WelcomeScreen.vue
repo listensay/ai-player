@@ -56,7 +56,6 @@ function doneCount(recent: RecentCourse) {
         <AppIcon name="folder" :size="20" />
         {{ store.state.loading ? '正在读取…' : '打开课程文件夹' }}
       </UiButton>
-      <p class="text-caption text-stone">支持 MP4、WebM、MKV、MOV 等格式，子文件夹按章节展示</p>
     </div>
 
     <p

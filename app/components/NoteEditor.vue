@@ -328,7 +328,7 @@ defineExpose({
       {{ session.state.copyError }}
     </p>
     <p v-if="!editorReady" :role="status === 'error' ? 'alert' : 'status'" class="px-4 py-6 text-body-sm">
-      {{ status === 'error' ? '读取成功前暂停编辑，原有笔记不会被覆盖。' : '正在准备笔记…' }}
+      {{ status === 'error' ? '笔记读取失败，请重试。' : '正在准备笔记…' }}
     </p>
     <div v-show="editorReady" ref="rootEl" class="scroll-soft note-editor min-h-0 flex-1 overflow-y-auto" />
   </section>

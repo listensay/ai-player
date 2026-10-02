@@ -106,13 +106,6 @@ function updateMinutes() {
           >恢复计划时长</UiButton
         >
       </form>
-      <p class="mt-2.5 text-caption leading-relaxed text-stone">
-        <template v-if="guide.program.value">
-          仅调整今日视频排课量，不影响原计划；已学完课节与进度正常保留，下方实践任务（共
-          {{ formatMinutes(practiceMinutes) }}）仍按阶段计划推进。
-        </template>
-        <template v-else> 临时调整仅对今日生效，不影响长期计划；已学完课节与用时正常计入统计。 </template>
-      </p>
       <div class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-page-cream p-4">
         <div>
           <p class="text-body font-bold">已完成 {{ done.length }} / {{ today?.items.length ?? 0 }} 项</p>
@@ -124,7 +117,7 @@ function updateMinutes() {
         <UiButton v-if="next" variant="dark" size="sm" @click="start(next)">开始下一项</UiButton>
       </div>
       <p v-if="extraMinutes" class="mt-3 text-caption text-stone">
-        已加入后续 {{ today?.extraDays?.length }} 天的课程（{{ formatMinutes(extraMinutes) }}），今日打卡目标不变。
+        已加入后续 {{ today?.extraDays?.length }} 天课程（{{ formatMinutes(extraMinutes) }}）。
       </p>
       <ol class="mt-3 divide-y divide-linen">
         <li
@@ -181,11 +174,7 @@ function updateMinutes() {
         </div>
         <TodayWorkList v-if="guide.todayWork.value.length" class="mt-3" />
         <p v-else class="mt-2 text-caption text-stone">
-          {{
-            guide.activeModule.value?.practice
-              ? '当前阶段任务已完成，或今日无安排。'
-              : '当前阶段暂无实践任务，可在“定制路线”中补全或导入。'
-          }}
+          {{ guide.activeModule.value?.practice ? '当前阶段任务已完成，或今日无安排。' : '当前阶段暂无实践任务。' }}
         </p>
       </section>
       <div class="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-linen pt-4">

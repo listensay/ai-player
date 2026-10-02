@@ -96,7 +96,7 @@ function complete() {
       }}</UiButton>
     </div>
     <p v-if="!editing" class="mt-2 text-body-sm leading-relaxed" :class="program ? '' : 'text-stone'">
-      {{ program ? summary : '当前仅安排视频学习。设置学习周期与时间分配，可加入编码、项目与复习任务。' }}
+      {{ program ? summary : '未设置完整计划。' }}
     </p>
 
     <form v-else class="mt-3 space-y-3 text-body-sm" @submit.prevent="save">
@@ -144,9 +144,7 @@ function complete() {
             :label="BUDGET_LABELS.recap"
           />
         </div>
-        <p class="mt-2 text-caption text-stone">
-          合计 {{ formatMinutes(total) }}。各阶段可单独分配时间，观看时间同步用于视频排期。
-        </p>
+        <p class="mt-2 text-caption text-stone">合计 {{ formatMinutes(total) }}</p>
       </fieldset>
       <div class="grid grid-cols-2 gap-3">
         <VTextField
@@ -168,7 +166,7 @@ function complete() {
           label="复盘日时长（分钟）"
         />
       </div>
-      <p class="text-caption text-stone">复盘日不安排新课，间隔设为 0 可关闭。</p>
+      <p class="text-caption text-stone">间隔设为 0 可关闭复盘日。</p>
       <div class="flex flex-wrap gap-2">
         <UiButton type="submit" variant="dark" size="sm">保存计划</UiButton>
         <UiButton variant="text" size="sm" @click="editing = false">取消</UiButton>
@@ -177,11 +175,7 @@ function complete() {
 
     <div class="mt-4 rounded-xl bg-page-cream p-3">
       <p class="text-caption leading-relaxed text-graphite">
-        实践安排：{{
-          stages
-            ? `${stages} 个阶段已设置任务与验收清单。`
-            : '尚未设置，可由 AI 根据学习背景与对话生成，或导入 JSON 文件。'
-        }}
+        实践安排：{{ stages ? `${stages} 个阶段已设置任务与验收清单。` : '尚未设置，可由 AI 生成或导入文件。' }}
       </p>
       <div class="mt-3 flex flex-wrap items-center gap-3">
         <UiButton size="sm" :disabled="!!guide.state.busy" @click="complete">{{
@@ -199,9 +193,6 @@ function complete() {
           />
         </div>
       </div>
-      <p class="mt-2 text-caption text-stone">
-        支持学习路线文件，或包含 program 与 stages 的实践安排文件。导入后可撤销。
-      </p>
     </div>
   </section>
 </template>

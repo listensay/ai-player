@@ -1,3 +1,4 @@
+import type { FocusSession } from './studyInsights'
 export type PomodoroPhase = 'focus' | 'short-break' | 'long-break'
 export type PomodoroStatus = 'idle' | 'running' | 'paused'
 export interface PomodoroSettings {
@@ -20,6 +21,8 @@ export interface PomodoroTimer {
 }
 export interface PomodoroRecord {
   version: 1
+  /** Optional for compatibility; only new sessions are included. */
+  focusHistory?: FocusSession[]
   settings: PomodoroSettings
   timer: PomodoroTimer
 }

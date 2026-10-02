@@ -70,9 +70,7 @@ usePageTitle('设置 · AI Player')
                 hide-details
                 @update:model-value="settings.setAutoOpenCompanion($event === true)"
               />
-              <p class="mt-2 text-caption text-stone">
-                保存后在下次启动时生效。关闭自动打开后，仍可从顶部的「桌面挂件」手动打开。
-              </p>
+              <p class="mt-2 text-caption text-stone">下次启动时生效。</p>
               <p v-if="settings.state.error" role="alert" class="mt-3 text-body-sm text-error">
                 {{ settings.state.error }}
                 <UiButton v-if="!settings.state.ready" size="sm" variant="text" @click="settings.load">重试</UiButton>
@@ -94,9 +92,6 @@ usePageTitle('设置 · AI Player')
                   exporting ? '正在导出…' : '导出性能报告'
                 }}</UiButton>
               </div>
-              <p class="text-caption text-stone">
-                仅保存在本地，包含版本、窗口尺寸及耗时统计，不包含课程名称、笔记内容或密钥。
-              </p>
               <table v-if="metrics.length" class="w-full text-left text-body-sm">
                 <thead>
                   <tr>

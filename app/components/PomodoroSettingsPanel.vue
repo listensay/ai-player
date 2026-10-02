@@ -48,9 +48,6 @@ async function save() {
         >
       </div>
       <p v-if="current.notice" role="status" class="text-body-sm font-medium text-deep-indigo">{{ current.notice }}</p>
-      <p class="text-caption text-stone">
-        播放视频会开始或继续专注；专注结束后自动暂停视频并开始休息。休息结束有独特提示音，不会自动播放视频，请自行播放或开始专注。休息中主动播放会提前结束休息；暂停视频、关闭桌宠不停止计时。
-      </p>
     </div>
     <div class="pane mt-5 space-y-5 p-5">
       <VSwitch
@@ -105,9 +102,6 @@ async function save() {
           @update:model-value="draft.longBreakEvery = Number($event)"
         />
       </div>
-      <p class="text-caption text-stone">
-        新时长从下一段开始生效，当前已开始的计时保持原时长。关闭应用或系统休眠后，重新打开只结算当前一段，不会补算多轮。
-      </p>
       <UiButton :disabled="!clock.state.ready || clock.state.saving" @click="save">{{
         clock.state.saving ? '正在保存…' : '保存番茄钟设置'
       }}</UiButton>

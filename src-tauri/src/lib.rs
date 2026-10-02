@@ -71,6 +71,44 @@ async fn export_learning_plan(
 }
 
 #[tauri::command]
+async fn export_study_digest(
+    app: tauri::AppHandle,
+    name: String,
+    format: String,
+    bytes: Vec<u8>,
+) -> db::Result<bool> {
+    if bytes.len() > 20_000_000 || !matches!(format.as_str(), "md" | "png") {
+        return Err("报告格式或大小无效".into());
+    }
+    if (format == "png" && !bytes.starts_with(b"\x89PNG\r\n\x1a\n"))
+        || (format == "md" && std::str::from_utf8(&bytes).is_err())
+    {
+        return Err("报告内容无效".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let safe_name = PathBuf::from(name)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format!("Playbo-report.{format}"));
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("导出学习报告")
+            .set_file_name(safe_name)
+            .add_filter("学习报告", &[format.as_str()])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        std::fs::write(path.into_path().map_err(|e| e.to_string())?, bytes)
+            .map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn export_performance_report(app: tauri::AppHandle, content: String) -> db::Result<bool> {
     if content.len() > 32_768 || serde_json::from_str::<Value>(&content).is_err() {
         return Err("性能报告格式无效".into());
@@ -150,6 +188,7 @@ pub fn run() {
             companion::reveal_learning_window,
             database_request,
             export_learning_plan,
+            export_study_digest,
             export_performance_report,
             mac_reminders::mac_reminders_status,
             mac_reminders::mac_reminders_export,

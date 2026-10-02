@@ -81,7 +81,7 @@ function toggle(path: string) {
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h4 class="text-body-sm font-bold">{{ rows.length }} 节前置课未加入路线</h4>
-        <p class="mt-1 text-caption text-stone">涉及 {{ groups.length }} 个知识板块 · 数量包含间接前置课，已去重</p>
+        <p class="mt-1 text-caption text-stone">涉及 {{ groups.length }} 个知识板块</p>
       </div>
       <UiButton size="sm" :disabled="!!guide.state.busy" @click="guide.repairDependencies()">补齐前置课</UiButton>
     </div>
@@ -95,9 +95,6 @@ function toggle(path: string) {
       ><AppIcon name="chevron-down" :size="16" :class="open ? 'rotate-180' : ''" />
     </button>
     <div v-if="open" class="mt-4 min-w-0 space-y-3">
-      <p class="text-caption leading-relaxed text-stone">
-        先查看课节之间明确记录的直接关系；通过其他课节关联的间接影响单独展开。关系来自当前学习路线，请结合课程内容核对。
-      </p>
       <div class="grid gap-3 sm:grid-cols-2">
         <VTextField v-model="query" type="search" label="搜索前置课" density="compact" hide-details />
         <VSelect v-model="moduleId" :items="moduleItems" label="知识板块" hide-details />

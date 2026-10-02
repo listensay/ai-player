@@ -256,11 +256,8 @@ function apply() {
             label="恢复日期"
           />
           <p class="text-body-sm text-stone">
-            {{
-              form.kind === 'defer' ? '今天剩余安排移至下个学习日。' : '从今天起暂停新增任务，到恢复日期继续学习。'
-            }}保留每日投入，自动顺延阶段和结束日期。
+            {{ form.kind === 'defer' ? '今天剩余安排移至下个学习日。' : '从今天起暂停新增任务，到恢复日期继续学习。' }}
           </p>
-          <p class="text-caption text-stone">已完成事项、观看进度和实践记录保留；周末与原定休息日继续生效。</p>
         </template>
         <template v-else-if="form.kind === 'weekly'">
           <VTextField v-model.number="form.totalDays" type="number" min="1" max="1095" label="计划总天数" />
@@ -299,7 +296,6 @@ function apply() {
               />
             </section>
           </div>
-          <p class="text-caption text-stone">已有阶段的工作日专属预算继续生效；临时日期安排优先于每周安排。</p>
         </template>
         <template v-else-if="form.kind === 'today'">
           <div class="grid grid-cols-2 gap-3">
@@ -327,7 +323,6 @@ function apply() {
             :min="addDays(guide.todayDate.value, 1)"
             label="恢复日期"
           />
-          <p class="text-caption text-stone">暂停期间不新增任务。到期恢复原排期，可再选择顺延。</p>
         </template>
         <template v-else>
           <VRadioGroup v-model="form.strategy" label="剩余安排" hide-details>

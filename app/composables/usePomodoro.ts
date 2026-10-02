@@ -1,3 +1,5 @@
+import type { FocusSession } from '~/types/studyInsights'
+import { localDayKey } from '~/utils/learningFeedback'
 import { computed, watch, inject, onBeforeUnmount, onMounted, reactive, ref, provide, type InjectionKey } from 'vue'
 import { createPomodoroAudio } from '~/utils/pomodoroAudio'
 import { databaseRequest } from '~/utils/database'
@@ -20,6 +22,7 @@ export function createPomodoro(
   const settings = defaultPomodoroSettings()
   const state = reactive({
     settings,
+    focusHistory: [] as FocusSession[],
     timer: freshPomodoro(settings),
     ready: false,
     saving: false,
@@ -29,7 +32,9 @@ export function createPomodoro(
   const now = ref(clock())
   let loading: Promise<void> | undefined, writing: Promise<boolean> | undefined, pending: PomodoroRecord | undefined
   const record = (): PomodoroRecord =>
-    JSON.parse(JSON.stringify({ version: 1, settings: state.settings, timer: state.timer }))
+    JSON.parse(
+      JSON.stringify({ version: 1, settings: state.settings, timer: state.timer, focusHistory: state.focusHistory }),
+    )
   function persist(): Promise<boolean> {
     if (!state.ready) return Promise.resolve(true)
     pending = record()
@@ -62,12 +67,25 @@ export function createPomodoro(
       // Player errors must not prevent the break countdown or completion notice.
     }
   }
+  function finishSession(outcome: 'completed' | 'abandoned', at = clock()) {
+    const session = state.focusHistory.at(-1)
+    if (session?.outcome === 'active') {
+      session.outcome = outcome
+      session.endedAt = Math.max(session.startedAt, at)
+    }
+  }
+  function interruptSession() {
+    const session = state.focusHistory.at(-1)
+    if (state.timer.phase === 'focus' && session?.outcome === 'active') session.interruptions++
+  }
   function tick() {
     now.value = clock()
     if (!state.ready || !state.settings.enabled) return
+    const deadline = state.timer.endsAt
     const completedPhase = state.timer.phase
     const notice = finishPomodoro(state.timer, state.settings, now.value)
     if (notice) {
+      if (completedPhase === 'focus') finishSession('completed', deadline ?? now.value)
       state.notice = notice
       void persist()
       if (completedPhase === 'focus') pauseVideoForBreak()
@@ -86,13 +104,16 @@ export function createPomodoro(
       try {
         const restored = restorePomodoro(await storage.read())
         state.settings = restored.settings
-        state.timer = restored.timer
-        state.timer.revision = Math.max(state.timer.revision + 1, clock())
+        state.focusHistory = restored.focusHistory ?? []
+        now.value = clock()
+        // A process restart begins a new cycle. Do not tick the persisted deadline:
+        // offline time must not complete a focus, start a break, or replay a notice.
+        finishSession('abandoned', now.value)
+        state.timer = freshPomodoro(state.settings, Math.max(restored.timer.revision + 1, now.value))
+        state.notice = ''
         state.ready = true
         state.error = ''
-        const completedPhase = tick()
-        if (state.timer.phase !== 'focus' && state.timer.status === 'running' && completedPhase !== 'focus')
-          pauseVideoForBreak()
+        await persist()
       } catch {
         state.error = '番茄钟记录读取失败，请重试；原记录已保留。'
       }
@@ -104,6 +125,18 @@ export function createPomodoro(
   function start() {
     tick()
     if (!state.ready || !state.settings.enabled || state.timer.status === 'running') return
+    if (state.timer.phase === 'focus' && state.focusHistory.at(-1)?.outcome !== 'active') {
+      const date = new Date(now.value)
+      state.focusHistory.push({
+        startedAt: now.value,
+        endedAt: null,
+        startHour: date.getHours(),
+        date: localDayKey(date),
+        interruptions: 0,
+        outcome: 'active',
+      })
+      state.focusHistory = state.focusHistory.slice(-5000)
+    }
     effects.onStart?.()
     state.timer.status = 'running'
     state.timer.endsAt = now.value + state.timer.remainingMs
@@ -126,6 +159,7 @@ export function createPomodoro(
     // A late pause command refers to the completed focus, not the just-started break.
     if (tick() === 'focus') return
     if (!state.ready || state.timer.status !== 'running') return
+    interruptSession()
     state.timer.remainingMs = remainingPomodoroMs(state.timer, now.value)
     state.timer.status = 'paused'
     state.timer.endsAt = null
@@ -134,6 +168,8 @@ export function createPomodoro(
   }
   function reset() {
     if (!state.ready) return
+    tick()
+    finishSession('abandoned')
     state.timer = freshPomodoro(state.settings, state.timer.revision + 1)
     state.notice = ''
     now.value = clock()
@@ -150,6 +186,7 @@ export function createPomodoro(
     }
     tick()
     if (!next.enabled && state.timer.status === 'running') {
+      interruptSession()
       state.timer.remainingMs = remainingPomodoroMs(state.timer, now.value)
       state.timer.status = 'paused'
       state.timer.endsAt = null

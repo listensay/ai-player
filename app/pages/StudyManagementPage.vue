@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import StudyInsightsPanel from '~/components/StudyInsightsPanel.vue'
 import ReminderTimePicker from '~/components/ReminderTimePicker.vue'
 import { computed, reactive, ref } from 'vue'
 import { usePageTitle } from '~/composables/usePageTitle'
@@ -124,6 +125,19 @@ const coursePaused = (id: string) =>
       <p v-if="tools.state.error || home.error.value" role="alert" class="text-body-sm text-error">
         {{ tools.state.error || home.error.value }}
       </p>
+      <StudyInsightsPanel
+        :courses="home.courses.value"
+        :today="home.date.value"
+        :loading="home.loading.value"
+        :error="home.error.value"
+        @refresh="home.refresh"
+        @reminder="
+          (time) => {
+            editReminder()
+            reminder.time = time
+          }
+        "
+      />
       <p v-if="tools.state.notice" role="status" class="text-body-sm text-deep-indigo">{{ tools.state.notice }}</p>
       <p v-if="tools.state.loading" role="status" class="text-body-sm text-stone">正在读取学习管理…</p>
       <UiButton v-else-if="!tools.state.ready" @click="tools.load">重新读取</UiButton>
@@ -132,10 +146,6 @@ const coursePaused = (id: string) =>
           <div class="pane flex flex-wrap items-center justify-between gap-3 p-5">
             <div>
               <h2 class="text-subheading">学习提醒</h2>
-              <p class="mt-2 text-caption text-stone">
-                当天开始观看或记录实践时间后，不再发送该课程的软件内和系统通知，并取消稍后提醒；次日恢复。未关联课程的提醒在当天任一课程开始学习后停止。暂停或归档的课程不提醒。Mac
-                提醒事项独立运行。
-              </p>
             </div>
             <UiButton variant="dark" :disabled="!!tools.state.saving || tools.mac.busy" @click="editReminder()"
               ><AppIcon name="plus" :size="17" />添加提醒</UiButton
@@ -265,12 +275,8 @@ const coursePaused = (id: string) =>
         v-model="removeInMac"
         label="同时删除 Mac 提醒"
       />
-      <p v-if="removing && tools.mac.links[removing.id]" class="text-body-sm text-stone">
-        {{
-          removeInMac
-            ? '删除对应的未完成系统提醒，已完成的历史记录保留。'
-            : 'Mac 提醒仍会独立提醒，可在待处理列表中继续删除。'
-        }}
+      <p v-if="removing && tools.mac.links[removing.id]" class="text-caption text-stone">
+        {{ removeInMac ? '将同步删除 Mac 提醒。' : 'Mac 提醒将保留。' }}
       </p>
     </StudyFormDialog>
     <StudyFormDialog
@@ -302,17 +308,10 @@ const coursePaused = (id: string) =>
           {{ exporting.weekdays.map((d) => weekdays[d - 1]!.title).join('、') }}
         </p>
       </div>
-      <p v-if="exporting && !tools.macEnabled(exporting)" class="text-body-sm leading-relaxed">
-        清除对应 Mac 提醒的到期时间、通知和重复规则，保留事项。重新启用后可同步恢复。
+      <p v-if="exporting && !tools.macEnabled(exporting)" class="text-body-sm text-stone">
+        清除对应 Mac 提醒的时间与重复规则。
       </p>
-      <p v-else class="text-body-sm leading-relaxed">
-        同步标题、时间和重复日，从下次提醒时间开始。点击 Mac
-        提醒中的链接可打开关联课程，回到上次学习位置；未关联课程时打开学习管理。
-      </p>
-      <p class="text-caption leading-relaxed text-stone">
-        本地修改已保存。取消后保留待同步状态；首次同步需要允许访问提醒事项。状态按上次同步记录显示，Mac
-        中的手动修改不会自动导入。
-      </p>
+      <p v-else class="text-body-sm text-stone">同步标题、时间与重复日到 Mac 提醒事项。</p>
     </StudyFormDialog>
   </main>
 </template>

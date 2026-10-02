@@ -364,17 +364,15 @@ function confirmStatus() {
                       }}<template v-if="guide.program.value"> · 完整计划共 {{ guide.program.value.days }} 天</template>
                     </p>
                     <p v-if="schedule.unknown" class="mt-2 text-caption text-stone">
-                      {{ schedule.unknown }} 节时长未知，暂按已知课节中位数（无数据时按 20 分钟）估算，读取后自动更新。
+                      {{ schedule.unknown }} 节时长未知，按中位数估算。
                     </p>
-                    <p class="mt-2 text-caption text-stone">
+                    <p v-if="guide.program.value" class="mt-2 text-caption text-stone">
                       {{
-                        guide.program.value
-                          ? guide.videoFinish.value === null
-                            ? '路线视频已全部观看。'
-                            : guide.videoFinish.value === Infinity
-                              ? '当前未分配观看时间。'
-                              : `按阶段时间分配，预计第 ${guide.videoFinish.value} 天完成观看。`
-                          : '排期仅统计视频，不含实践时间。'
+                        guide.videoFinish.value === null
+                          ? '路线视频已全部观看。'
+                          : guide.videoFinish.value === Infinity
+                            ? '当前未分配观看时间。'
+                            : `预计第 ${guide.videoFinish.value} 天完成观看。`
                       }}
                     </p>
                   </VExpansionPanelText>
@@ -433,10 +431,8 @@ function confirmStatus() {
                     @change="updateDailyMinutes"
                   />
                 </div>
-                <p class="text-caption leading-relaxed text-stone">
-                  仅依据标题与时长规划，不上传视频。<template v-if="state.scanning"
-                    >时长读取中 {{ state.scanned }}/{{ guide.videoMap.value.size }}，可先生成路线。</template
-                  >
+                <p v-if="state.scanning" class="text-caption leading-relaxed text-stone">
+                  时长读取中 {{ state.scanned }}/{{ guide.videoMap.value.size }}
                 </p>
                 <div class="flex flex-wrap items-center gap-3">
                   <UiButton type="submit" variant="primary" :disabled="!!state.busy || !guide.guideReady.value"

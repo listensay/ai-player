@@ -162,6 +162,34 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
             }
             Ok(result)
         }
+        "study-evidence" => {
+            // Only aggregates and timestamps cross the boundary; never note text or answers.
+            let notes: Vec<Value> = rows(db,
+                "SELECT course_id,length(content) AS characters,updated_at FROM notes", vec![])?
+                .iter().map(|r| json!({"courseId":r["course_id"],"characters":r["characters"],"updatedAt":r["updated_at"]})).collect();
+            let mut practices = Vec::new();
+            for r in rows(
+                db,
+                "SELECT course_id,video_path,records_json FROM lesson_practices",
+                vec![],
+            )? {
+                let records: Value =
+                    serde_json::from_str(r["records_json"].as_str().ok_or("练习记录格式异常")?)
+                        .map_err(|_| "练习记录格式异常")?;
+                for record in records.as_array().ok_or("练习记录格式异常")? {
+                    let solid_at = record["attempts"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|a| a["feedback"]["result"] == "solid")
+                        .filter_map(|a| a["at"].as_i64())
+                        .min();
+                    practices.push(json!({"courseId":r["course_id"],
+                        "id":format!("{}:{}",r["video_path"],record["id"].as_str().ok_or("练习编号无效")?),"solidAt":solid_at}));
+                }
+            }
+            Ok(json!({"notes":notes,"practices":practices}))
+        }
         "dashboard" => {
             let library = read(db, "library", &json!({}))?;
             let mut result = Vec::new();
@@ -675,6 +703,28 @@ mod persistence_tests {
         assert!(entries.iter().find(|e| e["course"]["id"] == "one").unwrap()["error"].is_string());
         assert!(entries.iter().find(|e| e["course"]["id"] == "two").unwrap()["data"].is_object());
         assert!(!data.to_string().contains("private-test-key"));
+    }
+
+    #[test]
+    fn study_evidence_omits_private_text_and_uses_first_success() {
+        let mut db = database();
+        request(
+            &mut db,
+            "notes",
+            "POST",
+            json!({}),
+            json!({"courseId":"one","videoPath":"1.mp4","content":"私密笔记"}),
+        )
+        .unwrap();
+        db.execute("INSERT INTO lesson_practices(course_id,video_path,records_json,updated_at) VALUES ('one','1.mp4',?,1)",
+            [json!([{"id":"q1","question":{"prompt":"private-question"},"attempts":[
+                {"answer":"private-answer","feedback":{"result":"solid"},"at":200},
+                {"feedback":{"result":"solid"},"at":100}]}]).to_string()]).unwrap();
+        let data = request(&mut db, "study-evidence", "GET", json!({}), Value::Null).unwrap();
+        assert_eq!(data["notes"][0]["characters"], 4);
+        assert_eq!(data["practices"][0]["solidAt"], 100);
+        assert!(!data.to_string().contains("私密笔记"));
+        assert!(!data.to_string().contains("private-"));
     }
 
     #[test]

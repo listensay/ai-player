@@ -295,6 +295,7 @@ defineExpose({ collapse })
       >
         <span :key="reactionKey" class="pet-art" :class="{ 'is-petted': reaction }"
           ><PlayboMascot
+            :bond-level="state.bondLevel"
             :mood="reaction && !state.careDue && !state.restRemaining ? 'celebrate' : state.mood"
             :playing="connected && state.playing && !state.buffering && !state.blocked"
             :size="desktop ? 124 : 128"
@@ -306,7 +307,7 @@ defineExpose({ collapse })
         class="pet-dismiss pet-icon-button"
         data-pet-hit="0.5"
         aria-label="关闭桌宠"
-        title="关闭桌宠，课程继续播放"
+        title="关闭桌宠"
         @click="emit('close')"
       >
         <AppIcon name="close" :size="14" />

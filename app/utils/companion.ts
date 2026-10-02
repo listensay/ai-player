@@ -51,6 +51,7 @@ export function companionConcept(points: KnowledgePoint[], seconds: number, conc
 }
 
 export interface CompanionSnapshot {
+  bondLevel?: number
   pomodoro?: PomodoroSnapshot
   lessonKey: string
   lesson: string

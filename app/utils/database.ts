@@ -11,6 +11,7 @@ export type DatabaseCollection =
   | 'settings'
   | 'library'
   | 'dashboard'
+  | 'study-evidence'
   | 'day-snapshots'
   | 'practice-scopes'
   | 'ai-batch-cache'
