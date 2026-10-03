@@ -71,7 +71,7 @@ function deferred() {
   })
   return { promise, resolve, reject }
 }
-function harness(t, overrides = {}) {
+function harness(t, overrides = {}, options = {}) {
   const saves = [],
     calls = [],
     checkpoints = new Map()
@@ -110,7 +110,7 @@ function harness(t, overrides = {}) {
   })
   const app = renderer.createApp({
     setup() {
-      practice = useLessonPractice(activeCourse, settings, available)
+      practice = useLessonPractice(activeCourse, settings, available, options)
       return () => null
     },
   })
@@ -645,7 +645,7 @@ test('整组百分制按最新提交等权汇总，支持部分正确、作业�
 })
 
 // 编译真实弹窗模板，按钮和选择组件仅替换渲染外壳，练习状态与事件使用真实流程。
-async function mountDialog(t, practice) {
+async function mountDialog(t, practice, listeners = {}) {
   const { descriptor } = parse(readFileSync(new URL('../app/components/PracticeDialog.vue', import.meta.url), 'utf8'))
   const code = compileScript(descriptor, { id: 'practice-dialog-test', inlineTemplate: true })
     .content.replace(
@@ -715,7 +715,7 @@ async function mountDialog(t, practice) {
     nextSibling: (node) => node.parent?.children[node.parent.children.indexOf(node) + 1] ?? null,
   })
   const root = element('root'),
-    app = renderer.createApp(Component, { practice })
+    app = renderer.createApp(Component, { practice, ...listeners })
   for (const name of new Set(descriptor.template.content.match(/\bV[A-Z]\w+/g))) app.component(name, stub(name))
   app.mount(root)
   t.after(() => app.unmount())
@@ -737,6 +737,80 @@ async function mountDialog(t, practice) {
     },
   }
 }
+
+test('知识点准备失败后明确提示并可在弹窗重试，恢复后正常出题', async (t) => {
+  let attempts = 0,
+    retry
+  const recovered = deferred()
+  const h = harness(
+    t,
+    {},
+    {
+      sources: async () => {
+        if (++attempts === 1) throw new Error('HTTP 502：AI 服务网关异常，请稍后重试。')
+        return recovered.promise
+      },
+    },
+  )
+  await open(h)
+  const dialog = await mountDialog(t, h.practice, {
+    onRetry: () => {
+      retry = open(h)
+    },
+  })
+  assert.match(dialog.text(), /HTTP 502/)
+  assert.match(dialog.text(), /知识点尚未准备好，请重试准备/)
+  assert.doesNotMatch(dialog.text(), /知识点准备完成后可生成练习/)
+  assert.equal(h.practice.hasMaterial.value, false)
+  await dialog.click('重试准备')
+  await tick()
+  assert.equal(h.practice.state.busy, 'loading')
+  assert.equal(dialog.button('重试准备'), undefined)
+  assert.equal(h.practice.state.error, '')
+  recovered.resolve(sources)
+  await retry
+  await nextTick()
+  assert.equal(h.practice.hasMaterial.value, true)
+  assert.equal(dialog.button('重试准备'), undefined)
+  await h.practice.generate()
+  assert.equal(h.practice.history.value.length, 1)
+})
+
+test('取消知识点准备后仍可重试，旧响应不能覆盖重新准备的材料', async (t) => {
+  const pending = deferred()
+  const h = harness(t, {}, { sources: () => pending.promise })
+  const loading = open(h)
+  await tick()
+  const dialog = await mountDialog(t, h.practice)
+  await dialog.click('取消')
+  assert.equal(h.practice.state.error, '')
+  assert.ok(dialog.button('重试准备'))
+  const fresh = [{ ...sources[0], text: `新的材料。${note}` }]
+  await h.practice.openSources('a.mp4', 'a', async () => fresh)
+  pending.resolve(sources)
+  await loading
+  assert.deepEqual(h.practice.state.preparedSources, fresh)
+})
+
+test('今日巩固准备失败和取消后都保留重试入口', async (t) => {
+  const h = harness(t, {}, { mode: 'daily' })
+  const load = async () => {
+    throw new Error('HTTP 502：AI 服务网关异常，请稍后重试。')
+  }
+  const path = 'daily:2026-10-03:test'
+  await h.practice.openSources(path, '今日巩固', load)
+  const dialog = await mountDialog(t, h.practice)
+  assert.ok(dialog.button('重试准备'))
+  assert.doesNotMatch(dialog.text(), /知识点准备完成后可生成练习/)
+  const pending = deferred()
+  const loading = h.practice.openSources(path, '今日巩固', () => pending.promise)
+  await tick()
+  await dialog.click('取消')
+  assert.ok(dialog.button('重试准备'))
+  pending.resolve(sources)
+  await loading
+  assert.equal(h.practice.hasMaterial.value, false)
+})
 
 test('弹窗逐题提交后显示下一题，末题汇总分数并完成关闭，重新打开保留成绩', async (t) => {
   const h = harness(t, {

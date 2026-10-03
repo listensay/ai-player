@@ -146,5 +146,5 @@ const budgetText = computed(() => {
       </ul>
     </section>
   </div>
-  <p v-else class="text-caption leading-relaxed text-stone">暂无实践任务与验收清单，可在“定制路线”中补全或导入。</p>
+  <p v-else class="text-caption leading-relaxed text-stone">暂无实践任务与验收清单。</p>
 </template>

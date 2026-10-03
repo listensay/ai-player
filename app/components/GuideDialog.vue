@@ -601,9 +601,6 @@ function confirmStatus() {
                         "
                       />
                       <ConceptMastery :lesson="lesson" />
-                      <p class="mt-2 text-caption leading-relaxed text-stone">
-                        全部知识点标为“已掌握”时跳过本课；“需要补学”时加入必修；“不确定”时保留查漏。观看进度独立记录。
-                      </p>
                     </template>
                   </VExpansionPanelText>
                 </VExpansionPanel>
@@ -644,7 +641,6 @@ function confirmStatus() {
                 "
               />
             </div>
-            <p class="mt-4 text-caption text-stone">知识结构依据课程标题生成，请结合课程内容核对。</p>
           </section>
         </div>
       </div>

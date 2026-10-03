@@ -245,7 +245,8 @@ test('不兼容结构、缺失文本、超长文本及非法 JSON 都报错', as
   }
 })
 
-test('常见 HTTP 错误保留状态码与原因，不暴露服务响应和密钥', async () => {
+test('常见 HTTP 错误保留状态码与原因，临时错误最多重试两次且不暴露响应和密钥', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   for (const [status, message] of [
     [400, /参数无效/],
     [401, /密钥无效/],
@@ -255,19 +256,108 @@ test('常见 HTTP 错误保留状态码与原因，不暴露服务响应和密�
     [413, /请求大小/],
     [422, /参数不受支持/],
     [429, /过于频繁/],
+    [502, /网关异常/],
     [529, /繁忙/],
     [503, /不可用/],
     [504, /网关.*超时/],
     [520, /网关未收到有效响应/],
     [524, /网关.*超时/],
   ]) {
-    transport({ error: { message: 'private response: test-key' } }, status)
-    await assert.rejects(
+    const calls = transport({ error: { message: 'private response: test-key' } }, status)
+    const rejected = assert.rejects(
       call({ provider: 'anthropic' }),
       (error) =>
         error.message.includes(`HTTP ${status}`) && message.test(error.message) && !error.message.includes('test-key'),
     )
+    await new Promise((resolve) => setImmediate(resolve))
+    for (const delay of [1000, 2000]) {
+      t.mock.timers.tick(delay)
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    await rejected
+    assert.equal(calls.length, [502, 503, 504, 520, 524, 529].includes(status) ? 3 : 1)
   }
+})
+
+test('两种协议遇到临时网关错误会退避重试，保留原始请求并释放失败响应', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  for (const provider of ['openai', 'anthropic']) {
+    const calls = [],
+      responses = []
+    globalThis.aiServiceIO = {
+      fetch: async (url, init) => {
+        calls.push({ url, ...init, headers: [...new Headers(init.headers)] })
+        const response =
+          calls.length < 3
+            ? new Response('upstream unavailable', { status: calls.length === 1 ? 502 : 503 })
+            : Response.json(provider === 'anthropic' ? nativeReply() : openaiReply())
+        responses.push(response)
+        return response
+      },
+    }
+    const pending = call({ provider })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.length, 1)
+    t.mock.timers.tick(999)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.length, 1)
+    t.mock.timers.tick(1)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.length, 2)
+    t.mock.timers.tick(2000)
+    assert.deepEqual(await pending, { ok: true })
+    assert.equal(calls.length, 3)
+    assert.deepEqual(calls[1], calls[0])
+    assert.deepEqual(calls[2], calls[0])
+    assert.ok(responses.slice(0, 2).every((response) => response.bodyUsed))
+  }
+})
+
+test('网关重试等待期间可取消，不会再发送请求', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const calls = transport({}, 502)
+  const controller = new AbortController()
+  const rejected = assert.rejects(call({}, controller.signal), { name: 'AbortError' })
+  await new Promise((resolve) => setImmediate(resolve))
+  controller.abort()
+  await rejected
+  t.mock.timers.tick(10000)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls.length, 1)
+})
+
+test('网关重试共用最初的响应时限', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let calls = 0
+  globalThis.aiServiceIO = {
+    fetch: async (_, { signal }) => {
+      if (++calls === 1) return new Response('', { status: 502 })
+      return new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    },
+  }
+  const rejected = assert.rejects(call({ timeoutMinutes: 1 }), /AI 响应超过 1 分钟/)
+  await new Promise((resolve) => setImmediate(resolve))
+  t.mock.timers.tick(1000)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(calls, 2)
+  t.mock.timers.tick(59000)
+  await rejected
+  assert.equal(calls, 2)
+})
+
+test('成功响应的无效 JSON 和网络异常不会自动重复发送', async () => {
+  const calls = transport(openaiReply({ message: { content: 'invalid' } }))
+  await assert.rejects(call(), /JSON/)
+  assert.equal(calls.length, 1)
+  let attempts = 0
+  globalThis.aiServiceIO.fetch = async () => {
+    attempts++
+    throw new TypeError('connection failed')
+  }
+  await assert.rejects(call(), /无法连接 AI 服务/)
+  assert.equal(attempts, 1)
 })
 
 test('已取消的请求不发送，发送中的请求传递取消信号', async () => {

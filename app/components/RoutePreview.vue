@@ -63,12 +63,11 @@ const rows = computed(() => {
   <section v-if="pending && preview" class="pane border-2 border-charcoal-ink p-5" aria-label="路线调整预览">
     <p class="text-caption font-bold text-stone">{{ pending.label }} · 待确认</p>
     <h3 class="mt-1 text-subheading">确认路线调整</h3>
-    <p class="mt-2 text-body-sm leading-relaxed text-graphite">请核对课节与时间变化，应用后可撤销。</p>
     <p class="mt-2 whitespace-pre-wrap break-words text-caption leading-relaxed text-stone">
       {{ pending.plan.summary }}
     </p>
     <p v-if="risks.length" role="alert" class="mt-3 text-body-sm text-error">
-      调整后有 {{ risks.length }} 节前置课不在路线中。请确认已具备相关知识，再应用调整。
+      调整后有 {{ risks.length }} 节前置课不在路线中。
     </p>
 
     <div class="mt-4 grid grid-cols-3 gap-2 rounded-2xl bg-page-cream p-4 text-center">

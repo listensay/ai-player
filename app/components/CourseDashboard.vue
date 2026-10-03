@@ -817,7 +817,7 @@ const todayMinutes = computed(() =>
             >
           </h3>
           <TodayWorkList v-if="guide.todayWork.value.length" class="mt-3" />
-          <p v-else class="mt-2 text-body-sm text-stone">今日暂无实践任务，可在“定制路线”中设置。</p>
+          <p v-else class="mt-2 text-body-sm text-stone">今日暂无实践任务。</p>
         </div>
       </div>
     </VDialog>

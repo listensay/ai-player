@@ -81,9 +81,8 @@ function cancel() {
     <UiButton v-if="state?.summary" class="mt-5 w-full" :disabled="busy" @click="openPractice()"
       >练习本课知识点</UiButton
     >
-    <div class="mt-5 border-t border-linen pt-3 text-caption text-stone">
-      <p>逐字稿将自动发送至所选 AI 服务整理知识点，视频和音频在本地处理。</p>
-      <UiButton variant="text" size="sm" class="mt-2" @click="rightTab = 'transcript'">查看逐字稿</UiButton>
+    <div class="mt-5 border-t border-linen pt-3">
+      <UiButton variant="text" size="sm" @click="rightTab = 'transcript'">查看逐字稿</UiButton>
     </div>
   </section>
 </template>

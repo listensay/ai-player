@@ -37,18 +37,22 @@ const state = reactive<PlayerState>({
 
 let el: HTMLVideoElement | null = null
 let settingsLoaded = false
+let settingsRevision = 0
 let fullscreenBusy = false
 let restoreWindowFullscreen = false
 
 async function loadSettings() {
   if (settingsLoaded) return
   settingsLoaded = true
+  const revision = settingsRevision
   try {
     const s = await dbFetchSetting<Partial<Pick<PlayerState, 'rate' | 'volume' | 'muted'>>>('player_settings')
-    if (s) {
+    if (s && revision === settingsRevision) {
       if (typeof s.rate === 'number') state.rate = clampRate(s.rate)
       if (typeof s.volume === 'number') state.volume = Math.min(1, Math.max(0, s.volume))
       if (typeof s.muted === 'boolean') state.muted = s.muted
+      // 设置可能晚于视频挂载或切课返回，只同步到当前元素。
+      if (el) applyMediaSettings(el)
     }
   } catch {
     /* 读取失败时沿用默认设置 */
@@ -56,7 +60,20 @@ async function loadSettings() {
 }
 
 function saveSettings() {
+  settingsRevision++
   void dbSaveSetting('player_settings', { rate: state.rate, volume: state.volume, muted: state.muted })
+}
+
+function applyRate(video: HTMLVideoElement) {
+  // load() 会将实际倍速重置为默认倍速，两者都要跟随用户选择。
+  if (video.defaultPlaybackRate !== state.rate) video.defaultPlaybackRate = state.rate
+  if (video.playbackRate !== state.rate) video.playbackRate = state.rate
+}
+
+function applyMediaSettings(video: HTMLVideoElement) {
+  applyRate(video)
+  video.volume = state.volume
+  video.muted = state.muted
 }
 
 function clampRate(r: number) {
@@ -73,12 +90,10 @@ export function usePlayer() {
 
   function attach(video: HTMLVideoElement) {
     el = video
-    video.playbackRate = state.rate
-    video.volume = state.volume
-    video.muted = state.muted
     state.ready = false
     state.frameReady = false
     state.error = ''
+    applyMediaSettings(video)
   }
 
   function detach() {
@@ -124,7 +139,7 @@ export function usePlayer() {
 
   function setRate(rate: number) {
     state.rate = clampRate(rate)
-    if (el) el.playbackRate = state.rate
+    if (el) applyRate(el)
     saveSettings()
   }
 
@@ -199,6 +214,8 @@ export function usePlayer() {
       state.frameReady = true
     },
     loadedMetadata(video: HTMLVideoElement) {
+      if (video !== el) return
+      applyMediaSettings(video)
       state.duration = Number.isFinite(video.duration) ? video.duration : 0
       state.ready = true
       state.error = ''
@@ -222,7 +239,10 @@ export function usePlayer() {
       state.buffering = false
     },
     rateChange(video: HTMLVideoElement) {
+      // 加载中的重置事件和已卸载视频的迟到事件不能覆盖用户偏好。
+      if (video !== el || !state.ready) return
       state.rate = clampRate(video.playbackRate)
+      if (video.defaultPlaybackRate !== state.rate) video.defaultPlaybackRate = state.rate
     },
     volumeChange(video: HTMLVideoElement) {
       state.volume = video.volume

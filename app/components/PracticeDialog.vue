@@ -15,7 +15,6 @@ import {
   PRACTICE_KIND_LABELS,
   KNOWLEDGE_LEVEL_LABELS,
   KNOWLEDGE_CATEGORY_LABELS,
-  PRACTICE_HISTORY_LIMIT,
   PRACTICE_ATTEMPT_LIMIT,
   isChoiceQuestion,
   selectedPracticeOptions,
@@ -648,18 +647,6 @@ async function upload(event: Event) {
                         >
                       </VExpansionPanel>
                     </VExpansionPanels>
-                    <p v-if="daily" class="text-caption leading-relaxed text-stone">
-                      依据今日全部计划片段的知识点出一道综合题，材料较多时先汇总。作答后由 AI
-                      按验收要求反馈，每题最多反馈 {{ PRACTICE_ATTEMPT_LIMIT }} 次。
-                    </p>
-                    <p v-else class="text-caption leading-relaxed text-stone">
-                      知识点、笔记与补充材料（含未保存笔记）将分批发送至所选 AI，每批最多 12000
-                      字，不含视频和图片。选择与判断题在本地核对，其他题型需发送题目与作答进行评估。
-                    </p>
-                    <p v-if="!daily" class="text-caption text-stone">
-                      每个课节保留最近 {{ PRACTICE_HISTORY_LIMIT }} 道练习，每题最多反馈
-                      {{ PRACTICE_ATTEMPT_LIMIT }} 次。
-                    </p>
                   </div>
                 </VExpansionPanelText>
               </VExpansionPanel>
@@ -679,7 +666,13 @@ async function upload(event: Event) {
           v-else-if="state.historyReady && (!configured || !hasMaterial)"
           class="flex flex-wrap items-center justify-between gap-2 text-caption text-stone"
         >
-          <span>{{ !configured ? '生成新题需配置 AI 服务。' : '知识点准备完成后可生成练习。' }}</span>
+          <span>{{
+            !configured
+              ? '生成新题需配置 AI 服务。'
+              : state.preparedSources !== null
+                ? '知识点尚未准备好，请重试准备。'
+                : '学习材料不足，请补充学习内容。'
+          }}</span>
           <UiButton variant="text" size="sm" @click="showMaterials">{{
             !configured ? '配置 AI' : '查看材料'
           }}</UiButton>
@@ -700,7 +693,12 @@ async function upload(event: Event) {
             <UiButton v-if="daily" variant="text" :disabled="!!state.busy" @click="practice.close()">{{
               completedCount === history.length && history.length ? '完成' : '稍后继续'
             }}</UiButton>
-            <UiButton v-if="state.error && !hasMaterial && !state.busy" variant="ghost" @click="emit('retry')"
+            <UiButton
+              v-if="
+                !hasMaterial && (state.error || (state.historyReady && configured && state.preparedSources !== null))
+              "
+              variant="ghost"
+              @click="emit('retry')"
               >重试准备</UiButton
             >
             <UiButton

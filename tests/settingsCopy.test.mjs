@@ -73,11 +73,14 @@ test('打卡日历、练习与导学弹窗清除免责与规则文案', () => {
   const practice = templateCopy('components/PracticeDialog.vue')
   assert.doesNotMatch(
     practice.source,
-    /反馈仅针对本次作答|会发送给当前 AI|代码为 UTF-8|根据代码静态分析|今日只生成一道综合大题/,
+    /反馈仅针对本次作答|会发送给当前 AI|代码为 UTF-8|根据代码静态分析|今日只生成一道综合大题|分批发送至所选 AI|每批最多 12000|每个课节保留最近/,
   )
 
   const guide = templateCopy('components/GuideDialog.vue')
-  assert.doesNotMatch(guide.source, /不上传视频|排期仅统计视频|暂按已知课节中位数/)
+  assert.doesNotMatch(
+    guide.source,
+    /不上传视频|排期仅统计视频|暂按已知课节中位数|全部知识点标为“已掌握”时跳过本课|观看进度独立记录|知识结构依据课程标题生成/,
+  )
 
   const welcome = templateCopy('components/WelcomeScreen.vue')
   assert.doesNotMatch(welcome.source, /支持 MP4、WebM/)
@@ -96,4 +99,10 @@ test('打卡日历、练习与导学弹窗清除免责与规则文案', () => {
 
   const pet = templateCopy('components/CompanionPet.vue')
   assert.doesNotMatch(pet.source, /课程继续播放/)
+
+  const knowledge = templateCopy('components/LessonKnowledgePanel.vue')
+  assert.doesNotMatch(knowledge.source, /音频在本地处理|发送至所选 AI/)
+
+  const routePreview = templateCopy('components/RoutePreview.vue')
+  assert.doesNotMatch(routePreview.source, /请核对课节与时间变化|请确认已具备相关知识/)
 })
