@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import { useProgress } from '~/composables/useProgress'
 import { useCheckIn } from '~/composables/useStudyCheckIn'
@@ -234,6 +234,81 @@ function toggleAll() {
   if (allOpen.value) openGroups.clear()
   else for (const g of groups.value) openGroups.add(g.key)
 }
+
+// Follow the same unfinished lesson as “continue learning”; completed courses stay at the last viewed lesson.
+const progressVideo = computed(() => {
+  if (viewStats.value.total && viewStats.value.done === viewStats.value.total)
+    return (
+      displayedVideos.value.find((video) => video.path === props.currentVideo?.path) ?? displayedVideos.value.at(-1)
+    )
+  return resumeVideo.value
+})
+const progressTarget = computed(() => {
+  const path = progressVideo.value?.path
+  if (!path || !guide.guideReady.value || !progress.state.ready || searching.value) return null
+  const group = routeView.value
+    ? groups.value.find((entry) => entry.videos.some((video) => video.path === path))
+    : undefined
+  const index = (routeView.value ? (group?.videos ?? []) : filteredVideos.value).findIndex(
+    (video) => video.path === path,
+  )
+  return index < 0 ? null : { path, groupKey: group?.key, page: Math.floor(index / pageSize) + 1 }
+})
+const catalogViewport = ref<HTMLElement>()
+let revealRevision = 0
+let revealFrame: number | undefined
+function cancelReveal() {
+  revealRevision++
+}
+async function revealLesson(path: string) {
+  const revision = ++revealRevision
+  await nextTick()
+  if (revision !== revealRevision || !catalogViewport.value) return
+  await new Promise<void>((resolve) => {
+    revealFrame = requestAnimationFrame(() => {
+      revealFrame = undefined
+      resolve()
+    })
+  })
+  if (revision !== revealRevision) return
+  const viewport = catalogViewport.value
+  const lesson = viewport?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)
+  if (!viewport || !lesson) return
+  // Wait for the UI expansion to finish before measuring the final page height.
+  const panel = lesson.closest('.v-expansion-panel-text')
+  await Promise.allSettled((panel?.getAnimations() ?? []).map((animation) => animation.finished))
+  if (revision !== revealRevision || !lesson.isConnected || !viewport.clientHeight) return
+  const bounds = lesson.getBoundingClientRect(),
+    frame = viewport.getBoundingClientRect()
+  const top = bounds.top - frame.top - viewport.clientTop
+  const bottom = top + bounds.height
+  if (top < 16 || bottom > viewport.clientHeight - 16)
+    viewport.scrollTo({
+      top: Math.max(0, viewport.scrollTop + top - (viewport.clientHeight - bounds.height) / 2),
+      behavior: 'auto',
+    })
+}
+watch(
+  () =>
+    progressTarget.value
+      ? JSON.stringify([props.course.id, routeView.value, guide.state.includeOptional, progressTarget.value])
+      : '',
+  () => {
+    cancelReveal()
+    const target = progressTarget.value
+    if (!target) return
+    if (target.groupKey) {
+      openGroups.add(target.groupKey)
+      groupPages[target.groupKey] = target.page
+    } else catalogPage.value = target.page
+    void revealLesson(target.path)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => {
+  cancelReveal()
+  if (revealFrame !== undefined) cancelAnimationFrame(revealFrame)
+})
 const openStage = ref('')
 const tasksOpen = ref(false),
   planOpen = ref(false),
@@ -247,7 +322,14 @@ const todayMinutes = computed(() =>
 </script>
 
 <template>
-  <div class="overview-page scroll-soft">
+  <div
+    ref="catalogViewport"
+    class="overview-page scroll-soft"
+    @wheel.passive="cancelReveal"
+    @touchmove.passive="cancelReveal"
+    @pointerdown="cancelReveal"
+    @keydown="cancelReveal"
+  >
     <div class="overview-shell">
       <section class="overview-course-header" aria-label="课程概况">
         <div class="min-w-0">
@@ -391,7 +473,7 @@ const todayMinutes = computed(() =>
                         }}</span>
                         <span v-if="group.occurrence > 1" class="text-caption text-stone">接续</span>
                         <span
-                          v-else-if="group.moduleId === activeModule?.id"
+                          v-if="group.key === progressTarget?.groupKey"
                           class="rounded-full bg-sunbeam-yellow/40 px-2 py-1 text-[11px] font-bold"
                           >当前阶段</span
                         >
@@ -441,6 +523,8 @@ const todayMinutes = computed(() =>
                         type="button"
                         :data-path="v.path"
                         :data-route-position="guide.routePositions.value.get(v.path)"
+                        :aria-current="v.path === progressVideo?.path ? 'step' : undefined"
+                        :class="{ 'overview-current-lesson': v.path === progressVideo?.path }"
                         :title="v.title"
                         class="group flex h-full w-full min-w-0 items-start gap-3 rounded-xl border border-linen bg-pure-white p-4 text-left transition-colors hover:border-charcoal-ink"
                         @click="emit('play', v)"
@@ -464,6 +548,9 @@ const todayMinutes = computed(() =>
                             >{{ lessonTitle(v) }}</span
                           >
                           <span class="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1 text-caption text-stone">
+                            <span v-if="v.path === progressVideo?.path" class="font-bold text-deep-indigo"
+                              >当前课节</span
+                            >
                             <span
                               v-if="getVideoProgress(v.path)?.done"
                               class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink"
@@ -513,6 +600,8 @@ const todayMinutes = computed(() =>
               :key="v.path"
               type="button"
               :data-path="v.path"
+              :aria-current="v.path === progressVideo?.path ? 'step' : undefined"
+              :class="{ 'overview-current-lesson': v.path === progressVideo?.path }"
               class="group flex h-full w-full min-w-0 items-start gap-3 rounded-xl border border-linen bg-pure-white p-4 text-left transition-colors hover:border-charcoal-ink"
               @click="emit('play', v)"
             >
@@ -536,6 +625,7 @@ const todayMinutes = computed(() =>
                   >{{ lessonTitle(v) }}</span
                 >
                 <span class="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1 text-caption text-stone">
+                  <span v-if="v.path === progressVideo?.path" class="font-bold text-deep-indigo">当前课节</span>
                   <span
                     v-if="getVideoProgress(v.path)?.done"
                     class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink"
@@ -866,6 +956,10 @@ const todayMinutes = computed(() =>
 }
 .course-lesson-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+.overview-current-lesson {
+  border-color: var(--color-deep-indigo);
+  background: color-mix(in srgb, var(--color-deep-indigo) 5%, var(--color-pure-white));
 }
 .catalog-filter {
   flex: 0 0 148px;

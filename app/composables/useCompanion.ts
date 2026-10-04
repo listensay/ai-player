@@ -1,3 +1,4 @@
+import { useCompanionWindow } from '~/composables/useCompanionWindow'
 import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
 import { buildStudyInsights, digestPeriod } from '~/utils/studyInsights'
 import { restoreHomeCourse } from '~/utils/learningHome'
@@ -65,8 +66,8 @@ export function useCompanion(options: {
       /* Growth decoration must never block playback or overwrite learning records. */
     }
   }
-  const opening = ref(false)
   const error = ref('')
+  const { miniOpen, opening, openMini, toggleMini } = useCompanionWindow(() => publish(true), error)
   let previous: PlaybackSample | null = null
   let previousKey = ''
   let previousWall = 0
@@ -248,19 +249,6 @@ export function useCompanion(options: {
       }
     },
   )
-  async function openMini() {
-    if (opening.value) return
-    opening.value = true
-    error.value = ''
-    try {
-      await desktopInvoke('open_companion')
-      await publish(true)
-    } catch {
-      error.value = '桌面挂件打开失败。'
-    } finally {
-      opening.value = false
-    }
-  }
   onMounted(async () => {
     void refreshGrowth()
     ticker = setInterval(() => {
@@ -302,5 +290,5 @@ export function useCompanion(options: {
     clearInterval(ticker)
     clearTimeout(celebrationTimer)
   })
-  return { snapshot, sample, openMini, opening, error, rest, toggle, snooze }
+  return { snapshot, sample, openMini, toggleMini, miniOpen, opening, error, rest, toggle, snooze }
 }

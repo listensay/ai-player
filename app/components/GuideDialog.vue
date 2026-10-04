@@ -2,31 +2,30 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import AiProfileSelector from '~/components/AiProfileSelector.vue'
-import { useRouter } from 'vue-router'
+import { useAppDialogs } from '~/composables/useAppDialogs'
 import AppIcon from '~/components/AppIcon.vue'
 import ConceptMastery from '~/components/ConceptMastery.vue'
 import LessonBadge from '~/components/LessonBadge.vue'
 import ProgramSettings from '~/components/ProgramSettings.vue'
 import RoutePreview from '~/components/RoutePreview.vue'
-import GuideModuleCard from '~/components/GuideModuleCard.vue'
 import TodayPlanPanel from '~/components/TodayPlanPanel.vue'
 import UiButton from '~/components/UiButton.vue'
 import PrerequisitePanel from '~/components/PrerequisitePanel.vue'
 import DependencyCourseList from '~/components/DependencyCourseList.vue'
-import type { DependencyRisk, GuideLesson, LessonStatus, TodayItem } from '~/types/guide'
+import type { DependencyRisk, LessonStatus, TodayItem } from '~/types/guide'
 import { formatStudyDuration, LESSON_STATUS_LABELS } from '~/utils/guide'
 import { conciseLessonTitle, conciseSource } from '~/utils/studyProgram'
 
 const props = defineProps<{ open: boolean; initialTab?: 'plan' | 'today' | 'settings' }>()
 const emit = defineEmits<{ close: []; select: [path: string, seconds?: number]; segment: [item: TodayItem] }>()
-const router = useRouter()
+const appDialogs = useAppDialogs()
 function openSettings() {
   emit('close')
-  void router.push({ path: '/settings', query: { section: 'ai' } })
+  appDialogs.open('settings', 'ai')
 }
 const guide = useGuide()
 const { state, schedule, counts, risks } = guide
-const tab = ref<'plan' | 'map' | 'today'>('plan')
+const tab = ref<'plan' | 'today'>('plan')
 const draft = ref('')
 const dailyMinutes = ref(state.plan?.dailyMinutes ?? 120)
 const pending = ref<{ path: string; status: LessonStatus; risks: DependencyRisk[] } | null>(null)
@@ -39,7 +38,6 @@ const planHeading = ref<HTMLElement>()
 const tabs = [
   { id: 'today', label: '今日学习' },
   { id: 'plan', label: '定制路线' },
-  { id: 'map', label: '知识地图' },
 ] as const
 const examples = [
   '已掌握 Java 基础，目标是完成 Spring Boot 项目开发，每日可学习 2 小时。',
@@ -63,14 +61,6 @@ const statusItems = Object.entries(LESSON_STATUS_LABELS).map(([value, title]) =>
 // Keep the lightweight plan form mounted after visiting it so unfinished edits survive tab changes.
 // The large lesson controls are mounted only on the active page.
 const planVisited = ref(false)
-const lessonsByModule = computed(() => {
-  const groups = new Map<string, GuideLesson[]>()
-  for (const lesson of guide.arrangedLessons.value) {
-    if (!groups.has(lesson.moduleId)) groups.set(lesson.moduleId, [])
-    groups.get(lesson.moduleId)!.push(lesson)
-  }
-  return groups
-})
 watch(lessonQuery, () => {
   lessonPage.value = 1
 })
@@ -619,29 +609,6 @@ function confirmStatus() {
               <UiButton variant="text" size="sm" :disabled="!!state.busy" @click="guide.undo()">撤销上次调整</UiButton>
             </div>
           </div>
-
-          <section v-if="tab === 'map'">
-            <div class="mb-5"><h3 class="text-heading-sm">课程知识结构</h3></div>
-            <div v-if="!state.plan" class="pane p-10 text-center">
-              <p class="text-body-sm text-stone">生成学习路线后，可查看课程知识地图。</p>
-              <UiButton class="mt-4" @click="tab = 'plan'">定制学习路线</UiButton>
-            </div>
-            <div v-else class="grid items-start gap-4 sm:grid-cols-2">
-              <GuideModuleCard
-                v-for="(module, i) in state.plan.modules"
-                :key="module.id"
-                :module="module"
-                :index="i"
-                :lessons="lessonsByModule.get(module.id) ?? []"
-                @select="
-                  ($event) => {
-                    emit('select', $event)
-                    emit('close')
-                  }
-                "
-              />
-            </div>
-          </section>
         </div>
       </div>
     </div>

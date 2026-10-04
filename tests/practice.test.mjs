@@ -788,6 +788,16 @@ test('知识点准备失败后明确提示并可在弹窗重试，恢复后正�
   assert.equal(h.practice.history.value.length, 1)
 })
 
+test('课后练习弹窗以全屏打开', async (t) => {
+  const h = harness(t)
+  await open(h)
+  const dialog = await mountDialog(t, h.practice)
+  const overlay = dialog.find('VDialog')
+  assert.ok(overlay, '渲染练习弹窗')
+  assert.ok('fullscreen' in overlay.props, '弹窗全屏')
+  assert.equal(overlay.props.width, undefined, '不再限制弹窗宽度')
+})
+
 test('取消知识点准备后仍可重试，旧响应不能覆盖重新准备的材料', async (t) => {
   const pending = deferred()
   const h = harness(t, {}, { sources: () => pending.promise })
@@ -852,7 +862,7 @@ test('弹窗逐题提交后显示下一题，末题汇总分数并完成关闭�
   await dialog.click('完成')
 })
 
-test('返回作答后可重新提交并更新总分，末题提前提交显示未答计零', async (t) => {
+test('末题提前作答不能完成，下一题回到漏答题，重新提交后仍可继续', async (t) => {
   const h = harness(t, {
     requestGuideJson: async () => ({ questions: [question('第一题'), question('第二题'), question('第三题')] }),
   })
@@ -865,16 +875,36 @@ test('返回作答后可重新提交并更新总分，末题提前提交显示�
   await nextTick()
   await dialog.click('提交作答')
   assert.match(dialog.text(), /未答 2 题，计 0 分/)
+  assert.equal(dialog.button('完成'), undefined)
+  assert.ok(dialog.button('下一题'))
   await dialog.click('返回作答')
   h.practice.updateDraft('["A"]')
   await nextTick()
   assert.equal(dialog.button('完成'), undefined)
   await dialog.click('重新提交')
   assert.match(dialog.text(), /整组得分.*33.*100 分/s)
-  assert.ok(dialog.button('完成'))
+  assert.equal(dialog.button('完成'), undefined)
+  assert.ok(dialog.button('下一题'))
   await dialog.click('材料与设置')
   assert.equal(dialog.button('完成'), undefined)
   assert.ok(dialog.button('返回练习'))
+  await dialog.click('返回练习')
+  await dialog.click('下一题')
+  assert.equal(h.practice.current.value.id, group[0].id)
+  assert.equal(dialog.button('完成'), undefined)
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  await dialog.click('下一题')
+  assert.equal(h.practice.current.value.id, group[1].id)
+  assert.equal(dialog.button('完成'), undefined)
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  assert.ok(dialog.button('完成'))
+  assert.equal(dialog.button('下一题'), undefined)
+  await dialog.click('完成')
+  assert.equal(h.practice.state.open, false)
 })
 
 test('practice accepts unambiguous singleton strings without inventing answers or sources', () => {

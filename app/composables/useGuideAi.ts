@@ -71,7 +71,7 @@ export function useGuideAi(
       const practice = parsePracticeImport(raw, state.plan.modules, state.plan.program)
       snapshot('AI 补全实践安排')
       applyPractice(state.plan, practice)
-      state.notice = `已为 ${Object.keys(practice.stages).length} 个阶段补充实践任务与验收清单，可在知识地图中查看。`
+      state.notice = `已为 ${Object.keys(practice.stages).length} 个阶段补充实践任务与验收清单，可在课程概览中查看。`
       refreshWork()
       persist()
       return true

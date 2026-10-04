@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { toRef } from 'vue'
+import { useAppDialogs } from '~/composables/useAppDialogs'
 import type { HomeCourse } from '~/utils/learningHome'
 import { useStudyInsights } from '~/composables/useStudyInsights'
 import UiButton from './UiButton.vue'
 import PlayboMascot from './PlayboMascot.vue'
+import PracticeText from './PracticeText.vue'
 const props = defineProps<{ courses: HomeCourse[]; today: string; loading: boolean; error: string }>()
 const emit = defineEmits<{ reminder: [time: string]; refresh: [] }>()
+const appDialogs = useAppDialogs()
 const insights = useStudyInsights(toRef(props, 'courses'), toRef(props, 'today'))
 const { data, kind, offset, ready, busy, exporting, markdown } = insights
 function refresh() {
@@ -37,28 +40,26 @@ function refresh() {
       </p>
       <template v-if="ready && !loading && !error">
         <div class="mt-6 flex flex-wrap items-center gap-3">
-          <label class="text-caption font-bold"
-            >报告周期
-            <select
-              v-model="kind"
-              aria-label="报告周期"
-              class="ml-2 rounded-lg border border-linen bg-page-cream px-3 py-2"
-            >
-              <option value="week">周报</option>
-              <option value="month">月报</option>
-            </select>
-          </label>
-          <label class="text-caption font-bold"
-            >时间范围
-            <select
-              v-model="offset"
-              aria-label="时间范围"
-              class="ml-2 rounded-lg border border-linen bg-page-cream px-3 py-2"
-            >
-              <option :value="0">本期（截至今日）</option>
-              <option :value="-1">上一完整周期</option>
-            </select>
-          </label>
+          <VSelect
+            v-model="kind"
+            label="报告周期"
+            aria-label="报告周期"
+            class="w-36 flex-none"
+            :items="[
+              { title: '周报', value: 'week' },
+              { title: '月报', value: 'month' },
+            ]"
+          />
+          <VSelect
+            v-model="offset"
+            label="时间范围"
+            aria-label="时间范围"
+            class="w-56 flex-none"
+            :items="[
+              { title: '本期（截至今日）', value: 0 },
+              { title: '上一完整周期', value: -1 },
+            ]"
+          />
           <span class="text-caption text-stone">{{ data.period.start }} — {{ data.period.end }}</span>
         </div>
         <div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -102,10 +103,14 @@ function refresh() {
           <p v-if="insights.notice.value" role="status" class="mt-3 text-caption text-deep-indigo">
             {{ insights.notice.value }}
           </p>
-          <details class="mt-4 rounded-xl border border-linen p-4">
-            <summary class="cursor-pointer text-body-sm font-bold">预览报告</summary>
-            <pre class="mt-4 whitespace-pre-wrap break-words font-sans text-body-sm leading-7">{{ markdown }}</pre>
-          </details>
+          <VExpansionPanels class="mt-4">
+            <VExpansionPanel value="report-preview">
+              <VExpansionPanelTitle>预览报告</VExpansionPanelTitle>
+              <VExpansionPanelText>
+                <PracticeText :text="markdown" class="text-body-sm" aria-label="学习报告预览" />
+              </VExpansionPanelText>
+            </VExpansionPanel>
+          </VExpansionPanels>
         </div>
       </template>
     </div>
@@ -170,29 +175,13 @@ function refresh() {
           </div>
         </details>
       </div>
-      <div class="pane bg-pure-white p-5 md:p-7">
-        <h3 class="text-subheading">里程碑勋章</h3>
-        <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <article
-            v-for="badge in data.badges"
-            :key="badge.id"
-            class="rounded-2xl border p-4"
-            :class="badge.unlocked ? 'border-brand-orange bg-page-cream' : 'border-linen'"
-          >
-            <p class="text-caption font-bold" :class="badge.unlocked ? 'text-deep-indigo' : 'text-stone'">
-              {{ badge.unlocked ? '已达成' : '未达成' }}
-            </p>
-            <h4 class="mt-2 text-body-sm font-bold">{{ badge.name }}</h4>
-            <progress
-              class="badge-progress mt-4 h-2 w-full overflow-hidden rounded-full"
-              :aria-label="badge.name"
-              :value="Math.min(badge.value, badge.target)"
-              :max="badge.target"
-            />
-            <p class="mt-1 text-caption text-stone">{{ badge.value }} / {{ badge.target }}</p>
-          </article>
-        </div>
-      </div>
+      <button
+        type="button"
+        class="pane flex w-full items-center justify-between gap-4 bg-pure-white p-5 text-left text-body-sm font-bold text-deep-indigo"
+        @click="appDialogs.open('milestones')"
+      >
+        <span>里程碑勋章</span><span>前往勋章馆 →</span>
+      </button>
       <div class="pane flex flex-wrap items-center gap-5 bg-pure-white p-5 md:p-7">
         <PlayboMascot :size="110" :bond-level="data.growth.level" />
         <div class="min-w-0 flex-1">
@@ -209,23 +198,3 @@ function refresh() {
     </template>
   </section>
 </template>
-
-<style scoped>
-.badge-progress {
-  appearance: none;
-  border: 0;
-  background: #eee6df;
-}
-.badge-progress::-webkit-progress-bar {
-  background: #eee6df;
-  border-radius: 999px;
-}
-.badge-progress::-webkit-progress-value {
-  background: #f88a49;
-  border-radius: 999px;
-}
-.badge-progress::-moz-progress-bar {
-  background: #f88a49;
-  border-radius: 999px;
-}
-</style>

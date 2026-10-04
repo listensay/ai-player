@@ -12,7 +12,7 @@ const code = compileScript(descriptor, { id: 'course-tree-test' })
   .content.replace(/import \{ useCourseStore \} from [^\n]+/, 'const useCourseStore = () => globalThis.treeIO.store')
   .replace(/import \{ useGuide \} from [^\n]+/, 'const useGuide = () => globalThis.treeIO.guide')
   .replace(/import \{ useProgress \} from [^\n]+/, 'const useProgress = () => globalThis.treeIO.progress')
-  .replace(/import (AppIcon|CourseTreeNode|ContinueStudyButton|VirtualList) from [^\n]+/g, 'const $1 = {}')
+  .replace(/import (AppIcon|CourseTreeNode|VirtualList) from [^\n]+/g, 'const $1 = {}')
   .replace("from '~/utils/courseTreeRows'", `from '${new URL('../app/utils/courseTreeRows.ts', import.meta.url).href}'`)
   .replaceAll("from 'vue'", `from '${import.meta.resolve('vue')}'`)
 const { outputText } = ts.transpileModule(code, {
@@ -144,7 +144,7 @@ test('今日路线在追加次日课程、播放刷新和完成筛选后仍可�
     tree.visibleRoute.value.map((video) => video.path),
     expected,
   )
-  assert.equal(tree.nextTodayItem.value.path, '6.mp4')
+  assert.equal(tree.todayItems.value.find((item) => !item.done).path, '6.mp4')
   store.state.filter = 'done'
   assert.deepEqual(
     tree.visibleRoute.value.map((video) => video.path),
@@ -196,34 +196,24 @@ test('今天为空、日期过期或尚未加载时不回退到全部，也不�
   ]) {
     change()
     assert.equal(tree.visibleRoute.value.length, 0)
-    assert.equal(tree.canStart.value, false)
-    tree.startRoute()
   }
   assert.equal(events.length, 0)
   tree.showAllRoute.value = true
   assert.equal(tree.visibleRoute.value.length, 3)
 })
 
-test('开始学习选择当天未完成片段，点视频保留补学起点；显示全部沿用完整路线播放', (t) => {
+test('点视频保留补学起点；显示全部沿用完整路线播放', (t) => {
   const { tree, guide, events, videos } = mount(t)
-  tree.startRoute()
-  assert.equal(events[0][0], 'startToday')
-  assert.equal(events[0][1].id, 'b')
   tree.selectRouteVideo(videos[1])
-  assert.equal(events[1][1].id, 'a-review')
-  assert.equal(events[1][1].start, 40)
+  assert.equal(events[0][1].id, 'a-review')
+  assert.equal(events[0][1].start, 40)
   guide.state.today.items.forEach((item) => {
     item.done = true
   })
-  assert.equal(tree.canStart.value, false)
   assert.equal(tree.visibleRoute.value.length, 2)
   tree.showAllRoute.value = true
-  tree.startRoute()
   tree.selectRouteVideo(videos[2])
-  assert.deepEqual(events.slice(-2), [
-    ['start', 'c.mp4'],
-    ['select', videos[2]],
-  ])
+  assert.deepEqual(events.at(-1), ['select', videos[2]])
 })
 
 test('切换课程或跨天恢复只看今天，旧日期的视频不会混入', async (t) => {
@@ -237,4 +227,15 @@ test('切换课程或跨天恢复只看今天，旧日期的视频不会混入',
   await nextTick()
   assert.equal(tree.showAllRoute.value, false)
   assert.equal(tree.visibleRoute.value.length, 0)
+})
+
+test('定制路线移除摘要操作卡片，保留搜索、筛选和视频范围切换', () => {
+  const template = descriptor.template.content
+  assert.doesNotMatch(template, /已选|计划第|包含选修课|查看建议|startRoute|ContinueStudyButton/)
+  assert.doesNotMatch(template, />\s*调整\s*</)
+  assert.match(template, /定制路线/)
+  assert.match(template, /搜索课节/)
+  assert.match(template, /按观看状态筛选/)
+  assert.match(template, /显示全部/)
+  assert.match(template, /selectRouteVideo/)
 })

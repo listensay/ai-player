@@ -6,14 +6,14 @@ import UiButton from '~/components/UiButton.vue'
 import { RouterLink } from 'vue-router'
 /** 应用导航、课程进度与学习工具。 */
 defineProps<{
+  companionActive?: boolean
+  companionBusy?: boolean
   pomodoro?: PomodoroSnapshot
   courseName?: string
   total?: number
   done?: number
   /** 当前视图：仪表盘或播放器 */
   currentView?: 'dashboard' | 'player'
-  /** 设置与学习管理返回路由历史，不复用播放器返回课程的行为。 */
-  showHistoryBack?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,7 +25,9 @@ const emit = defineEmits<{
   help: []
   close: []
   back: []
-  historyBack: []
+  settings: []
+  study: []
+  milestones: []
   guide: []
 }>()
 </script>
@@ -79,30 +81,44 @@ const emit = defineEmits<{
         </UiButton>
       </template>
       <template v-else>
-        <RouterLink
-          to="/study"
+        <UiButton
+          variant="text"
+          size="sm"
+          @click="emit('study')"
           class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream"
-          active-class="bg-page-cream text-deep-indigo"
           aria-label="学习管理"
           title="学习管理"
         >
           <AppIcon name="bell" :size="18" /><span class="hidden 2xl:inline">学习管理</span>
-        </RouterLink>
-        <RouterLink
-          to="/settings"
+        </UiButton>
+        <UiButton
+          variant="text"
+          size="sm"
+          @click="emit('milestones')"
           class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream"
-          active-class="bg-page-cream text-deep-indigo"
+          aria-label="里程碑勋章"
+          title="里程碑勋章"
+        >
+          <AppIcon name="trophy" :size="18" /><span class="hidden 2xl:inline">勋章</span>
+        </UiButton>
+        <UiButton
+          variant="text"
+          size="sm"
+          @click="emit('settings')"
+          class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream"
           aria-label="设置"
           title="设置"
         >
           <AppIcon name="settings" :size="18" /><span class="hidden 2xl:inline">设置</span>
-        </RouterLink>
+        </UiButton>
         <UiButton
           variant="text"
           size="sm"
-          title="打开桌面挂件"
+          :title="companionActive ? '关闭桌面挂件' : '打开桌面挂件'"
+          :aria-pressed="!!companionActive"
+          :disabled="companionBusy"
           aria-label="桌面挂件"
-          class="max-sm:h-8 max-sm:w-8 max-sm:p-0"
+          class="companion-toggle max-sm:h-8 max-sm:w-8 max-sm:p-0"
           @click="emit('companion')"
         >
           <AppIcon name="pip" :size="18" /><span class="hidden 2xl:inline">桌面挂件</span>
@@ -117,17 +133,15 @@ const emit = defineEmits<{
         >
           <AppIcon name="keyboard" :size="18" /><span class="hidden 2xl:inline">快捷键</span>
         </UiButton>
-        <UiButton
-          v-if="showHistoryBack"
-          variant="ghost"
-          size="sm"
-          title="返回上一页"
-          aria-label="返回上一页"
-          @click="emit('historyBack')"
-        >
-          返回
-        </UiButton>
       </template>
     </div>
   </header>
 </template>
+
+<style scoped>
+.companion-toggle.ui-button.v-btn[aria-pressed='true'] {
+  background: var(--color-page-cream);
+  color: var(--color-deep-indigo);
+  border-color: var(--color-deep-indigo);
+}
+</style>

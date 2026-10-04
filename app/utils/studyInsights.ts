@@ -1,3 +1,4 @@
+import { buildMilestones } from './milestones.ts'
 import type { FocusSession, StudyEvidence } from '../types/studyInsights'
 import type { HomeCourse } from './learningHome'
 import { isRecord } from './guide.ts'
@@ -156,14 +157,18 @@ export function buildStudyInsights(
             3,
       )
       .sort((a, b) => a.interrupted / a.samples - b.interrupted / b.samples || b.completed - a.completed)[0] ?? null
-  const nightFocuses = history.filter((s) => s.outcome === 'completed' && (s.startHour >= 21 || s.startHour < 5)).length
-  const badges = [
-    { id: 'streak', name: '连续打卡 21 天', value: bestStreak, target: 21 },
-    { id: 'course', name: '首门课通关', value: completedCourses, target: 1 },
-    { id: 'night', name: '夜猫子专注', value: nightFocuses, target: 1 },
-    { id: 'notes', name: '笔记字数破万', value: noteCharacters, target: 10000 },
-    { id: 'practice', name: '百题斩', value: solid.size, target: 100 },
-  ].map((b) => ({ ...b, unlocked: b.value >= b.target }))
+  const badges = buildMilestones({
+    streak: bestStreak,
+    courses: completedCourses,
+    hours: totalSeconds / 3600,
+    notes: noteCharacters,
+    practice: solid.size,
+    focus: new Set(
+      history
+        .filter((s) => s.outcome === 'completed' && s.date <= today && s.endedAt !== null && s.endedAt <= Date.now())
+        .map((s) => s.startedAt),
+    ).size,
+  })
   const points = checkDays.size * 10 + stageTasks * 5
   const level = points >= 300 ? 3 : points >= 70 ? 2 : 1
   return {

@@ -67,6 +67,12 @@ function detailFor(date: string) {
   const isToday = date === todayKey.value
   const seconds = checkIn?.secondsFor(date) ?? record?.seconds ?? 0
   const targetSeconds = record?.targetSeconds ?? (checkIn?.minutesFor(date) ?? 0) * 60
+  const isRest =
+    !isChecked &&
+    !!checkIn?.startDate.value &&
+    date >= checkIn.startDate.value &&
+    (!checkIn.endDate.value || date <= checkIn.endDate.value) &&
+    targetSeconds === 0
   const isMissed = isMissedStudyDay({
     date,
     today: todayKey.value,
@@ -78,17 +84,21 @@ function detailFor(date: string) {
   })
   const status = isChecked
     ? '已打卡'
-    : isMissed
-      ? '未达标'
-      : date > todayKey.value
-        ? '尚未开始'
-        : targetSeconds === 0
-          ? '无学习目标'
-          : seconds > 0
-            ? '已学习'
-            : '未学习'
-  return { date, record, isChecked, isToday, isMissed, status, seconds, targetSeconds }
+    : isRest
+      ? '休息日'
+      : isMissed
+        ? '未达标'
+        : date > todayKey.value
+          ? '尚未开始'
+          : targetSeconds === 0
+            ? '无学习目标'
+            : seconds > 0
+              ? '已学习'
+              : '未学习'
+  return { date, record, isChecked, isToday, isMissed, isRest, status, seconds, targetSeconds }
 }
+
+const todayDetail = computed(() => detailFor(todayKey.value))
 
 const days = computed(() =>
   calendarDays(viewYear.value, viewMonth.value).map((cell) => ({
@@ -175,6 +185,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             </span>
             已打卡
           </span>
+          <span v-else-if="todayDetail.isRest" class="text-body-sm font-bold text-deep-indigo">今日休息</span>
           <span v-else class="text-body-sm font-bold text-charcoal-ink">
             目标完成 {{ checkIn?.percent.value ?? 0 }}%
           </span>
@@ -187,13 +198,19 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       <p class="flex flex-wrap items-baseline justify-between gap-2 text-caption text-stone">
         <span>实际投入 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }}</span>
         <strong class="text-deep-indigo">{{
-          checkIn?.isAchieved.value ? '已打卡' : `目标完成 ${checkIn?.percent.value ?? 0}%`
+          checkIn?.isAchieved.value
+            ? '已打卡'
+            : todayDetail.isRest
+              ? '今日休息'
+              : `目标完成 ${checkIn?.percent.value ?? 0}%`
         }}</strong>
       </p>
       <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-linen">
         <div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${checkIn?.percent.value ?? 0}%` }" />
       </div>
-      <p class="mt-2 text-caption text-stone">完成今日安排即可打卡，倍速不影响达标。</p>
+      <p class="mt-2 text-caption text-stone">
+        {{ todayDetail.isRest ? '今天没有学习安排，自主学习仍会记录用时。' : '完成今日安排即可打卡，倍速不影响达标。' }}
+      </p>
     </div>
     <div v-else class="rounded-2xl border border-linen bg-pure-white p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -208,6 +225,11 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           >
             <AppIcon name="check" :size="12" /> 今日目标已完成
           </span>
+          <span
+            v-else-if="todayDetail.isRest"
+            class="rounded-full bg-deep-indigo/10 px-2.5 py-0.5 text-caption font-bold text-deep-indigo"
+            >今日休息</span
+          >
           <span v-else-if="checkIn?.taskProgress.value != null" class="text-caption text-stone">
             完成今日安排即可打卡
           </span>
@@ -276,7 +298,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             </span>
           </div>
 
-          <!-- 中间/底部：打卡打勾标记或有效时间 -->
+          <!-- 中间/底部：打卡、休息、未达标或有效时间 -->
           <div class="my-auto flex flex-col items-center justify-center">
             <!-- 打卡达标：显著绿色打勾图标 -->
             <div
@@ -286,6 +308,13 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             >
               <AppIcon name="check" :size="13" />
             </div>
+            <span
+              v-else-if="cell.isRest"
+              class="flex h-5 w-5 items-center justify-center rounded-md bg-deep-indigo/10 text-[11px] font-bold text-deep-indigo"
+              title="休息日"
+              aria-hidden="true"
+              >休</span
+            >
             <div
               v-else-if="cell.isMissed"
               class="flex h-5 w-5 items-center justify-center rounded-full bg-error/10 text-error shadow-xs"
@@ -298,6 +327,20 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             </span>
           </div>
         </button>
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center justify-end gap-3 text-caption text-stone" aria-label="日历标记说明">
+        <span class="inline-flex items-center gap-1"
+          ><AppIcon name="check" :size="12" class="text-study-complete" />已打卡</span
+        >
+        <span class="inline-flex items-center gap-1"><AppIcon name="close" :size="12" class="text-error" />未达标</span>
+        <span class="inline-flex items-center gap-1"
+          ><span
+            class="flex h-5 w-5 items-center justify-center rounded-md bg-deep-indigo/10 text-[11px] font-bold text-deep-indigo"
+            aria-hidden="true"
+            >休</span
+          >休息日</span
+        >
       </div>
 
       <!-- 选中日期详情卡片 -->
@@ -327,6 +370,11 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
               <AppIcon name="check" :size="12" /> 已打卡
               <span v-if="selectedDetail.checkedTimeStr">({{ selectedDetail.checkedTimeStr }})</span>
             </span>
+            <span
+              v-else-if="selectedDetail.isRest"
+              class="rounded-full bg-deep-indigo/10 px-2 py-0.5 text-caption font-bold text-deep-indigo"
+              >休息日</span
+            >
             <span
               v-else-if="selectedDetail.isMissed"
               class="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-caption font-bold text-error"

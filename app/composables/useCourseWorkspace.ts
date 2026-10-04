@@ -1,6 +1,7 @@
 import { onBeforeUnmount, computed, ref, watch, inject, provide } from 'vue'
 import { startPerformanceMeasure } from '~/utils/performance'
 import { useCourseStore } from '~/composables/useCourseStore'
+import { provideAppDialogs } from '~/composables/useAppDialogs'
 import { useLearningGuide } from '~/composables/useLearningGuide'
 import { useLessonPractice } from '~/composables/useLessonPractice'
 import { useKnowledgePreparation } from '~/composables/useKnowledgePreparation'
@@ -35,12 +36,16 @@ import type { InjectionKey } from 'vue'
 export function provideCourseWorkspace() {
   const route = useRoute()
   const router = useRouter()
+  const appDialogs = provideAppDialogs()
 
   const store = useCourseStore()
   const studyTools = provideStudyTools()
   const desktopSettings = provideDesktopSettings()
   const { stats } = store
   const player = usePlayer()
+  watch(appDialogs.isOpen, (open) => {
+    if (open) player.pause()
+  })
   const pomodoro = providePomodoro(() => player.state.playing, player.pause)
 
   const stage = ref<{ toggleFullscreen: () => void } | null>(null)
@@ -199,7 +204,14 @@ export function provideCourseWorkspace() {
     dailyKey: computed(() => daily.records.value[0]?.path ?? ''),
     dailyReady: computed(() => daily.practice.state.historyReady),
     checkedAt: computed(() => checkIn.justCheckedIn.value?.checkedAt ?? null),
-    blocked: computed(() => helpOpen.value || guideOpen.value || practice.state.open || daily.practice.state.open),
+    blocked: computed(
+      () =>
+        appDialogs.isOpen.value ||
+        helpOpen.value ||
+        guideOpen.value ||
+        practice.state.open ||
+        daily.practice.state.open,
+    ),
   })
 
   watch(
@@ -240,7 +252,7 @@ export function provideCourseWorkspace() {
   function openGuide(tab: 'plan' | 'today' | 'settings' = 'plan') {
     if (tab === 'settings') {
       guideOpen.value = false
-      void router.push({ path: '/settings', query: { section: 'ai' } })
+      appDialogs.open('settings', 'ai')
       return
     }
     guideTab.value = tab
@@ -268,7 +280,12 @@ export function provideCourseWorkspace() {
   }
 
   const canPromptDaily = computed(
-    () => daily.shouldPrompt.value && !practice.state.open && !helpOpen.value && !daily.practice.state.open,
+    () =>
+      daily.shouldPrompt.value &&
+      !appDialogs.isOpen.value &&
+      !practice.state.open &&
+      !helpOpen.value &&
+      !daily.practice.state.open,
   )
   function openDailyPractice() {
     return showDailyPractice(false)
@@ -530,21 +547,21 @@ export function provideCourseWorkspace() {
     practice.close()
     daily.practice.close()
     treeOpen.value = false
+    appDialogs.close()
     if (alreadyPlayingCourse) return
-    const navigation = await router.push(
-      target.courseId
-        ? {
-            name: 'course-player',
-            params: { id: target.courseId },
-            query: target.lesson ? { lesson: target.lesson } : {},
-          }
-        : { name: 'study-management' },
-    )
-    if (isNavigationFailure(navigation) && !isNavigationFailure(navigation, NavigationFailureType.duplicated))
-      throw new Error('页面切换未完成，请重试。')
+    if (target.courseId) {
+      const navigation = await router.push({
+        name: 'course-player',
+        params: { id: target.courseId },
+        query: target.lesson ? { lesson: target.lesson } : {},
+      })
+      if (isNavigationFailure(navigation) && !isNavigationFailure(navigation, NavigationFailureType.duplicated))
+        throw new Error('页面切换未完成，请重试。')
+    } else appDialogs.open('study', 'reminders')
     if (target.notice) studyTools.state.notice = target.notice
   })
   const workspace = {
+    appDialogs,
     companion,
     pomodoro,
     reminderLinks,

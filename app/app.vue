@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { provideMilestones } from '~/composables/useMilestones'
+import MilestoneCelebration from '~/components/MilestoneCelebration.vue'
+import AppUtilityDialog from '~/components/AppUtilityDialog.vue'
+import { isAppDialogKind } from '~/composables/useAppDialogs'
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { useRoute, useRouter } from 'vue-router'
 import AppTopBar from '~/components/AppTopBar.vue'
@@ -9,7 +13,7 @@ import PracticeDialog from '~/components/PracticeDialog.vue'
 import ShortcutsDialog from '~/components/ShortcutsDialog.vue'
 import { RouterView } from 'vue-router'
 import { useProgress } from '~/composables/useProgress'
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { pruneAiBatchCache } from '~/utils/aiBatchTask'
 onMounted(() => {
   void pruneAiBatchCache()
@@ -18,6 +22,7 @@ const progress = useProgress()
 const router = useRouter()
 const route = useRoute()
 const {
+  appDialogs,
   stats,
   helpOpen,
   guideOpen,
@@ -36,12 +41,24 @@ const {
   startSegment,
   selectGuideVideo,
 } = provideCourseWorkspace()
+provideMilestones()
+// Preserve old saved links while all in-app entries open overlays without navigation.
+watch(
+  () => route.query.dialog,
+  (kind) => {
+    if (!isAppDialogKind(kind)) return
+    appDialogs.open(kind, typeof route.query.section === 'string' ? route.query.section : undefined)
+    const { dialog: _dialog, section: _section, ...query } = route.query
+    void router.replace({ path: route.path, query })
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <VApp>
     <div
-      :inert="helpOpen || guideOpen || practice.state.open || daily.practice.state.open"
+      :inert="appDialogs.isOpen.value || helpOpen || guideOpen || practice.state.open || daily.practice.state.open"
       class="flex h-dvh flex-col overflow-hidden bg-page-cream text-charcoal-ink"
     >
       <AppTopBar
@@ -49,20 +66,30 @@ const {
         :total="stats.total"
         :done="stats.done"
         :current-view="currentView"
-        :show-history-back="route.name === 'settings' || route.name === 'study-management'"
         :pomodoro="pomodoro.snapshot.value"
+        :companion-active="companion.miniOpen.value"
+        :companion-busy="companion.opening.value"
         @pomodoro-start="pomodoro.start()"
         @pomodoro-pause="pomodoro.pause()"
         @pomodoro-reset="pomodoro.reset()"
-        @pomodoro-settings="router.push({ path: '/settings', query: { section: 'pomodoro' } })"
+        @pomodoro-settings="appDialogs.open('settings', 'pomodoro')"
+        @settings="appDialogs.open('settings')"
+        @study="appDialogs.open('study')"
+        @milestones="appDialogs.open('milestones')"
         @back="router.push(course ? `/courses/${course.id}` : '/')"
-        @history-back="router.back()"
         @help="helpOpen = true"
         @close="router.push('/')"
         @guide="openGuide()"
-        @companion="companion.openMini()"
+        @companion="companion.toggleMini()"
       />
 
+      <p
+        v-if="companion.error.value"
+        role="alert"
+        class="border-b border-linen bg-pure-white px-5 py-3 text-body-sm text-error"
+      >
+        {{ companion.error.value }}
+      </p>
       <aside
         v-if="reminderLinks.error.value"
         role="alert"
@@ -102,31 +129,32 @@ const {
           {{ toast }}
         </div>
       </Transition>
-
-      <ShortcutsDialog :open="helpOpen" @close="helpOpen = false" />
-      <GuideDialog
-        v-if="course"
-        :key="course.id"
-        :open="guideOpen"
-        :initial-tab="guideTab"
-        @close="guideOpen = false"
-        @select="selectGuideVideo"
-        @segment="startSegment"
-      />
-      <PracticeDialog
-        v-if="course"
-        :practice="practice"
-        @retry="openPractice(practice.state.scope)"
-        @settings="openGuide('settings')"
-        @seek="selectGuideVideo"
-      />
-      <PracticeDialog
-        v-if="course"
-        :practice="daily.practice"
-        @retry="openDailyPractice"
-        @settings="openGuide('settings')"
-        @seek="selectGuideVideo"
-      />
     </div>
+    <ShortcutsDialog :open="helpOpen" @close="helpOpen = false" />
+    <GuideDialog
+      v-if="course"
+      :key="course.id"
+      :open="guideOpen"
+      :initial-tab="guideTab"
+      @close="guideOpen = false"
+      @select="selectGuideVideo"
+      @segment="startSegment"
+    />
+    <PracticeDialog
+      v-if="course"
+      :practice="practice"
+      @retry="openPractice(practice.state.scope)"
+      @settings="openGuide('settings')"
+      @seek="selectGuideVideo"
+    />
+    <PracticeDialog
+      v-if="course"
+      :practice="daily.practice"
+      @retry="openDailyPractice"
+      @settings="openGuide('settings')"
+      @seek="selectGuideVideo"
+    />
+    <AppUtilityDialog />
+    <MilestoneCelebration />
   </VApp>
 </template>

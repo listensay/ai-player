@@ -20,6 +20,7 @@ import {
 import { calculateDay } from '~/utils/dailyPlan'
 import { formatStudyDuration } from '~/utils/guide'
 import UiButton from '~/components/UiButton.vue'
+import UiDatePicker from '~/components/UiDatePicker.vue'
 
 const guide = useGuide()
 type AdjustmentKind = PlanAdjustment['kind'] | 'defer' | 'rest'
@@ -248,10 +249,9 @@ function apply() {
         </p>
         <VSelect v-model="form.kind" label="调整内容" :items="kinds" />
         <template v-if="form.kind === 'defer' || form.kind === 'rest'">
-          <VTextField
+          <UiDatePicker
             v-if="form.kind === 'rest'"
             v-model="form.until"
-            type="date"
             :min="addDays(guide.todayDate.value, 1)"
             label="恢复日期"
           />
@@ -316,10 +316,9 @@ function apply() {
         </template>
         <template v-else-if="form.kind === 'pause'">
           <VCheckbox v-model="form.indefinite" label="由我手动恢复" />
-          <VTextField
+          <UiDatePicker
             v-if="!form.indefinite"
             v-model="form.until"
-            type="date"
             :min="addDays(guide.todayDate.value, 1)"
             label="恢复日期"
           />

@@ -77,6 +77,16 @@ const reachedLimit = computed(
   () => !programming.value && (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT,
 )
 const canContinue = computed(() => !daily && !!attempt.value && (answerSubmitted.value || reachedLimit.value))
+const allQuestionsCompleted = computed(() => groupScore.value.total > 0 && groupScore.value.unanswered === 0)
+const nextUnansweredQuestion = computed(() => {
+  const following = [...group.value.slice(questionNumber.value), ...group.value.slice(0, questionNumber.value - 1)]
+  return following.find((record) => !record.attempts.length)
+})
+function continueQuestions() {
+  if (state.busy || !canContinue.value) return
+  const next = nextUnansweredQuestion.value
+  if (next) props.practice.select(next.id)
+}
 const canGenerate = computed(
   () => state.historyReady && !state.busy && configured.value && hasMaterial.value && (!daily || !history.value.length),
 )
@@ -189,10 +199,10 @@ async function upload(event: Event) {
   <VDialog
     :model-value="state.open"
     :aria-labelledby="titleId"
-    :width="programming && view === 'question' ? '1440' : '920'"
+    fullscreen
     @update:model-value="!$event && practice.close()"
   >
-    <div class="paper-dialog practice-dialog flex h-[min(92dvh,980px)] min-w-0 flex-col">
+    <div class="paper-dialog practice-dialog flex h-full min-w-0 flex-col">
       <header class="shrink-0 border-b border-linen bg-pure-white px-5 py-4 sm:px-8">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -264,7 +274,11 @@ async function upload(event: Event) {
         </div>
       </header>
 
-      <div ref="contentEl" class="scroll-soft practice-content min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref="contentEl"
+        class="scroll-soft practice-content min-h-0 flex-1 overflow-y-auto"
+        :class="{ 'programming-fill': programming && view === 'question' }"
+      >
         <div class="practice-reading" :class="{ 'programming-reading': programming && view === 'question' }">
           <section
             v-if="daily && history.length"
@@ -292,7 +306,12 @@ async function upload(event: Event) {
               {{ groupScore.score }}<span class="ml-2 text-body font-normal text-stone">/ 100 分</span>
             </p>
           </section>
-          <section v-if="current && view !== 'materials'" :key="current.id" class="space-y-7" aria-label="当前练习">
+          <section
+            v-if="current && view !== 'materials'"
+            :key="current.id"
+            class="practice-current space-y-7"
+            aria-label="当前练习"
+          >
             <ProgrammingWorkspace
               v-if="programming && view === 'question'"
               :question="current.question"
@@ -769,15 +788,35 @@ async function upload(event: Event) {
             >
             <template v-else-if="current && view === 'feedback'">
               <UiButton :variant="canContinue ? 'ghost' : 'dark'" @click="view = 'question'">返回作答</UiButton>
-              <UiButton v-if="canContinue && !lastQuestion" variant="dark" @click="navigateQuestion(1)"
+              <UiButton
+                v-if="canContinue && nextUnansweredQuestion"
+                variant="dark"
+                :disabled="!!state.busy"
+                @click="continueQuestions"
                 >下一题<AppIcon name="chevron-right" :size="16"
               /></UiButton>
-              <UiButton v-else-if="canContinue" variant="dark" @click="practice.close()">完成</UiButton>
+              <UiButton
+                v-else-if="canContinue && allQuestionsCompleted"
+                variant="dark"
+                :disabled="!!state.busy"
+                @click="practice.close()"
+                >完成</UiButton
+              >
             </template>
-            <UiButton v-else-if="canContinue && !lastQuestion" variant="dark" @click="navigateQuestion(1)"
+            <UiButton
+              v-else-if="canContinue && nextUnansweredQuestion"
+              variant="dark"
+              :disabled="!!state.busy"
+              @click="continueQuestions"
               >下一题<AppIcon name="chevron-right" :size="16"
             /></UiButton>
-            <UiButton v-else-if="canContinue" variant="dark" @click="practice.close()">完成</UiButton>
+            <UiButton
+              v-else-if="canContinue && allQuestionsCompleted"
+              variant="dark"
+              :disabled="!!state.busy"
+              @click="practice.close()"
+              >完成</UiButton
+            >
             <UiButton v-else-if="current" variant="dark" :disabled="!canReview" @click="practice.review()">{{
               submitLabel
             }}</UiButton>
@@ -839,9 +878,20 @@ async function upload(event: Event) {
 .practice-view-switch :deep(.v-btn:focus-visible::after) {
   opacity: 0;
 }
+.practice-dialog {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
 .practice-content {
   scroll-padding-block: 32px;
   background: var(--color-pure-white);
+}
+/* 全屏编程工作台铺满内容区，内部各自滚动。 */
+.practice-content.programming-fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .practice-reading {
   width: min(100%, 744px);
@@ -849,8 +899,18 @@ async function upload(event: Event) {
   padding: 32px;
 }
 .practice-reading.programming-reading {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   padding: 16px;
+}
+.practice-content.programming-fill .practice-current {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .practice-section-title {
   font-size: 22px;

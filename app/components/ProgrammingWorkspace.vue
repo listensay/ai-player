@@ -38,7 +38,7 @@ function drag(event: PointerEvent) {
 function resize(event: PointerEvent) {
   if (!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId) || !root.value) return
   const rect = root.value.getBoundingClientRect()
-  width.value = Math.max(28, Math.min(60, ((event.clientX - rect.left) / rect.width) * 100))
+  width.value = Math.max(20, Math.min(70, ((event.clientX - rect.left) / rect.width) * 100))
 }
 function finish(event: PointerEvent) {
   ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
@@ -48,10 +48,10 @@ function keyboardResize(event: KeyboardEvent) {
   event.preventDefault()
   width.value =
     event.key === 'Home'
-      ? 28
+      ? 20
       : event.key === 'End'
-        ? 60
-        : Math.max(28, Math.min(60, width.value + (event.key === 'ArrowLeft' ? -2 : 2)))
+        ? 70
+        : Math.max(20, Math.min(70, width.value + (event.key === 'ArrowLeft' ? -2 : 2)))
 }
 function restoreCode() {
   emit('reset')
@@ -102,8 +102,8 @@ onBeforeUnmount(() => {
       aria-label="调整题目与编辑器宽度"
       aria-orientation="vertical"
       :aria-valuenow="Math.round(width)"
-      :aria-valuemin="28"
-      :aria-valuemax="60"
+      :aria-valuemin="20"
+      :aria-valuemax="70"
       tabindex="0"
       class="resize-handle"
       @pointerdown="drag"
@@ -177,9 +177,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .programming-workspace {
   display: grid;
-  grid-template-columns: minmax(0, var(--requirements-width)) 8px minmax(0, 1fr);
-  height: max(480px, calc(92dvh - 260px));
-  max-height: 720px;
+  grid-template-columns: minmax(0, var(--requirements-width)) 10px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
   border: 1px solid var(--color-linen);
   border-radius: 16px;
   overflow: hidden;
@@ -196,16 +196,32 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 .resize-handle {
+  position: relative;
   cursor: col-resize;
   touch-action: none;
   background: #252526;
   border-left: 1px solid var(--color-linen);
   border-right: 1px solid #333333;
 }
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  border-radius: 1px;
+  background: #4a4a4a;
+  transform: translate(-50%, -50%);
+}
 .resize-handle:hover,
 .resize-handle:focus-visible {
   background: #007acc;
   outline: none;
+}
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after {
+  background: #ffffff;
 }
 .code-pane {
   display: flex;
@@ -314,7 +330,7 @@ pre {
     padding: 14px;
   }
   .programming-workspace {
-    grid-template-columns: minmax(0, var(--requirements-width)) 8px minmax(0, 1fr);
+    grid-template-columns: minmax(0, var(--requirements-width)) 10px minmax(0, 1fr);
   }
   .requirements-collapsed {
     grid-template-columns: minmax(0, 1fr);

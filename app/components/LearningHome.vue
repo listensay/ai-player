@@ -151,7 +151,7 @@ function taskTitle(path: string) {
         <p class="text-caption font-bold text-stone">
           {{ date }} · {{ ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][new Date(date).getUTCDay()] }}
         </p>
-        <h1 class="mt-2 text-heading">今天的学习</h1>
+        <h1 class="mt-2 text-heading">今天学习</h1>
       </div>
       <div class="flex gap-2">
         <UiButton variant="text" :disabled="loading" @click="home.refresh">刷新</UiButton

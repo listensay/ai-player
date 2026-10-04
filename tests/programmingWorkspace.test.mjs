@@ -35,7 +35,14 @@ const { outputText } = ts.transpileModule(code, {
 const { default: Workspace } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 async function mount(t) {
-  const element = (type) => ({ type, props: {}, style: {}, children: [], parent: null })
+  const element = (type) => ({
+    type,
+    props: {},
+    style: {},
+    children: [],
+    parent: null,
+    getBoundingClientRect: () => ({ left: 0, width: 1000 }),
+  })
   const renderer = createRenderer({
     createElement: element,
     createText: (text) => ({ ...element('#text'), text }),
@@ -80,8 +87,10 @@ async function mount(t) {
   const text = (node) => `${node.text ?? ''}${node.children.map(text).join('')}`.trim()
   return {
     events,
+    root,
     text: () => text(root),
     find: (type) => walk(root).find((node) => node.type === type),
+    findBy: (predicate) => walk(root).find(predicate),
     button: (label) => walk(root).find((node) => node.type === 'button' && text(node) === label),
   }
 }
@@ -104,4 +113,43 @@ test('“测试”按钮一次发出无参数执行事件，由上层自动执�
   await nextTick()
   assert.equal(ui.events.length, 1)
   assert.deepEqual(ui.events[0], [])
+})
+
+test('题目区可由分隔线拖动或键盘调整宽度', async (t) => {
+  const ui = await mount(t)
+  const workspace = ui.findBy((node) => node.props.class === 'programming-workspace')
+  const handle = ui.findBy((node) => node.props.role === 'separator')
+  assert.ok(handle, '存在分隔线')
+  assert.equal(handle.props['aria-orientation'], 'vertical')
+  assert.equal(handle.props['aria-valuemin'], 20)
+  assert.equal(handle.props['aria-valuemax'], 70)
+  assert.equal(handle.props['aria-valuenow'], 40)
+  assert.equal(String(handle.props.tabindex), '0')
+  const capture = {
+    captured: false,
+    setPointerCapture() {
+      this.captured = true
+    },
+    hasPointerCapture() {
+      return this.captured
+    },
+    releasePointerCapture() {
+      this.captured = false
+    },
+  }
+  handle.props.onPointerdown({ currentTarget: capture, pointerId: 7 })
+  assert.equal(capture.captured, true)
+  handle.props.onPointermove({ currentTarget: capture, pointerId: 7, clientX: 300 })
+  await nextTick()
+  assert.equal(workspace.props.style['--requirements-width'], '30%')
+  assert.equal(handle.props['aria-valuenow'], 30)
+  handle.props.onPointerup({ currentTarget: capture, pointerId: 7 })
+  assert.equal(capture.captured, false)
+  handle.props.onKeydown({ key: 'End', preventDefault() {} })
+  await nextTick()
+  assert.equal(handle.props['aria-valuenow'], 70)
+  assert.equal(workspace.props.style['--requirements-width'], '70%')
+  handle.props.onKeydown({ key: 'ArrowLeft', preventDefault() {} })
+  await nextTick()
+  assert.equal(handle.props['aria-valuenow'], 68)
 })

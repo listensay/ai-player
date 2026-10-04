@@ -36,7 +36,6 @@ const {
   practiceSegment,
   completeSegment,
   noteAfterSegment,
-  selectGuideVideo,
   selectVideo,
   startSegment,
   insertTimestamp,
@@ -75,7 +74,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           class="h-full"
           @select="selectVideo"
           @guide="openGuide()"
-          @start="selectGuideVideo($event)"
           @start-today="startSegment"
         >
           <template #header-actions>

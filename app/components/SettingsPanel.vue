@@ -3,23 +3,27 @@ import { ref, watch } from 'vue'
 import { buildInfo, diagnosticsReport } from '~/utils/diagnostics'
 import { performanceReport } from '~/utils/performance'
 import { desktopInvoke } from '~/utils/platform'
-import { useRoute } from 'vue-router'
-import AppIcon from '~/components/AppIcon.vue'
-import { usePageTitle } from '~/composables/usePageTitle'
+import PageSectionNav from '~/components/PageSectionNav.vue'
 import { useDesktopSettings } from '~/composables/useDesktopSettings'
 import PomodoroSettingsPanel from '~/components/PomodoroSettingsPanel.vue'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
 import UiButton from '~/components/UiButton.vue'
 const settings = useDesktopSettings()
-const route = useRoute()
+const props = defineProps<{ initialSection?: string }>()
 const activeSection = ref<'companion' | 'ai' | 'about' | 'pomodoro'>('companion')
 watch(
-  () => route.query.section,
+  () => props.initialSection,
   (section) => {
     activeSection.value = section === 'ai' || section === 'about' || section === 'pomodoro' ? section : 'companion'
   },
   { immediate: true },
 )
+const sections = [
+  { id: 'companion', title: '桌宠设置', icon: 'pip' },
+  { id: 'ai', title: 'AI 服务设置', icon: 'sparkles' },
+  { id: 'about', title: '关于与诊断', icon: 'clock' },
+  { id: 'pomodoro', title: '番茄钟', icon: 'clock' },
+] as const
 const metrics = ref(performanceReport())
 const exporting = ref(false),
   reportMessage = ref(''),
@@ -50,13 +54,11 @@ async function exportReport() {
     exporting.value = false
   }
 }
-usePageTitle('设置 · AI Player')
 </script>
 
 <template>
-  <main class="scroll-soft min-h-0 flex-1 overflow-y-auto">
+  <section class="scroll-soft min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto max-w-5xl px-5 py-8">
-      <h1 class="mb-8 text-heading-sm">设置</h1>
       <div class="grid items-start gap-8 sm:grid-cols-[minmax(0,1fr)_168px]">
         <div class="min-w-0">
           <section v-show="activeSection === 'companion'" id="settings-companion" aria-labelledby="companion-heading">
@@ -118,52 +120,8 @@ usePageTitle('设置 · AI Player')
           <PomodoroSettingsPanel v-if="activeSection === 'pomodoro'" />
           <AiSettingsPanel v-show="activeSection === 'ai'" id="settings-ai" />
         </div>
-        <nav
-          aria-label="设置导航"
-          class="order-first flex gap-2 sm:sticky sm:top-8 sm:order-last sm:flex-col sm:border-l sm:border-linen sm:pl-4"
-        >
-          <button
-            type="button"
-            aria-controls="settings-companion"
-            :aria-current="activeSection === 'companion' ? 'page' : undefined"
-            class="flex items-center gap-2 rounded-xl px-4 py-3 text-left text-body-sm font-bold hover:bg-linen/40 focus-visible:outline-2 focus-visible:outline-deep-indigo"
-            :class="activeSection === 'companion' ? 'bg-pure-white text-deep-indigo' : 'text-stone'"
-            @click="activeSection = 'companion'"
-          >
-            <AppIcon name="pip" :size="18" />桌宠设置
-          </button>
-          <button
-            type="button"
-            aria-controls="settings-ai"
-            :aria-current="activeSection === 'ai' ? 'page' : undefined"
-            class="flex items-center gap-2 rounded-xl px-4 py-3 text-left text-body-sm font-bold hover:bg-linen/40 focus-visible:outline-2 focus-visible:outline-deep-indigo"
-            :class="activeSection === 'ai' ? 'bg-pure-white text-deep-indigo' : 'text-stone'"
-            @click="activeSection = 'ai'"
-          >
-            <AppIcon name="sparkles" :size="18" />AI 服务设置
-          </button>
-          <button
-            type="button"
-            aria-controls="settings-about"
-            :aria-current="activeSection === 'about' ? 'page' : undefined"
-            class="flex items-center gap-2 rounded-xl px-4 py-3 text-left text-body-sm font-bold hover:bg-linen/40 focus-visible:outline-2 focus-visible:outline-deep-indigo"
-            :class="activeSection === 'about' ? 'bg-pure-white text-deep-indigo' : 'text-stone'"
-            @click="activeSection = 'about'"
-          >
-            <AppIcon name="clock" :size="18" />关于与诊断
-          </button>
-          <button
-            type="button"
-            aria-controls="settings-pomodoro"
-            :aria-current="activeSection === 'pomodoro' ? 'page' : undefined"
-            class="flex items-center gap-2 rounded-xl px-4 py-3 text-left text-body-sm font-bold hover:bg-linen/40 focus-visible:outline-2 focus-visible:outline-deep-indigo"
-            :class="activeSection === 'pomodoro' ? 'bg-pure-white text-deep-indigo' : 'text-stone'"
-            @click="activeSection = 'pomodoro'"
-          >
-            <AppIcon name="clock" :size="18" />番茄钟
-          </button>
-        </nav>
+        <PageSectionNav v-model="activeSection" label="设置导航" prefix="settings" :items="sections" />
       </div>
     </div>
-  </main>
+  </section>
 </template>

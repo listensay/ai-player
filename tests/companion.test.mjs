@@ -96,7 +96,7 @@ registerHooks({
       }
     if (specifier === '~/utils/platform')
       return {
-        url: 'data:text/javascript,export const desktopInvoke = async (...args) => { globalThis.companionIO.commands.push(args) }',
+        url: 'data:text/javascript,export const desktopInvoke = async (...args) => { if (args[0] === "companion_is_open") return !!globalThis.companionIO.opened; globalThis.companionIO.commands.push(args); if (args[0] === "open_companion") globalThis.companionIO.opened = true; if (args[0] === "close_companion") globalThis.companionIO.opened = false }',
         shortCircuit: true,
       }
     if (specifier === '@tauri-apps/api/event')

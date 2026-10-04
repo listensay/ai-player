@@ -2,6 +2,7 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
 import UiButton from '~/components/UiButton.vue'
+import UiDatePicker from '~/components/UiDatePicker.vue'
 import { BUDGET_LABELS, budgetTotal, formatMinutes } from '~/utils/studyProgram'
 
 /** 完整学习计划：总周期、开始日期、每日时间分配与复盘日；并提供实践安排的补全与导入入口。 */
@@ -102,7 +103,7 @@ function complete() {
     <form v-else class="mt-3 space-y-3 text-body-sm" @submit.prevent="save">
       <div class="grid grid-cols-2 gap-3">
         <VTextField v-model.number="form.days" type="number" min="1" max="1095" step="1" required label="总天数" />
-        <VTextField v-model="form.startDate" type="date" required label="开始日期" />
+        <UiDatePicker v-model="form.startDate" required label="开始日期" />
       </div>
       <fieldset class="rounded-xl border border-linen p-3">
         <legend class="px-1 text-caption font-bold text-stone">每日时间分配（分钟）</legend>

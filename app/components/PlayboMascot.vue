@@ -27,21 +27,16 @@ const id = useId().replace(/:/g, '')
     aria-hidden="true"
   >
     <defs>
-      <!-- The committed IP artwork is the source; only its cream backdrop is clipped. -->
-      <clipPath :id="`${id}-body`">
-        <path
-          d="M450 280V232C450 151 565 151 565 234V280C827 289 927 390 927 660C927 881 858 939 668 949L700 1024H308L337 950C140 931 83 867 83 673C83 413 174 282 450 280Z"
-        />
-      </clipPath>
       <radialGradient :id="`${id}-face`">
         <stop stop-color="#fccc01" />
         <stop offset="1" stop-color="#fccb02" />
       </radialGradient>
     </defs>
-    <ellipse class="playbo-shadow" cx="550" cy="1090" rx="310" ry="35" fill="#2d2c2b" opacity=".09" />
-    <g transform="translate(45 15)">
+    <ellipse class="playbo-shadow" cx="550" cy="970" rx="310" ry="35" fill="#2d2c2b" opacity=".09" />
+    <g transform="translate(45 -45)">
       <g class="playbo-body">
-        <image href="/playbo.png" width="1024" height="1024" :clip-path="`url(#${id}-body)`" />
+        <!-- Transparent television artwork; expressions share its original coordinates. -->
+        <image href="/playbo.png" width="1024" height="1024" />
         <!-- Replace only the painted eyes so the original mascot can blink and look around. -->
         <g v-if="mood !== 'tired' && mood !== 'rest'">
           <ellipse cx="417" cy="628" rx="58" ry="58" :fill="`url(#${id}-face)`" />
@@ -118,7 +113,7 @@ const id = useId().replace(/:/g, '')
 }
 .playbo-body {
   transform-box: view-box;
-  transform-origin: 510px 970px;
+  transform-origin: 510px 955px;
   animation: breathe 4.6s ease-in-out infinite;
 }
 .playbo--idle.is-playing .playbo-body,
@@ -143,7 +138,7 @@ const id = useId().replace(/:/g, '')
 }
 .playbo-shadow {
   transform-box: view-box;
-  transform-origin: 550px 1090px;
+  transform-origin: 550px 970px;
   animation: shadow-breathe 4.6s ease-in-out infinite;
 }
 .playbo--idle.is-playing .playbo-shadow,

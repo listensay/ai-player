@@ -8,7 +8,6 @@ import VirtualList from '~/components/VirtualList.vue'
 import { courseTreeRows, type CourseEntryRow } from '~/utils/courseTreeRows'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTreeNode from '~/components/CourseTreeNode.vue'
-import ContinueStudyButton from '~/components/ContinueStudyButton.vue'
 import type { Course, FolderEntry, TreeFilter, VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 
@@ -20,7 +19,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [video: VideoEntry]
   guide: []
-  start: [path: string]
   startToday: [item: TodayItem]
 }>()
 
@@ -48,27 +46,6 @@ const todayRoute = computed(() => {
 })
 const routeInScope = computed(() => (showAllRoute.value ? guide.routeVideos.value : todayRoute.value))
 const visibleRoute = computed(() => routeInScope.value.filter(matchesVideo))
-const nextTodayItem = computed(() =>
-  todayRoute.value
-    .map((video) => todayItems.value.find((item) => item.path === video.path && !item.done))
-    .find((item) => !!item),
-)
-const canStart = computed(() => (showAllRoute.value ? !!guide.firstLesson.value : !!nextTodayItem.value))
-const startLabel = computed(() =>
-  showAllRoute.value
-    ? !guide.firstLesson.value
-      ? '暂无待学课节'
-      : guide.schedule.value.completed
-        ? '继续学习'
-        : '开始学习'
-    : !todayReady.value
-      ? '今日安排加载中'
-      : nextTodayItem.value
-        ? '开始学习'
-        : todayRoute.value.length
-          ? '今日视频已完成'
-          : '今日暂无视频安排',
-)
 const routeEmptyLabel = computed(() =>
   !showAllRoute.value && !todayReady.value
     ? guide.state.storageError
@@ -111,17 +88,6 @@ function setModuleOpen(id: string, value: unknown) {
 function toggleRouteAll() {
   if (allRouteOpen.value) openModules.clear()
   else for (const g of routeGroups.value) openModules.add(g.moduleId)
-}
-
-function startRoute() {
-  if (!showAllRoute.value) {
-    if (nextTodayItem.value) emit('startToday', nextTodayItem.value)
-    return
-  }
-  const lesson = guide.firstLesson.value
-  if (!lesson) return
-  guide.state.view = 'route'
-  emit('start', lesson.path)
 }
 
 function selectRouteVideo(video: VideoEntry) {
@@ -306,45 +272,6 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
           @click="guide.state.plan ? (guide.state.view = 'route') : emit('guide')"
         >
           定制路线
-        </button>
-      </div>
-      <div v-if="routeView" class="mb-3 rounded-xl border border-linen p-3">
-        <div class="flex items-center justify-between gap-2">
-          <p class="text-caption text-stone">
-            已选 {{ guide.route.value.length }} 节 ·
-            {{
-              guide.program.value && (guide.planDay.value ?? 0) >= 1
-                ? `计划第 ${guide.planDay.value} / ${guide.program.value.days} 天`
-                : `视频排期约 ${guide.schedule.value.days} 天`
-            }}
-          </p>
-          <button type="button" class="text-caption font-bold hover:text-deep-indigo" @click="emit('guide')">
-            调整
-          </button>
-        </div>
-        <label class="mt-2 flex items-center gap-2 text-caption text-graphite"
-          ><VCheckbox
-            v-model="guide.state.includeOptional"
-            :disabled="!!guide.state.busy"
-            class="shrink-0"
-          />包含选修课</label
-        >
-        <button
-          type="button"
-          :disabled="!canStart"
-          class="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-sunbeam-yellow/30 py-2 text-body-sm font-bold disabled:opacity-50"
-          @click="startRoute"
-        >
-          <AppIcon name="play" :size="15" />{{ startLabel }}
-        </button>
-        <ContinueStudyButton v-if="!showAllRoute" class="mt-3" @segment="emit('startToday', $event)" />
-        <button
-          v-if="guide.risks.value.length"
-          type="button"
-          class="mt-2 text-left text-caption text-error hover:text-deep-indigo"
-          @click="emit('guide')"
-        >
-          {{ guide.risks.value.length }} 节前置课未加入路线，查看建议
         </button>
       </div>
       <div>

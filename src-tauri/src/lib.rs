@@ -183,6 +183,8 @@ pub fn run() {
             frontend_ready,
             finish_close,
             companion::open_companion,
+            companion::close_companion,
+            companion::companion_is_open,
             companion::set_companion_hit_regions,
             companion::set_companion_fullscreen,
             companion::reveal_learning_window,

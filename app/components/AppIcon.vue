@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import {
+  Trophy,
+  Flame,
+  GraduationCap,
+  LockKeyhole,
   RotateCcw,
   Settings,
   Bell,
@@ -43,6 +47,10 @@ import {
 
 // 使用 Lucide 的标准图标，统一圆角描边；不再维护手写 SVG 路径。
 const icons = {
+  trophy: Trophy,
+  flame: Flame,
+  graduation: GraduationCap,
+  lock: LockKeyhole,
   reset: RotateCcw,
   settings: Settings,
   sparkles: Sparkles,

@@ -4,7 +4,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::time::Duration;
-use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const LABEL: &str = "companion";
 const WIDTH: f64 = 280.0;
@@ -106,9 +106,11 @@ fn track_cursor(window: &WebviewWindow, state: &CompanionHitState) -> Result<(),
         .map_err(|e| e.to_string())?;
     let stopped = Arc::new(AtomicBool::new(false));
     let on_destroy = stopped.clone();
+    let app = window.app_handle().clone();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Destroyed) {
             on_destroy.store(true, Ordering::Relaxed);
+            let _ = app.emit_to("main", "companion-window-state", false);
         }
     });
     let window = window.clone();
@@ -149,6 +151,25 @@ fn track_cursor(window: &WebviewWindow, state: &CompanionHitState) -> Result<(),
     Ok(())
 }
 
+#[tauri::command]
+pub fn companion_is_open(app: tauri::AppHandle, window: WebviewWindow) -> Result<bool, String> {
+    if window.label() != "main" {
+        return Err("只能从学习主窗口查询桌宠".into());
+    }
+    Ok(app.get_webview_window(LABEL).is_some())
+}
+
+#[tauri::command]
+pub fn close_companion(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("只能从学习主窗口关闭桌宠".into());
+    }
+    if let Some(companion) = app.get_webview_window(LABEL) {
+        companion.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// A single, local companion WebView. Playback and persistence stay in the main window.
 #[tauri::command]
 pub async fn open_companion(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
@@ -164,6 +185,7 @@ pub async fn open_companion(app: tauri::AppHandle, window: WebviewWindow) -> Res
             .map_err(|e| e.to_string())?;
         companion.show().map_err(|e| e.to_string())?;
         companion.set_focus().map_err(|e| e.to_string())?;
+        let _ = app.emit_to("main", "companion-window-state", true);
         return Ok(());
     }
     app.state::<CompanionHitState>()
@@ -203,6 +225,7 @@ pub async fn open_companion(app: tauri::AppHandle, window: WebviewWindow) -> Res
         return Err(error);
     }
     companion.show().map_err(|e| e.to_string())?;
+    let _ = app.emit_to("main", "companion-window-state", true);
     Ok(())
 }
 

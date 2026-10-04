@@ -1,3 +1,4 @@
+import { notifyDatabaseChange } from './databaseChanges.ts'
 import { desktopInvoke } from './platform'
 
 export type DatabaseCollection =
@@ -39,7 +40,9 @@ export async function databaseRequest<T = unknown>(
   if (!options.method || options.method === 'GET') return request
   pending.add(request)
   try {
-    return await request
+    const result = await request
+    notifyDatabaseChange(collection, options)
+    return result
   } finally {
     pending.delete(request)
   }
