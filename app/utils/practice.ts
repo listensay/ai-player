@@ -58,6 +58,124 @@ export function cleanPracticeText(text: string): string {
     .trim()
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * 移除选择题和判断题 prompt 中冗余列出的选项文本，保证题干区域只展示题目本身，
+ * 选项由下方的单选/多选/判断交互组件提供。
+ */
+export function stripOptionsFromPrompt(prompt: string, options?: Array<{ id: string; text: string }>): string {
+  if (!prompt || typeof prompt !== 'string' || !Array.isArray(options) || options.length < 2) {
+    return (prompt ?? '').trim()
+  }
+
+  const lines = prompt.replace(/\r\n/g, '\n').split('\n')
+
+  let lastNonEmpty = lines.length - 1
+  while (lastNonEmpty >= 0 && !lines[lastNonEmpty]!.trim()) {
+    lastNonEmpty--
+  }
+  if (lastNonEmpty < 1) return prompt.trim()
+
+  function matchOptionLine(line: string, opt: { id: string; text: string }) {
+    const trimmed = line.trim()
+    if (!trimmed) return false
+
+    const idEsc = escapeRegex(opt.id)
+    const idPattern = new RegExp(
+      '^[-*+]?\\s*(?:\\*{1,2}|[(（\\[【])?\\s*' + idEsc + '\\s*(?:\\*{1,2}|[)）\\]】])?\\s*[:.、：\\-\\s]',
+      'i',
+    )
+    if (idPattern.test(trimmed)) return true
+
+    if (
+      (opt.id === 'true' || opt.text === '正确' || opt.text === '对') &&
+      /^[-*+]?\s*(?:正确|对|True)\b/i.test(trimmed)
+    ) {
+      return true
+    }
+    if (
+      (opt.id === 'false' || opt.text === '错误' || opt.text === '错') &&
+      /^[-*+]?\s*(?:错误|错|False)\b/i.test(trimmed)
+    ) {
+      return true
+    }
+
+    const optTextTrimmed = opt.text.trim()
+    if (optTextTrimmed.length >= 2) {
+      const cleanOpt = optTextTrimmed.replace(/\s+/g, '')
+      const cleanLine = trimmed.replace(/\s+/g, '')
+      if (cleanLine.includes(cleanOpt)) {
+        if (/^[-*+]\s+/.test(trimmed) || /^[A-Za-z0-9][.:、\s]/.test(trimmed)) return true
+      }
+    }
+    return false
+  }
+
+  let startIdx = -1
+  for (let i = 0; i <= lastNonEmpty; i++) {
+    if (matchOptionLine(lines[i]!, options[0]!)) {
+      let foundSecond = false
+      for (let j = i + 1; j <= lastNonEmpty; j++) {
+        if (matchOptionLine(lines[j]!, options[1]!)) {
+          foundSecond = true
+          break
+        }
+      }
+      if (foundSecond) {
+        startIdx = i
+        break
+      }
+    }
+  }
+
+  if (startIdx > 0) {
+    let cutIdx = startIdx
+    while (cutIdx > 0 && !lines[cutIdx - 1]!.trim()) {
+      cutIdx--
+    }
+    if (cutIdx > 0) {
+      const prevLine = lines[cutIdx - 1]!.trim()
+      if (/^(?:[-*_]{3,}|(?:选[项肢]|备选[项答案]?|候选[项答案]?|请选择|下列选[项肢])\s*[:：]?)$/.test(prevLine)) {
+        cutIdx--
+      }
+    }
+    const stem = lines.slice(0, cutIdx).join('\n').trim()
+    if (stem.length > 0) {
+      return stem
+    }
+  }
+
+  // 单行行内选项容错处理
+  const p0 = escapeRegex(options[0]!.id)
+  const p1 = escapeRegex(options[1]!.id)
+  const pattern0 = new RegExp(
+    '(?:[；;。？?!！\\n]\\s*|\\s+)([-*+]?\\s*(?:\\*{1,2}|[(（\\[【])?\\s*' +
+      p0 +
+      '\\s*(?:\\*{1,2}|[)）\\]】])?\\s*[:.、：\\-\\s])',
+    'i',
+  )
+  const pattern1 = new RegExp(
+    '(?:[；;。？?!！\\n]\\s*|\\s+)([-*+]?\\s*(?:\\*{1,2}|[(（\\[【])?\\s*' +
+      p1 +
+      '\\s*(?:\\*{1,2}|[)）\\]】])?\\s*[:.、：\\-\\s])',
+    'i',
+  )
+  const m0 = pattern0.exec(prompt)
+  if (m0 && m0.index > 0) {
+    const rest = prompt.slice(m0.index + m0[0].length)
+    if (pattern1.test(rest)) {
+      const cut = m0.index + (m0[0].length - m0[1]!.length)
+      const stem = prompt.slice(0, cut).trim()
+      if (stem.length > 0) return stem
+    }
+  }
+
+  return prompt.trim()
+}
+
 export function practiceSources(
   note: string,
   cues: SubtitleCue[],
@@ -212,7 +330,13 @@ export function validatePracticeQuestion(
     ) {
       throw new Error('判断题必须提供“正确”和“错误”两个选项，请重试。')
     }
-    return { ...base, kind: raw.kind, options, correctOptionIds }
+    return {
+      ...base,
+      prompt: stripOptionsFromPrompt(base.prompt, options),
+      kind: raw.kind,
+      options,
+      correctOptionIds,
+    }
   }
   if (raw.kind === 'code') {
     const programming =
@@ -343,7 +467,7 @@ knowledge.reason 用一句面向学习者的话解释本题为何需要这个深
 格式化要求：prompt 是 Markdown，先写简短题干，多个步骤使用真正换行的有序或无序列表（JSON 中用 \n）；用 **加粗** 标出关键条件，标识符用行内代码，示例代码使用带语言的围栏代码块。禁止把 1. …；2. …；3. … 挤在一行。criteria 数组每项只写一条要求，不重复题干，不泄漏答案；referenceAnswer 也按段落、列表、代码块排版并解释原因。
 ${count > 1 ? `返回 {"questions":[题目对象]}，questions 必须恰好包含 ${count} 道互不重复的题目。` : '直接返回单个题目对象。'}每个题目的 JSON 格式：{"kind":"题型","knowledge":{"category":"concept","level":"awareness","reason":"辨认适用场景即可，无需背诵细节。"},"prompt":"题目 Markdown","concepts":["知识点"],"criteria":["作答要求"],"referenceAnswer":"参考答案与解析 Markdown","sourceIds":["s1"]}。
 所有题目都必须包含上述全部字段，包括选择题和判断题，不得省略 concepts、criteria、referenceAnswer 或 sourceIds。concepts 为 1–5 项字符串数组，每项最多 200 字；criteria 为 1–6 项字符串数组，每项最多 500 字；sourceIds 为 1–100 项字符串数组，每项最多 40 字。只有一项也必须使用数组，不使用字符串或对象代替。prompt 最多 4000 字，referenceAnswer 最多 6000 字。
-选择题额外提供 options:[{"id":"A","text":"选项"},...] 和 correctOptionIds:["A"]；2–6 个互不重复的选项，选项编号稳定唯一且不包含正确标记，干扰项应合理。单选只有 1 个正确选项，多选至少 2 个且题干明确“选择所有正确项”，不得在要求中透露正确选项。
+选择题额外提供 options:[{"id":"A","text":"选项"},...] 和 correctOptionIds:["A"]；2–6 个互不重复的选项，选项编号稳定唯一且不包含正确标记，干扰项应合理。单选只有 1 个正确选项，多选至少 2 个且题干明确“选择所有正确项”，不得在要求中透露正确选项。注意：选择题与判断题的 prompt 中只写题目题干本身，严禁在 prompt 中列出选项（如 A. / B. / C. / D. 等），所有选项内容只通过 options 数组提供，避免界面重复显示选项。
 判断题 options 必须为 [{"id":"true","text":"正确"},{"id":"false","text":"错误"}]，correctOptionIds 为 ["true"] 或 ["false"]。填空题只留一个 ____，接受语义等价表达。
 ${PROGRAMMING_PROMPT}
 ${programmingPreference === 'auto' ? '按材料选择题型，适合编程时在代码补全和功能实现之间选择。' : `本次用户选择 ${programmingPreference === 'completion' ? '代码补全' : '功能实现'}，所有题目必须为 code 且 programming.mode="${programmingPreference}"；若材料不支持 JavaScript 编程则返回 needs-material。`}

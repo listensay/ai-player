@@ -21,6 +21,7 @@ import {
   PRACTICE_ATTEMPT_LIMIT,
   isChoiceQuestion,
   selectedPracticeOptions,
+  stripOptionsFromPrompt,
 } from '~/utils/practice'
 import type { MasteryLevel } from '~/types/guide'
 import type { PracticeScope, PracticeSource } from '~/types/practice'
@@ -44,6 +45,11 @@ const programming = computed(() => programmingQuestion(current.value?.question))
 const choice = computed(() =>
   current.value && isChoiceQuestion(current.value.question) ? current.value.question : undefined,
 )
+const questionPrompt = computed(() => {
+  if (!current.value) return ''
+  const q = current.value.question
+  return isChoiceQuestion(q) ? stripOptionsFromPrompt(q.prompt, q.options) : q.prompt
+})
 const selected = computed(() =>
   current.value ? selectedPracticeOptions(current.value.question, current.value.draft) : [],
 )
@@ -337,7 +343,7 @@ async function upload(event: Event) {
                   KNOWLEDGE_LEVEL_LABELS[current.question.knowledge.level]
                 }}</span>
               </div>
-              <PracticeText :text="current.question.prompt" class="practice-question-text" />
+              <PracticeText :text="questionPrompt" class="practice-question-text" />
               <form class="practice-answer space-y-4" @submit.prevent="practice.review()">
                 <fieldset v-if="choice" class="min-w-0">
                   <legend class="mb-3 text-body font-bold">
@@ -554,7 +560,7 @@ async function upload(event: Event) {
             <VExpansionPanels v-if="!programming || view !== 'question'" v-model="detailPanel" class="practice-details">
               <VExpansionPanel v-if="view === 'feedback'" value="question">
                 <VExpansionPanelTitle>查看题目</VExpansionPanelTitle>
-                <VExpansionPanelText><PracticeText :text="current.question.prompt" /></VExpansionPanelText>
+                <VExpansionPanelText><PracticeText :text="questionPrompt" /></VExpansionPanelText>
               </VExpansionPanel>
               <VExpansionPanel value="answer">
                 <VExpansionPanelTitle>参考答案</VExpansionPanelTitle>

@@ -36,6 +36,7 @@ const {
   practiceAnswerText,
   validatePracticeQuestion,
   practicePrompt,
+  stripOptionsFromPrompt,
 } = await import('../app/utils/practice.ts')
 const { readPracticeFile, validateAttachments } = await import('../app/utils/practiceAttachments.ts')
 const { criterionPoints, validatePracticeGrade } = await import('../app/utils/practiceGrading.ts')
@@ -1154,4 +1155,68 @@ test('编程记录顺序保存，等待写入完成再退出，失败可重试',
   h.io.dbSavePractice = async () => true
   await h.practice.flush()
   assert.equal(h.practice.state.storageError, '')
+})
+
+test('stripOptionsFromPrompt 与 validatePracticeQuestion 剥离题干中重复列出的选项', () => {
+  const options = [
+    { id: 'A', text: '函数只能作为返回值，不能作为参数传递' },
+    { id: 'B', text: '函数可以作为参数传递给其他函数，也可以作为返回值返回' },
+    { id: 'C', text: '函数必须在类内部定义才能被调用' },
+    { id: 'D', text: '函数只能操作全局变量，不能接收外部输入' },
+  ]
+  const promptWithOptions = `根据课程介绍，面向函数编程的核心理念之一是“函数是一等公民”。以下哪一项描述正确体现了这一理念？
+
+A. 函数只能作为返回值，不能作为参数传递
+B. 函数可以作为参数传递给其他函数，也可以作为返回值返回
+C. 函数必须在类内部定义才能被调用
+D. 函数只能操作全局变量，不能接收外部输入`
+
+  const purePrompt = stripOptionsFromPrompt(promptWithOptions, options)
+  assert.equal(
+    purePrompt,
+    '根据课程介绍，面向函数编程的核心理念之一是“函数是一等公民”。以下哪一项描述正确体现了这一理念？',
+  )
+
+  // 带前置前缀“选项：”及不同列表符号
+  const promptWithPrefix = `面向对象的核心特性是什么？\n\n选项：\n- A. 封装\n- B. 继承\n- C. 多态`
+  assert.equal(
+    stripOptionsFromPrompt(promptWithPrefix, [
+      { id: 'A', text: '封装' },
+      { id: 'B', text: '继承' },
+      { id: 'C', text: '多态' },
+    ]),
+    '面向对象的核心特性是什么？',
+  )
+
+  // 判断题
+  const trueFalsePrompt = `Python中字典是无序的键值对集合。\n\n- 正确\n- 错误`
+  assert.equal(
+    stripOptionsFromPrompt(trueFalsePrompt, [
+      { id: 'true', text: '正确' },
+      { id: 'false', text: '错误' },
+    ]),
+    'Python中字典是无序的键值对集合。',
+  )
+
+  // 纯净题干不应被破坏
+  const cleanPrompt = '解释什么是闭包。'
+  assert.equal(stripOptionsFromPrompt(cleanPrompt, options), cleanPrompt)
+
+  // validatePracticeQuestion 自动对单选、多选、判断题清洗题干
+  const rawQ = {
+    kind: 'single-choice',
+    prompt: promptWithOptions,
+    concepts: ['函数式编程'],
+    criteria: ['选择一个答案'],
+    referenceAnswer: 'B',
+    sourceIds: ['s1'],
+    knowledge: { category: 'concept', level: 'awareness', reason: '测试' },
+    options,
+    correctOptionIds: ['B'],
+  }
+  const validated = validatePracticeQuestion(rawQ, [{ id: 's1', kind: 'note', text: 'note' }])
+  assert.equal(
+    validated.prompt,
+    '根据课程介绍，面向函数编程的核心理念之一是“函数是一等公民”。以下哪一项描述正确体现了这一理念？',
+  )
 })

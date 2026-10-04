@@ -117,4 +117,7 @@ test('打卡日历、练习与导学弹窗清除免责与规则文案', () => {
 
   const milestonesTs = readFileSync(new URL('../app/utils/milestones.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(milestonesTs, /按当前内容统计|不含休息与放弃|已有记录不会被覆盖/)
+
+  const topBar = templateCopy('components/AppTopBar.vue')
+  assert.doesNotMatch(topBar.source, /共.*节.*已完成.*节|:title="courseName"/)
 })

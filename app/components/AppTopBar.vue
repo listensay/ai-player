@@ -41,12 +41,6 @@ const emit = defineEmits<{
         <span class="h-3.5 w-3.5 rounded-full bg-brand-orange" aria-hidden="true" />
         <span class="text-body font-bold tracking-[-0.03em] text-charcoal-ink">AI Player</span>
       </RouterLink>
-      <div v-if="courseName" class="hidden min-w-0 items-center gap-3 border-l border-linen pl-4 lg:flex">
-        <span class="truncate text-body-sm font-medium text-charcoal-ink" :title="courseName">{{ courseName }}</span>
-        <span v-if="total" class="tabular hidden shrink-0 text-caption text-stone 2xl:inline">
-          共 {{ total }} 节 · 已完成 {{ done }} 节
-        </span>
-      </div>
     </div>
 
     <!-- Equal outer columns keep the timer centered on the window, regardless of toolbar width. -->
