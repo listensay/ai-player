@@ -79,7 +79,7 @@ function detailFor(date: string) {
   const status = isChecked
     ? '已打卡'
     : isMissed
-      ? '时长未达标'
+      ? '未达标'
       : date > todayKey.value
         ? '尚未开始'
         : targetSeconds === 0
@@ -149,7 +149,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       </div>
 
       <div class="min-w-0 rounded-2xl border border-linen bg-page-cream p-3 text-center sm:p-4">
-        <p class="text-caption font-medium text-stone">今日学习目标</p>
+        <p class="text-caption font-medium text-stone">今日计划目标</p>
         <p class="mt-1 text-subheading font-bold leading-snug text-charcoal-ink">
           {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}
         </p>
@@ -182,13 +182,10 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       </div>
     </div>
 
-    <!-- 今日学习时长进度 -->
+    <!-- 目标完成进度与实际用时分开，倍速完成安排也能达标。 -->
     <div v-if="compact">
       <p class="flex flex-wrap items-baseline justify-between gap-2 text-caption text-stone">
-        <span
-          >今日 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} /
-          {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}</span
-        >
+        <span>实际投入 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }}</span>
         <strong class="text-deep-indigo">{{
           checkIn?.isAchieved.value ? '已打卡' : `目标完成 ${checkIn?.percent.value ?? 0}%`
         }}</strong>
@@ -196,15 +193,13 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-linen">
         <div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${checkIn?.percent.value ?? 0}%` }" />
       </div>
+      <p class="mt-2 text-caption text-stone">完成今日安排即可打卡，倍速不影响达标。</p>
     </div>
     <div v-else class="rounded-2xl border border-linen bg-pure-white p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span class="text-body-sm font-bold">今日学习时长</span>
-          <span class="text-caption text-stone">
-            {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} /
-            {{ formatStudyHours(checkIn?.targetSeconds.value ?? 0) }}
-          </span>
+          <span class="text-body-sm font-bold">今日目标进度</span>
+          <span class="text-caption text-stone"> 实际投入 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} </span>
         </div>
         <div>
           <span
@@ -213,11 +208,17 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           >
             <AppIcon name="check" :size="12" /> 今日目标已完成
           </span>
+          <span v-else-if="checkIn?.taskProgress.value != null" class="text-caption text-stone">
+            完成今日安排即可打卡
+          </span>
           <span v-else class="text-caption text-stone">
-            距打卡目标还需 {{ formatStudyHours(checkIn?.remainingSeconds.value ?? 0) }}
+            距时长目标还需 {{ formatStudyHours(checkIn?.remainingSeconds.value ?? 0) }}
           </span>
         </div>
       </div>
+      <p class="mt-3 text-caption leading-relaxed text-stone">
+        视频安排按原时长计算，倍速不影响任务达标；实际投入按观看用时与已记录实践统计。完成今日安排或实际投入达到目标，均可打卡。
+      </p>
       <!-- 进度条 -->
       <div class="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-linen">
         <div
@@ -288,7 +289,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
             <div
               v-else-if="cell.isMissed"
               class="flex h-5 w-5 items-center justify-center rounded-full bg-error/10 text-error shadow-xs"
-              title="时长未达标"
+              title="未达标"
             >
               <AppIcon name="close" :size="13" />
             </div>
@@ -306,7 +307,7 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
           ><span :class="selectedDetail.isMissed ? 'text-error' : ''">{{ selectedDetail.status }}</span>
         </p>
         <p class="mt-1 text-stone">
-          已学 {{ formatStudyClock(selectedDetail.seconds) }} · 目标
+          实际投入 {{ formatStudyClock(selectedDetail.seconds) }} · 计划目标
           {{ formatStudyHours(selectedDetail.targetSeconds) }}
         </p>
       </div>
@@ -330,22 +331,22 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
               v-else-if="selectedDetail.isMissed"
               class="inline-flex items-center gap-1 rounded-full bg-error/10 px-2 py-0.5 text-caption font-bold text-error"
             >
-              <AppIcon name="close" :size="12" /> 时长未达标
+              <AppIcon name="close" :size="12" /> 未达标
             </span>
             <span v-else class="text-caption text-stone">{{ selectedDetail.status }}</span>
           </div>
-          <span class="text-caption text-stone">学习目标：{{ formatStudyHours(selectedDetail.targetSeconds) }}</span>
+          <span class="text-caption text-stone">计划目标：{{ formatStudyHours(selectedDetail.targetSeconds) }}</span>
         </div>
 
         <div class="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-caption text-graphite">
           <span
-            >{{ checkIn?.includesWork.value ? '学习时长（视频与实践）' : '有效学习时长' }}：<strong
+            >{{ checkIn?.includesWork.value ? '实际投入（视频与实践）' : '实际观看用时' }}：<strong
               class="text-charcoal-ink"
               >{{ formatStudyClock(selectedDetail.seconds) }}</strong
             ></span
           >
           <span v-if="!selectedDetail.isChecked && selectedDetail.remainingSeconds > 0" class="text-stone">
-            距学习目标还需 {{ formatStudyHours(selectedDetail.remainingSeconds) }}
+            {{ selectedDetail.isToday ? '完成今日安排，或补足实际投入即可打卡' : '当日目标未完成' }}
           </span>
           <span v-else-if="selectedDetail.isChecked" class="text-study-complete font-medium"> 当日目标已完成 </span>
         </div>

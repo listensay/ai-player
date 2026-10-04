@@ -29,5 +29,6 @@ export default defineConfig({
   resolve: { alias: { '~': fileURLToPath(new URL('./app', import.meta.url)) } },
   clearScreen: false,
   server: { strictPort: true },
+  worker: { format: 'es' },
   build: { target: 'es2022' },
 })

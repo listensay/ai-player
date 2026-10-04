@@ -85,12 +85,12 @@ export function buildStudyInsights(
       totalSeconds += record.seconds
       if (record.seconds > 0) activeDays.add(day)
       if (within(day)) courseSeconds += record.seconds
+      // 保存的打卡也可能来自任务完成或实践投入，不能用视频用时二次否定。
       if (
         typeof record.checkedAt === 'number' &&
         Number.isFinite(record.checkedAt) &&
         record.checkedAt >= 0 &&
-        record.targetSeconds > 0 &&
-        record.seconds >= record.targetSeconds
+        record.targetSeconds > 0
       ) {
         checkDays.add(day)
         if (within(day)) checkHours[new Date(record.checkedAt).getHours()]!++

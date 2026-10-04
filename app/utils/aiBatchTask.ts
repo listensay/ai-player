@@ -37,7 +37,7 @@ export async function runAiBatches<B, R>(options: {
   signal: AbortSignal
   reset?: boolean
   request: (batch: B, index: number, completed: R[]) => Promise<unknown>
-  validate: (raw: unknown, batch: B, index: number, completed: R[]) => R
+  validate: (raw: unknown, batch: B, index: number, completed: R[]) => R | Promise<R>
   progress: (completed: number, total: number) => void
 }): Promise<R[]> {
   const check = () => options.signal.throwIfAborted()
@@ -61,7 +61,8 @@ export async function runAiBatches<B, R>(options: {
   // Validate a restored prefix against the current material before requesting or writing anything.
   for (const [index, raw] of checkpoint.values.entries()) {
     try {
-      completed.push(options.validate(raw, options.batches[index]!, index, completed))
+      completed.push(await options.validate(raw, options.batches[index]!, index, completed))
+      check()
     } catch {
       // Older validators accepted partial batches. Keep the valid prefix and redo the remainder.
       checkpoint.values = checkpoint.values.slice(0, index)
@@ -88,7 +89,8 @@ export async function runAiBatches<B, R>(options: {
     const batch = options.batches[index]!
     const raw = await options.request(batch, index, completed)
     check()
-    const result = options.validate(raw, batch, index, completed)
+    const result = await options.validate(raw, batch, index, completed)
+    check()
     checkpoint.values.push(raw)
     completed.push(result)
     await persist()

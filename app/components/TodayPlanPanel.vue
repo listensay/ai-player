@@ -78,7 +78,7 @@ function updateMinutes() {
     <div class="pane p-5">
       <form class="flex flex-wrap items-center gap-3" @submit.prevent="updateMinutes">
         <label class="flex items-center gap-2 text-body-sm font-medium">
-          {{ guide.program.value ? '今日视频看课：' : '今日学习时长：' }}
+          今日视频安排：
           <VTextField
             v-model.number="minutes"
             aria-label="今日看课分钟数"
@@ -106,6 +106,7 @@ function updateMinutes() {
           >恢复计划时长</UiButton
         >
       </form>
+      <p class="mt-3 text-caption text-stone">视频安排按原时长计算；倍速看完当天课程也算完成，实际用时单独记录。</p>
       <div class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-page-cream p-4">
         <div>
           <p class="text-body font-bold">已完成 {{ done.length }} / {{ today?.items.length ?? 0 }} 项</p>

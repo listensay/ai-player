@@ -221,7 +221,8 @@ function harness(t, overrides = {}, cacheLimits) {
     settings = reactive({ baseUrl: 'https://example.test/v1', model: 'test', apiKey: '' }),
     configured = ref(true)
   const plan = ref(today()),
-    date = ref('2026-09-25')
+    date = ref('2026-09-25'),
+    activePlayback = ref(null)
   let knowledge, daily, practice
   const renderer = createRenderer({
     createComment: () => ({}),
@@ -233,7 +234,7 @@ function harness(t, overrides = {}, cacheLimits) {
   const app = renderer.createApp({
     setup() {
       knowledge = useLessonKnowledge(course, settings, configured, cacheLimits)
-      daily = useDailyPractice(course, plan, date, settings, configured, knowledge)
+      daily = useDailyPractice(course, plan, date, settings, configured, knowledge, activePlayback)
       practice = useLessonPractice(course, settings, configured, {
         sources: (video) => knowledge.sourcesFor(course.value.id, video),
       })
@@ -251,6 +252,7 @@ function harness(t, overrides = {}, cacheLimits) {
     configured,
     plan,
     date,
+    activePlayback,
     database,
     requests,
     saves,
@@ -397,6 +399,112 @@ test('今日巩固汇总所有计划课节，只生成一道综合题并保存�
   assert.equal(h.daily.practice.history.value.length, 1)
   assert.match(h.daily.practice.current.value.draft, /清单不为空/)
   assert.equal(h.requests.length, requestsBefore)
+})
+
+test('4 小时计划在第 19 节的 2:07 处完成时，各倍速都等待 8:54 的视频结束才自动巩固', async (t) => {
+  const h = harness(t)
+  h.activePlayback.value = 'course:b.mp4'
+  await tick()
+  const context = continuationContext(null)
+  context.plan.dailyMinutes = 240
+  context.plan.lessons = Array.from({ length: 19 }, (_, i) => ({
+    ...context.plan.lessons[0],
+    path: i === 18 ? 'b.mp4' : `lesson-${i}.mp4`,
+  }))
+  context.metadata = Object.fromEntries(
+    context.plan.lessons.map((lesson, i) => [
+      lesson.path,
+      { duration: i === 18 ? 534.067 : (240 * 60 - 127.81241109265284) / 18 },
+    ]),
+  )
+  context.today = calculateDay(context, h.date.value).today
+  for (const item of context.today.items.slice(0, -1)) {
+    context.progress[item.path] = { time: item.end, duration: item.end, ratio: 1, done: true, updatedAt: 1 }
+  }
+  const end = context.today.items.at(-1).end
+  assert.ok(Math.abs(end - 127.81241109265284) < 0.001)
+  const signature = dailyPlanSignature(context.today, h.date.value)
+  for (const rate of [1, 1.25, 2]) {
+    const sample = {
+      seconds: 127.9,
+      duration: 534.067,
+      rate,
+      at: 127900 / rate,
+      playing: true,
+      seeking: false,
+      ended: false,
+    }
+    context.progress['b.mp4'] = {
+      time: sample.seconds,
+      duration: sample.duration,
+      ratio: sample.seconds / sample.duration,
+      done: false,
+      updatedAt: 2,
+    }
+    h.daily.sample(sample)
+    h.plan.value = calculateDay(context, h.date.value).today
+    assert.equal(h.plan.value.items.length, 19)
+    assert.ok(h.plan.value.items.every((item) => item.done))
+    assert.equal(h.daily.complete.value, true)
+    assert.equal(h.daily.shouldPrompt.value, false)
+    assert.equal(h.daily.practice.state.open, false)
+    assert.equal(h.daily.state.prompted, false)
+    assert.equal(context.progress['b.mp4'].done, false)
+    h.daily.sample({ ...sample, seconds: sample.duration * 0.96 })
+    assert.equal(h.daily.shouldPrompt.value, false)
+    h.daily.sample({ ...sample, seconds: sample.duration, playing: false, ended: true })
+    assert.equal(h.daily.shouldPrompt.value, true)
+    assert.equal(dailyPlanSignature(h.plan.value, h.date.value), signature)
+  }
+  assert.equal(h.requests.length, 0)
+})
+
+test('片段完成后，加载、暂停、缓冲和拖动都不自动巩固，重播及切课立即清除结束状态', async (t) => {
+  const h = harness(t)
+  h.activePlayback.value = 'course:b.mp4'
+  await tick()
+  assert.equal(h.daily.shouldPrompt.value, false)
+  const sample = { seconds: 40, duration: 120, rate: 1.25, at: 40000, playing: false, seeking: false, ended: false }
+  for (const event of [
+    sample,
+    { ...sample, playing: true },
+    { ...sample, seeking: true },
+    { ...sample, seconds: 120 },
+  ]) {
+    h.daily.sample(event)
+    assert.equal(h.daily.shouldPrompt.value, false)
+  }
+  h.daily.sample({ ...sample, seconds: 120, ended: true })
+  assert.equal(h.daily.shouldPrompt.value, true)
+  h.daily.sample({ ...sample, seconds: 0, seeking: true })
+  assert.equal(h.daily.shouldPrompt.value, false)
+  h.daily.sample({ ...sample, seconds: 120, ended: true })
+  h.activePlayback.value = 'course:a.mp4'
+  assert.equal(h.daily.shouldPrompt.value, false)
+  h.daily.sample({ ...sample, seconds: 120, ended: true })
+  h.activePlayback.value = 'other-course:a.mp4'
+  assert.equal(h.daily.shouldPrompt.value, false)
+  h.activePlayback.value = null
+  assert.equal(h.daily.shouldPrompt.value, true)
+  h.activePlayback.value = 'course:b.mp4'
+  assert.equal(h.daily.shouldPrompt.value, false)
+})
+
+test('等待视频结束期间仍可手动巩固，关闭后或继续播放不会重复自动提醒', async (t) => {
+  const h = harness(t)
+  h.activePlayback.value = 'course:b.mp4'
+  await tick()
+  assert.equal(h.daily.complete.value, true)
+  assert.equal(h.daily.shouldPrompt.value, false)
+  await h.daily.open()
+  assert.equal(h.daily.practice.state.open, true)
+  assert.equal(h.daily.practice.history.value.length, 1)
+  h.daily.practice.close()
+  h.daily.sample({ seconds: 120, duration: 120, rate: 1.25, at: 96000, playing: false, seeking: false, ended: true })
+  assert.equal(h.daily.shouldPrompt.value, false)
+  h.activePlayback.value = null
+  assert.equal(h.daily.shouldPrompt.value, false)
+  assert.equal(h.daily.practice.state.open, false)
 })
 
 test('追加次日课程未学完时今日巩固仍可开始，材料只包含原计划片段', async (t) => {

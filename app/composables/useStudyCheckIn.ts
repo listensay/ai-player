@@ -1,7 +1,7 @@
 import { onBeforeUnmount, onMounted, computed, reactive, ref, watch, inject, provide } from 'vue'
 import type { InjectionKey, Ref } from 'vue'
 import type { Course } from '~/types/course'
-import type { TodayPlan } from '~/types/guide'
+import type { TodayPlan, WorkEntry } from '~/types/guide'
 import type { PlaybackSample } from '~/types/practice'
 import type { StudyDay } from '~/types/checkIn'
 import {
@@ -9,6 +9,7 @@ import {
   effectivePlaybackSeconds,
   setStudyTarget,
   splitStudySeconds,
+  studyPlanProgress,
   studyStreak,
 } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
@@ -26,6 +27,8 @@ export interface CheckInPlan {
   targetMinutes?: number | null
   /** 各日期记录的实践时间（秒），计入当日学习时长。 */
   workSeconds?: Record<string, number>
+  workItems?: WorkEntry[]
+  ready?: boolean
   budgetForDate?: (date: string) => number
 }
 
@@ -50,10 +53,16 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   /** 当日学习时长：有效看课时长 + 记录的实践时间。 */
   const secondsFor = (date: string) => Math.min(86400, (state.days[date]?.seconds ?? 0) + workFor(date))
   const seconds = computed(() => secondsFor(state.date))
+  const taskProgress = computed(() =>
+    plan.value.ready === false
+      ? null
+      : studyPlanProgress(plan.value.today, state.date, minutesFor(state.date) * 60, plan.value.workItems),
+  )
   const percent = computed(() => {
+    if (isAchieved.value) return 100
     const target = targetSeconds.value
     if (target <= 0) return 0
-    return Math.min(100, Math.round((seconds.value / target) * 100))
+    return Math.min(99, Math.round(Math.max(seconds.value / target, taskProgress.value ?? 0) * 100))
   })
   const remainingSeconds = computed(() => Math.max(0, targetSeconds.value - seconds.value))
 
@@ -86,8 +95,8 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     if (!activeId || !ready || activeId !== course.value?.id) return
     const day = ensureDay(state.date)
     const wasChecked = day.checkedAt !== null
-    setStudyTarget(day, minutesFor(state.date), Date.now(), workFor(state.date))
-    // 记录实践时间后达到目标，同样视为当日打卡。
+    setStudyTarget(day, minutesFor(state.date), Date.now(), workFor(state.date), taskProgress.value === 1)
+    // 完成原日安排或累计实际投入达标，均可打卡；实际用时不补造。
     if (!wasChecked && day.checkedAt !== null) {
       justCheckedIn.value = { ...day }
       persist()
@@ -166,6 +175,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
       plan.value.dailyMinutes,
       plan.value.targetMinutes,
       workFor(state.date),
+      taskProgress.value,
     ],
     syncDay,
     { immediate: true },
@@ -194,6 +204,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     isAchieved,
     targetSeconds,
     seconds,
+    taskProgress,
     percent,
     remainingSeconds,
     justCheckedIn,

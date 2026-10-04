@@ -35,8 +35,46 @@ export type PracticeQuestion = PracticeQuestionBase &
         options: Array<{ id: string; text: string }>
         correctOptionIds: string[]
       }
-    | { kind: 'fill-blank' | 'explain' | 'code' | 'task' }
+    | { kind: 'fill-blank' | 'explain' | 'task' }
+    | { kind: 'code'; programming?: ProgrammingExercise }
   )
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+export interface ProgrammingTest {
+  id: string
+  name: string
+  kind: 'normal' | 'boundary'
+  example: boolean
+  args: JsonValue[]
+  expected: JsonValue
+}
+export interface ProgrammingExercise {
+  version: 1
+  language: 'javascript'
+  mode: 'completion' | 'implementation'
+  functionName: string
+  signature: string
+  starterCode: string
+  referenceCode: string
+  hints: string[]
+  tests: ProgrammingTest[]
+}
+export interface ProgrammingCaseResult {
+  id: string
+  status: 'passed' | 'failed' | 'error' | 'timeout'
+  actual: string
+  output: string
+  error: string
+  line?: number
+  column?: number
+  durationMs: number
+}
+export interface ProgrammingRun {
+  version: 1
+  code: string
+  mode: 'run' | 'test'
+  at: number
+  cases: ProgrammingCaseResult[]
+}
 export interface PracticeFeedback {
   result: 'solid' | 'partial' | 'retry'
   strengths: string[]
@@ -75,8 +113,15 @@ export interface PracticeRecord {
   sources: PracticeSource[]
   question: PracticeQuestion
   draft: string
+  codeRun?: ProgrammingRun
   attachments?: PracticeAttachment[]
-  attempts: Array<{ answer: string; attachments?: PracticeAttachment[]; feedback: PracticeFeedback; at: number }>
+  attempts: Array<{
+    answer: string
+    attachments?: PracticeAttachment[]
+    feedback: PracticeFeedback
+    at: number
+    codeRun?: ProgrammingRun
+  }>
 }
 export interface PlaybackSample {
   seconds: number

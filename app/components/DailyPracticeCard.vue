@@ -23,7 +23,7 @@ const score = computed(() => daily.records.value[0]?.attempts.at(-1)?.feedback.g
               : daily.records.value.length
                 ? '综合应用作业待提交'
                 : daily.complete.value
-                  ? '今日计划视频已学完，可开始综合练习'
+                  ? '今日安排已完成，可开始综合练习'
                   : `视频任务 ${daily.items.value.filter((i) => i.done).length} / ${daily.items.value.length}`
         }}
       </p>

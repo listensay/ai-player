@@ -2,7 +2,13 @@ import { onBeforeUnmount, computed, reactive, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { GuideSettings, SubtitleCue } from '~/types/guide'
-import type { PracticeAttachment, PracticeRecord, PracticeScope, PracticeSource } from '~/types/practice'
+import type {
+  PracticeAttachment,
+  PracticeRecord,
+  PracticeScope,
+  PracticeSource,
+  ProgrammingRun,
+} from '~/types/practice'
 import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
 import { materialBatches } from '~/utils/knowledge'
 import { prepareDailyPracticeSources } from '~/utils/dailyPractice'
@@ -24,16 +30,21 @@ import {
   appendPracticeRecord,
   isRepeatedPracticeQuestion,
   PRACTICE_ATTEMPT_LIMIT,
+  PROGRAMMING_HISTORY_LIMIT,
 } from '~/utils/practice'
 import { dbFetchPractice, dbSavePractice, dbFetchNote } from '~/utils/dbClient'
 import { createPracticeAttachmentStore, readPracticeFile, validateAttachments } from '~/utils/practiceAttachments'
-import { assignmentReviewPrompt } from '~/utils/practiceGrading'
+import { assignmentReviewPrompt, programmingReviewPrompt } from '~/utils/practiceGrading'
+import { CODE_LIMIT, programmingQuestion } from '~/utils/programming'
+import type { ProgrammingPreference } from '~/utils/programming'
+import { runProgramming, verifyProgrammingExercise } from '~/utils/programmingRunner'
 
 interface PracticeOptions {
   mode?: 'lesson' | 'daily'
   fetch?: typeof dbFetchPractice
   save?: typeof dbSavePractice
   sources?: (video: VideoEntry, scope: PracticeScope | null) => Promise<PracticeSource[]>
+  runCode?: typeof runProgramming
 }
 export function useLessonPractice(
   course: Ref<Course | null>,
@@ -45,7 +56,8 @@ export function useLessonPractice(
   const historyLimit = mode === 'daily' ? 1000 : 20
   const fetchRecords = options.fetch ?? dbFetchPractice
   const saveRecords = options.save ?? dbSavePractice
-  const state = reactive({
+  const codeRunner = options.runCode ?? runProgramming
+  const initialState = {
     open: false,
     path: '',
     title: '',
@@ -56,7 +68,7 @@ export function useLessonPractice(
     records: [] as PracticeRecord[],
     selectedId: '',
     historyReady: false,
-    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload',
+    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload' | 'test',
     error: '',
     storageError: '',
     materialNotice: '',
@@ -65,12 +77,16 @@ export function useLessonPractice(
     questionCount: mode === 'daily' ? 1 : 3,
     generationProgress: '',
     retryGenerationCount: 0,
-  })
+    programmingPreference: 'auto' as ProgrammingPreference,
+  }
+  // Keep recursive JSON test inputs out of Vue's recursive UnwrapRef type expansion.
+  const state: typeof initialState = reactive(initialState) as typeof initialState
   let activeId = ''
   let request: AbortController | null = null
   let historyLoad: Promise<void> = Promise.resolve()
   let courseRevision = 0
   let saveRevision = 0
+  let saveQueue: Promise<boolean | void> = Promise.resolve()
   const attachmentStore = createPracticeAttachmentStore()
   const current = computed(() => state.records.find((r) => r.id === state.selectedId && r.path === state.path))
   const history = computed(() => state.records.filter((r) => r.path === state.path))
@@ -86,7 +102,7 @@ export function useLessonPractice(
   const configured = computed(() => available.value && !!settings.baseUrl.trim() && !!settings.model.trim())
   const answer = computed(() => (current.value ? practiceAnswerText(current.value.question, current.value.draft) : ''))
   const attachments = computed(() => current.value?.attachments ?? [])
-  const hasSubmission = computed(() => !!answer.value || attachments.value.length > 0)
+  const hasSubmission = computed(() => !!answer.value.trim() || attachments.value.length > 0)
   const answerSubmitted = computed(() => {
     const previous = current.value?.attempts.at(-1)
     return (
@@ -105,7 +121,7 @@ export function useLessonPractice(
       hasSubmission.value &&
       !answerSubmitted.value &&
       !state.busy &&
-      current.value.attempts.length < PRACTICE_ATTEMPT_LIMIT &&
+      (programmingQuestion(current.value.question) || current.value.attempts.length < PRACTICE_ATTEMPT_LIMIT) &&
       (isChoiceQuestion(current.value.question) || configured.value),
   )
 
@@ -116,11 +132,25 @@ export function useLessonPractice(
       revision = ++saveRevision,
       courseVersion = courseRevision
     const recordsForPath: PracticeRecord[] = JSON.parse(JSON.stringify(state.records.filter((r) => r.path === path)))
-    return saveRecords(id, path, recordsForPath).then((saved) => {
-      if (courseVersion === courseRevision && state.path === path && revision === saveRevision)
-        state.storageError = saved ? '' : '练习记录保存失败，请关闭后重新打开练习重试。'
-      return saved
-    })
+    saveQueue = saveQueue
+      .catch(() => {})
+      .then(() => saveRecords(id, path, recordsForPath))
+      .then((saved) => {
+        if (courseVersion === courseRevision && state.path === path && revision === saveRevision)
+          state.storageError = saved ? '' : '练习记录保存失败，请重试保存。'
+        return saved
+      })
+      .catch(() => {
+        if (courseVersion === courseRevision && state.path === path && revision === saveRevision)
+          state.storageError = '练习记录保存失败，请重试保存。'
+        return false
+      })
+    return saveQueue
+  }
+  async function flush() {
+    await persist()
+    await saveQueue
+    if (state.storageError) throw new Error(state.storageError)
   }
   function cancel() {
     request?.abort()
@@ -140,9 +170,42 @@ export function useLessonPractice(
   }
   function updateDraft(answer: string) {
     if (current.value && !state.busy) {
-      current.value.draft = answer.slice(0, 8000)
+      const limit = programmingQuestion(current.value.question) ? CODE_LIMIT : 8000
+      if (answer.length > limit) {
+        state.error = `作答内容最多 ${limit} 字。`
+        return
+      }
+      current.value.draft = answer
       state.error = ''
       persist()
+    }
+  }
+
+  function resetCode() {
+    const exercise = programmingQuestion(current.value?.question)
+    if (exercise && !state.busy) updateDraft(exercise.starterCode)
+  }
+  // 测试用例由出题时固定提供，运行即自动执行全部用例，不提供自选输入。
+  async function executeCode() {
+    const record = current.value,
+      exercise = programmingQuestion(record?.question)
+    if (!record || !exercise || state.busy || !state.open || !state.historyReady) return
+    const controller = new AbortController()
+    request = controller
+    state.busy = 'test'
+    state.error = ''
+    try {
+      const result = await codeRunner({ exercise, code: record.draft, mode: 'test' }, controller.signal)
+      controller.signal.throwIfAborted()
+      record.codeRun = result
+      await persist()
+    } catch (error) {
+      if (!controller.signal.aborted) state.error = (error as Error).message
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
     }
   }
 
@@ -363,13 +426,14 @@ export function useLessonPractice(
       const previous = history.value.map((r) => r.question)
       const identity = {
         kind: 'practice',
-        promptVersion: mode === 'daily' ? 3 : 1,
+        promptVersion: 3,
         courseId: activeId,
         path,
         title: state.title,
         scope,
         count,
         mode,
+        programmingPreference: state.programmingPreference,
         batches,
         previous,
         settings: aiTaskSettings(submittedSettings),
@@ -384,10 +448,18 @@ export function useLessonPractice(
         request: (batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) =>
           requestGuideJson(
             submittedSettings,
-            practicePrompt(state.title, batch, scope, [...previous, ...completed.flat()], count, mode === 'daily'),
+            practicePrompt(
+              state.title,
+              batch,
+              scope,
+              [...previous, ...completed.flat()],
+              count,
+              mode === 'daily',
+              identity.programmingPreference,
+            ),
             controller.signal,
           ),
-        validate: (raw, batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) => {
+        validate: async (raw, batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) => {
           const questions = count === 1 ? [raw] : isRecord(raw) && Array.isArray(raw.questions) ? raw.questions : []
           if (questions.length !== count) throw new Error('AI 返回的题目数量不完整，请重试。')
           const validated: ReturnType<typeof validatePracticeQuestion>[] = []
@@ -395,7 +467,18 @@ export function useLessonPractice(
             const question =
               mode === 'daily'
                 ? validateDailyPracticeQuestion(item, batch)
-                : validatePracticeQuestion(item, batch, true)
+                : validatePracticeQuestion(item, batch, true, true)
+            const programming = programmingQuestion(question)
+            if (
+              mode !== 'daily' &&
+              identity.programmingPreference !== 'auto' &&
+              programming?.mode !== identity.programmingPreference
+            )
+              throw new Error('AI 返回的编程题型与所选题型不一致，请重新生成。')
+            if (programming) {
+              state.generationProgress = '正在验证编程题'
+              await verifyProgrammingExercise(programming, controller.signal, codeRunner)
+            }
             if (isRepeatedPracticeQuestion(question, [...previous, ...completed.flat(), ...validated])) {
               throw new Error('AI 返回了已有题目，请重试或补充学习材料。')
             }
@@ -415,7 +498,7 @@ export function useLessonPractice(
           scope,
           sources: batches[index]!,
           question,
-          draft: '',
+          draft: programmingQuestion(question)?.starterCode ?? '',
           attempts: [],
         })),
       )
@@ -443,14 +526,14 @@ export function useLessonPractice(
       !state.historyReady ||
       !record ||
       state.busy ||
-      record.attempts.length >= PRACTICE_ATTEMPT_LIMIT ||
+      (!programmingQuestion(record.question) && record.attempts.length >= PRACTICE_ATTEMPT_LIMIT) ||
       answerSubmitted.value
     )
       return
     state.error = ''
     const answer = practiceAnswerText(record.question, record.draft)
     const submittedFiles = (record.attachments ?? []).map((file) => ({ ...file }))
-    if (!answer && !submittedFiles.length) {
+    if (!answer.trim() && !submittedFiles.length) {
       state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容或上传代码、图片后提交。'
       return
     }
@@ -468,6 +551,14 @@ export function useLessonPractice(
     state.busy = 'review'
     try {
       const settingsSnapshot = { ...settings }
+      const programming = programmingQuestion(record.question)
+      let codeRun: ProgrammingRun | undefined
+      if (programming) {
+        codeRun = await codeRunner({ exercise: programming, code: answer, mode: 'test' }, controller.signal)
+        controller.signal.throwIfAborted()
+        record.codeRun = codeRun
+        await persist()
+      }
       const files = await Promise.all(
         submittedFiles.map(async (attachment) => ({
           attachment,
@@ -475,8 +566,12 @@ export function useLessonPractice(
         })),
       )
       controller.signal.throwIfAborted()
-      const graded = mode === 'daily' || files.length > 0
-      const messages = graded ? assignmentReviewPrompt(record, answer, files) : practiceReviewPrompt(record, answer)
+      const graded = mode === 'daily' || files.length > 0 || !!programming
+      const messages = codeRun
+        ? programmingReviewPrompt(record, answer, codeRun)
+        : graded
+          ? assignmentReviewPrompt(record, answer, files)
+          : practiceReviewPrompt(record, answer)
       const raw = await requestGuideJson(settingsSnapshot, messages, controller.signal)
       if (controller.signal.aborted) return
       record.attempts.push({
@@ -484,7 +579,9 @@ export function useLessonPractice(
         ...(submittedFiles.length ? { attachments: submittedFiles } : {}),
         feedback: validatePracticeFeedback(raw, record.sources, record.question, graded),
         at: Date.now(),
+        ...(codeRun ? { codeRun } : {}),
       })
+      if (programming) record.attempts = record.attempts.slice(-PROGRAMMING_HISTORY_LIMIT)
       persist()
     } catch (err) {
       if (!controller.signal.aborted) state.error = (err as Error).message
@@ -567,6 +664,7 @@ export function useLessonPractice(
   })
   return {
     persist,
+    flush,
     state,
     current,
     history,
@@ -585,6 +683,8 @@ export function useLessonPractice(
     cancel,
     select,
     updateDraft,
+    resetCode,
+    executeCode,
     generate,
     review,
   }

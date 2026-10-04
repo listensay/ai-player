@@ -11,9 +11,18 @@ import type {
 import { isRecord } from './guide.ts'
 import { validateAttachments } from './practiceAttachments.ts'
 import { criterionPoints, validatePracticeGrade } from './practiceGrading.ts'
+import {
+  CODE_LIMIT,
+  programmingQuestion,
+  PROGRAMMING_PROMPT,
+  validateProgrammingExercise,
+  restoreProgrammingRun,
+} from './programming.ts'
+import type { ProgrammingPreference } from './programming.ts'
 
 export const PRACTICE_HISTORY_LIMIT = 20
 export const PRACTICE_ATTEMPT_LIMIT = 3
+export const PROGRAMMING_HISTORY_LIMIT = 20
 
 /** 仅裁剪当前课节的历史，其他课节的记录保持不变。 */
 export function appendPracticeRecord(
@@ -90,13 +99,18 @@ function string(value: unknown, max: number): string {
     throw new Error('AI 练习内容不完整或过长，请重试。')
   return value.trim()
 }
-function strings(value: unknown, maxItems: number, maxLength: number, allowEmpty = false): string[] {
-  if (!Array.isArray(value) || value.length > maxItems || (!allowEmpty && !value.length))
-    throw new Error('AI 练习格式不完整，请重试。')
-  return [...new Set(value.map((v) => string(v, maxLength)))]
+function strings(value: unknown, maxItems: number, maxLength: number, allowEmpty = false, field = '列表'): string[] {
+  // 部分模型会将只有一项的数组返回为字符串；不拆分正文，避免破坏代码或伪造引用。
+  const items = typeof value === 'string' ? [value] : value
+  if (!Array.isArray(items) || (!allowEmpty && !items.length))
+    throw new Error(`AI 练习的 ${field} 缺失或格式错误，应为${allowEmpty ? '' : '非空'}字符串数组，请重试。`)
+  if (items.length > maxItems) throw new Error(`AI 练习的 ${field} 超出限制，最多 ${maxItems} 项，请重试。`)
+  if (items.some((item) => typeof item !== 'string' || !item.trim() || item.length > maxLength))
+    throw new Error(`AI 练习的 ${field} 每项应为 1–${maxLength} 字的非空字符串，请重试。`)
+  return [...new Set(items.map((item: string) => item.trim()))]
 }
 function references(value: unknown, sources: PracticeSource[]) {
-  const ids = strings(value, 100, 40)
+  const ids = strings(value, 100, 40, false, '来源编号（sourceIds）')
   if (ids.some((id) => !sources.some((s) => s.id === id)))
     throw new Error('AI 引用了不存在的学习材料，结果未保存，请重试。')
   return ids
@@ -126,6 +140,8 @@ export function validatePracticeQuestion(
   raw: unknown,
   sources: PracticeSource[],
   requireKnowledge = false,
+  requireProgramming = false,
+  minProgrammingTests = 3,
 ): PracticeQuestion {
   if (!isRecord(raw)) throw new Error('AI 未返回有效练习，请重试。')
   if (raw.kind === 'needs-material') throw new Error(`材料不足：${string(raw.reason, 1000)}`)
@@ -155,8 +171,8 @@ export function validatePracticeQuestion(
   }
   const base = {
     prompt: string(raw.prompt, 4000),
-    concepts: strings(raw.concepts, 5, 200),
-    criteria: strings(raw.criteria, 6, 500),
+    concepts: strings(raw.concepts, 5, 200, false, '知识点（concepts）'),
+    criteria: strings(raw.criteria, 6, 500, false, '作答要求（criteria）'),
     referenceAnswer: string(raw.referenceAnswer, 6000),
     sourceIds: references(raw.sourceIds, sources),
     ...(knowledge ? { knowledge } : {}),
@@ -179,7 +195,7 @@ export function validatePracticeQuestion(
       new Set(options.map((o) => o.text)).size !== options.length
     )
       throw new Error('题目包含重复选项，请重试。')
-    const correctOptionIds = strings(raw.correctOptionIds, 6, 12)
+    const correctOptionIds = strings(raw.correctOptionIds, 6, 12, false, '正确选项（correctOptionIds）')
     if (
       correctOptionIds.some((id) => !options.some((o) => o.id === id)) ||
       (raw.kind !== 'multiple-choice' && correctOptionIds.length !== 1) ||
@@ -198,7 +214,14 @@ export function validatePracticeQuestion(
     }
     return { ...base, kind: raw.kind, options, correctOptionIds }
   }
-  return { ...base, kind: raw.kind as 'fill-blank' | 'explain' | 'code' | 'task' }
+  if (raw.kind === 'code') {
+    const programming =
+      raw.programming !== undefined || requireProgramming
+        ? validateProgrammingExercise(raw.programming, minProgrammingTests)
+        : undefined
+    return { ...base, kind: 'code', ...(programming ? { programming, criterionPoints: criterionPoints(base) } : {}) }
+  }
+  return { ...base, kind: raw.kind as 'fill-blank' | 'explain' | 'task' }
 }
 
 export function validateDailyPracticeQuestion(raw: unknown, sources: PracticeSource[]): PracticeQuestion {
@@ -233,6 +256,7 @@ export function selectedPracticeOptions(question: PracticeQuestion, draft: strin
   }
 }
 export function practiceAnswerText(question: PracticeQuestion, draft: string): string {
+  if (programmingQuestion(question)) return draft
   if (!isChoiceQuestion(question)) return draft.trim()
   const ids = selectedPracticeOptions(question, draft)
   return question.options
@@ -268,8 +292,8 @@ export function validatePracticeFeedback(
     throw new Error('AI 未返回有效反馈，请重试。')
   const feedback = {
     result: raw.result as PracticeFeedback['result'],
-    strengths: strings(raw.strengths, 6, 1000, true),
-    gaps: strings(raw.gaps, 6, 1000, true),
+    strengths: strings(raw.strengths, 6, 1000, true, '答对之处（strengths）'),
+    gaps: strings(raw.gaps, 6, 1000, true, '遗漏或误解（gaps）'),
     nextStep: string(raw.nextStep, 2000),
     sourceIds: references(raw.sourceIds, sources),
   }
@@ -289,6 +313,7 @@ export function practicePrompt(
   recent: PracticeQuestion[] = [],
   count = 1,
   daily = false,
+  programmingPreference: ProgrammingPreference = 'auto',
 ): GuideMessage[] {
   if (daily)
     return [
@@ -317,8 +342,11 @@ knowledge.reason 用一句面向学习者的话解释本题为何需要这个深
 背景年代、停止支持的准确日期、人物、版本轶事、解释器实现语言等通常只需了解。比如 Python 2 停止维护和 Python 3 不完全向下兼容，可考辨识其含义，不要求输入准确停更日期；日期可在解析中作为背景。除非学习材料明确以日期为必要操作条件，不得考精确日期的填空或背诵。
 格式化要求：prompt 是 Markdown，先写简短题干，多个步骤使用真正换行的有序或无序列表（JSON 中用 \n）；用 **加粗** 标出关键条件，标识符用行内代码，示例代码使用带语言的围栏代码块。禁止把 1. …；2. …；3. … 挤在一行。criteria 数组每项只写一条要求，不重复题干，不泄漏答案；referenceAnswer 也按段落、列表、代码块排版并解释原因。
 ${count > 1 ? `返回 {"questions":[题目对象]}，questions 必须恰好包含 ${count} 道互不重复的题目。` : '直接返回单个题目对象。'}每个题目的 JSON 格式：{"kind":"题型","knowledge":{"category":"concept","level":"awareness","reason":"辨认适用场景即可，无需背诵细节。"},"prompt":"题目 Markdown","concepts":["知识点"],"criteria":["作答要求"],"referenceAnswer":"参考答案与解析 Markdown","sourceIds":["s1"]}。
+所有题目都必须包含上述全部字段，包括选择题和判断题，不得省略 concepts、criteria、referenceAnswer 或 sourceIds。concepts 为 1–5 项字符串数组，每项最多 200 字；criteria 为 1–6 项字符串数组，每项最多 500 字；sourceIds 为 1–100 项字符串数组，每项最多 40 字。只有一项也必须使用数组，不使用字符串或对象代替。prompt 最多 4000 字，referenceAnswer 最多 6000 字。
 选择题额外提供 options:[{"id":"A","text":"选项"},...] 和 correctOptionIds:["A"]；2–6 个互不重复的选项，选项编号稳定唯一且不包含正确标记，干扰项应合理。单选只有 1 个正确选项，多选至少 2 个且题干明确“选择所有正确项”，不得在要求中透露正确选项。
-判断题 options 必须为 [{"id":"true","text":"正确"},{"id":"false","text":"错误"}]，correctOptionIds 为 ["true"] 或 ["false"]。填空题只留一个 ____，接受语义等价表达；代码和情境题均为书面作答，不要求执行代码。
+判断题 options 必须为 [{"id":"true","text":"正确"},{"id":"false","text":"错误"}]，correctOptionIds 为 ["true"] 或 ["false"]。填空题只留一个 ____，接受语义等价表达。
+${PROGRAMMING_PROMPT}
+${programmingPreference === 'auto' ? '按材料选择题型，适合编程时在代码补全和功能实现之间选择。' : `本次用户选择 ${programmingPreference === 'completion' ? '代码补全' : '功能实现'}，所有题目必须为 code 且 programming.mode="${programmingPreference}"；若材料不支持 JavaScript 编程则返回 needs-material。`}
 只考材料支持的核心知识。材料不足返回 {"kind":"needs-material","reason":"需要补充什么"}。sourceIds 必须引用实际来源；不能生成时间戳、链接或新课节。参考答案默认隐藏。
 输入数据：${JSON.stringify({ title, scope, sources, recent: recent.slice(0, PRACTICE_HISTORY_LIMIT).map((q) => ({ kind: q.kind, concepts: q.concepts, prompt: q.prompt.slice(0, 300) })) })}`,
     },
@@ -378,9 +406,9 @@ export function restorePractice(
         !r.sources.length ||
         r.sources.length > 100 ||
         typeof r.draft !== 'string' ||
-        r.draft.length > 8000 ||
+        r.draft.length > CODE_LIMIT ||
         !Array.isArray(r.attempts) ||
-        r.attempts.length > PRACTICE_ATTEMPT_LIMIT
+        r.attempts.length > PROGRAMMING_HISTORY_LIMIT
       )
         continue
       const sourceIds = new Set<string>()
@@ -407,17 +435,31 @@ export function restorePractice(
         }
       })
       if (sources.reduce((n, s) => n + s.text.length, 0) > 12000) continue
-      const question = validatePracticeQuestion(r.question, sources)
+      // 旧记录可能只含 2 个用例，恢复时放宽下限，避免把历史上合法的题目判为损坏丢弃。
+      const question = validatePracticeQuestion(r.question, sources, false, false, 2)
+      const programming = programmingQuestion(question)
+      if (!programming && (r.draft.length > 8000 || r.attempts.length > PRACTICE_ATTEMPT_LIMIT)) continue
       const attachments = validateAttachments(r.attachments)
       const attempts = r.attempts.map((a) => {
         if (!isRecord(a) || typeof a.at !== 'number' || !Number.isFinite(a.at)) throw new Error('invalid attempt')
         const files = validateAttachments(a.attachments)
-        const answer = a.answer === '' && files.length ? '' : string(a.answer, 8000)
+        const answer = programming
+          ? typeof a.answer === 'string' && a.answer.trim() && a.answer.length <= CODE_LIMIT
+            ? a.answer
+            : (() => {
+                throw new Error('invalid code')
+              })()
+          : a.answer === '' && files.length
+            ? ''
+            : string(a.answer, 8000)
         return {
           answer,
           ...(files.length ? { attachments: files } : {}),
           feedback: validatePracticeFeedback(a.feedback, sources, question),
           at: a.at,
+          ...(programming && a.codeRun !== undefined
+            ? { codeRun: restoreProgrammingRun(a.codeRun, programming, answer) }
+            : {}),
         }
       })
       records.push({
@@ -429,6 +471,7 @@ export function restorePractice(
         sources,
         question,
         draft: r.draft,
+        ...(programming && r.codeRun !== undefined ? { codeRun: restoreProgrammingRun(r.codeRun, programming) } : {}),
         ...(attachments.length ? { attachments } : {}),
         attempts,
       })

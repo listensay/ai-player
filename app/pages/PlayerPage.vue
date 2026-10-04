@@ -127,7 +127,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
               >
               <span>·</span>
               <span
-                >已学 {{ formatStudyClock(checkIn.seconds.value) }} / 目标
+                >实际投入 {{ formatStudyClock(checkIn.seconds.value) }} · 计划目标
                 {{ formatStudyHours(checkIn.targetSeconds.value) }}</span
               >
               <span v-if="checkIn.streak.value > 0" class="font-medium text-deep-indigo"

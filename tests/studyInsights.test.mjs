@@ -37,6 +37,18 @@ test('跨课程打卡按日期去重，连续天数不中断地跨月计算', ()
   assert.equal(data.seconds, 21 * 1200)
   assert.equal(data.best, null)
 })
+test('倍速完成安排和实践达标的打卡计入周回顾，真实用时不被补足到目标', () => {
+  const entry = course({
+    '2026-09-29': { seconds: 11520, targetSeconds: 14400, checkedAt: new Date('2026-09-29T18:00:00').getTime() },
+    '2026-09-30': { seconds: 600, targetSeconds: 1800, checkedAt: new Date('2026-09-30T18:00:00').getTime() },
+  })
+  entry.context.records.entries = [{ date: '2026-09-30', minutes: 20, done: true }]
+  const data = buildStudyInsights([entry], evidence, [], period, '2026-10-01')
+  assert.equal(data.checked, 2)
+  assert.equal(data.seconds, 11520 + 600 + 1200)
+  assert.equal(data.hours[18].checkIns, 2)
+  assert.match(digestMarkdown(data), /达标打卡：2 天/)
+})
 test('专注推荐需同一小时五个结束样本和三天，放弃视为中断，活动会话不计', () => {
   const sessions = Array.from({ length: 5 }, (_, i) => ({
     startedAt: i,

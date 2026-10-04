@@ -1,0 +1,17 @@
+{
+  "identifier": "app.aiplayer.programming-check",
+  "productName": "AI Player Programming Check",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Player Programming Check",
+        "width": 1380,
+        "height": 940,
+        "minWidth": 860,
+        "minHeight": 640,
+        "maximized": false
+      }
+    ]
+  }
+}

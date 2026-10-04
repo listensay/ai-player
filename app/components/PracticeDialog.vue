@@ -8,6 +8,9 @@ import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 import PracticeText from '~/components/PracticeText.vue'
 import PracticeAttachmentList from '~/components/PracticeAttachmentList.vue'
+import ProgrammingWorkspace from '~/components/ProgrammingWorkspace.vue'
+import ProgrammingResults from '~/components/ProgrammingResults.vue'
+import { programmingQuestion } from '~/utils/programming'
 import { PRACTICE_FILE_ACCEPT } from '~/utils/practiceAttachments'
 import { criterionPoints, GRADE_STATUS_LABELS } from '~/utils/practiceGrading'
 import { practiceGroup, practiceGroupScore } from '~/utils/practiceSession'
@@ -37,6 +40,7 @@ const view = ref<'question' | 'feedback' | 'materials'>('question')
 const detailPanel = ref<string>()
 const attemptIndex = ref(0)
 const attempt = computed(() => current.value?.attempts[attemptIndex.value])
+const programming = computed(() => programmingQuestion(current.value?.question))
 const choice = computed(() =>
   current.value && isChoiceQuestion(current.value.question) ? current.value.question : undefined,
 )
@@ -69,7 +73,9 @@ const groupScore = computed(() => practiceGroupScore(group.value))
 const questionNumber = computed(() => group.value.findIndex((item) => item.id === current.value?.id) + 1)
 const lastQuestion = computed(() => questionNumber.value > 0 && questionNumber.value === group.value.length)
 const showGroupScore = computed(() => !daily && !!group.value.at(-1)?.attempts.length)
-const reachedLimit = computed(() => (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT)
+const reachedLimit = computed(
+  () => !programming.value && (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT,
+)
 const canContinue = computed(() => !daily && !!attempt.value && (answerSubmitted.value || reachedLimit.value))
 const canGenerate = computed(
   () => state.historyReady && !state.busy && configured.value && hasMaterial.value && (!daily || !history.value.length),
@@ -77,13 +83,15 @@ const canGenerate = computed(
 const submitLabel = computed(() =>
   answerSubmitted.value
     ? '已提交'
-    : daily || props.practice.attachments.value.length
-      ? current.value?.attempts.length
-        ? '重新评分'
-        : '提交作业并评分'
-      : current.value?.attempts.length
-        ? '重新提交'
-        : '提交作答',
+    : programming.value
+      ? '提交 AI'
+      : daily || props.practice.attachments.value.length
+        ? current.value?.attempts.length
+          ? '重新评分'
+          : '提交作业并评分'
+        : current.value?.attempts.length
+          ? '重新提交'
+          : '提交作答',
 )
 function seekSource(source: PracticeSource) {
   const path = source.path ?? current.value?.path
@@ -97,15 +105,19 @@ const correctCount = computed(() => history.value.filter((r) => r.attempts.at(-1
 const latestScore = computed(() => current.value?.attempts.at(-1)?.feedback.grade?.score)
 const points = computed(() => (current.value ? criterionPoints(current.value.question) : []))
 const busyText = computed(() =>
-  state.busy === 'loading'
-    ? '正在准备知识点…'
-    : state.busy === 'generate'
-      ? `正在生成练习 ${state.generationProgress}…`
-      : state.busy === 'upload'
-        ? '正在保存作业文件…'
-        : daily || props.practice.attachments.value.length
-          ? '正在逐项评阅作业并评分…'
-          : '正在评估作答…',
+  state.busy === 'test'
+    ? '正在执行代码…'
+    : state.busy === 'review' && programming.value
+      ? '正在测试并提交 AI 评阅…'
+      : state.busy === 'loading'
+        ? '正在准备知识点…'
+        : state.busy === 'generate'
+          ? `正在生成练习 ${state.generationProgress}…`
+          : state.busy === 'upload'
+            ? '正在保存作业文件…'
+            : daily || props.practice.attachments.value.length
+              ? '正在逐项评阅作业并评分…'
+              : '正在评估作答…',
 )
 const shownScope = computed(() => (current.value ? current.value.scope : state.scope))
 function scopeText(scope: PracticeScope | null) {
@@ -146,10 +158,10 @@ watch(
   { immediate: true },
 )
 watch(
-  () => [current.value?.id, current.value?.attempts.length] as const,
-  async ([id, count], [previousId, previous]) => {
+  () => [current.value?.id, current.value?.attempts.length, current.value?.attempts.at(-1)?.at] as const,
+  async ([id, count, at], [previousId, previous, previousAt]) => {
     attemptIndex.value = Math.max(0, (count ?? 1) - 1)
-    if (id === previousId && count && count > (previous ?? 0) && state.open) {
+    if (id === previousId && count && (count > (previous ?? 0) || at !== previousAt) && state.open) {
       view.value = 'feedback'
       await nextTick()
       contentEl.value?.scrollTo({ top: 0 })
@@ -177,7 +189,7 @@ async function upload(event: Event) {
   <VDialog
     :model-value="state.open"
     :aria-labelledby="titleId"
-    width="920"
+    :width="programming && view === 'question' ? '1440' : '920'"
     @update:model-value="!$event && practice.close()"
   >
     <div class="paper-dialog practice-dialog flex h-[min(92dvh,980px)] min-w-0 flex-col">
@@ -253,7 +265,7 @@ async function upload(event: Event) {
       </header>
 
       <div ref="contentEl" class="scroll-soft practice-content min-h-0 flex-1 overflow-y-auto">
-        <div class="practice-reading">
+        <div class="practice-reading" :class="{ 'programming-reading': programming && view === 'question' }">
           <section
             v-if="daily && history.length"
             role="status"
@@ -281,7 +293,19 @@ async function upload(event: Event) {
             </p>
           </section>
           <section v-if="current && view !== 'materials'" :key="current.id" class="space-y-7" aria-label="当前练习">
-            <div v-if="view === 'question'" class="space-y-6">
+            <ProgrammingWorkspace
+              v-if="programming && view === 'question'"
+              :question="current.question"
+              :exercise="programming"
+              :draft="current.draft"
+              :run="current.codeRun"
+              :busy="!!state.busy"
+              @draft="practice.updateDraft"
+              @execute="practice.executeCode"
+              @reset="practice.resetCode"
+              @save="practice.persist"
+            />
+            <div v-if="view === 'question' && !programming" class="space-y-6">
               <div class="flex items-center gap-3">
                 <h3
                   ref="questionEl"
@@ -476,6 +500,11 @@ async function upload(event: Event) {
                   :load="practice.loadAttachment"
                 />
               </div>
+              <ProgrammingResults
+                v-if="programming && attempt.codeRun"
+                :exercise="programming"
+                :run="attempt.codeRun"
+              />
               <div v-if="attempt.feedback.gaps.length" class="practice-feedback-group">
                 <h4 class="mb-3 text-body font-bold">需要调整</h4>
                 <ul class="space-y-4">
@@ -503,7 +532,7 @@ async function upload(event: Event) {
               </div>
             </section>
 
-            <VExpansionPanels v-model="detailPanel" class="practice-details">
+            <VExpansionPanels v-if="!programming || view !== 'question'" v-model="detailPanel" class="practice-details">
               <VExpansionPanel v-if="view === 'feedback'" value="question">
                 <VExpansionPanelTitle>查看题目</VExpansionPanelTitle>
                 <VExpansionPanelText><PracticeText :text="current.question.prompt" /></VExpansionPanelText>
@@ -615,6 +644,17 @@ async function upload(event: Event) {
                     <p v-if="state.materialNotice" class="text-body-sm text-stone">{{ state.materialNotice }}</p>
                     <VSelect
                       v-if="!daily"
+                      v-model="state.programmingPreference"
+                      label="练习题型"
+                      :items="[
+                        { title: '按学习内容选择', value: 'auto' },
+                        { title: '代码补全 · JavaScript', value: 'completion' },
+                        { title: '功能实现 · JavaScript', value: 'implementation' },
+                      ]"
+                      :disabled="!!state.busy"
+                    />
+                    <VSelect
+                      v-if="!daily"
                       v-model="state.questionCount"
                       label="每组题数"
                       :items="[3, 5, 8]"
@@ -657,6 +697,9 @@ async function upload(event: Event) {
 
       <footer class="shrink-0 space-y-3 border-t border-linen bg-pure-white px-5 py-4 sm:px-8">
         <p v-if="state.storageError" role="alert" class="text-body-sm text-error">{{ state.storageError }}</p>
+        <UiButton v-if="state.storageError && state.historyReady" variant="text" size="sm" @click="practice.persist()"
+          >重试保存</UiButton
+        >
         <p v-if="state.error" role="alert" class="text-body-sm text-error">{{ state.error }}</p>
         <div v-if="state.busy" role="status" class="flex items-center justify-between gap-3 text-body-sm">
           <span>{{ busyText }}</span
@@ -680,11 +723,13 @@ async function upload(event: Event) {
         <div v-if="!state.busy" class="flex flex-wrap items-center justify-between gap-3">
           <span class="text-caption text-stone">{{
             current
-              ? reachedLimit
-                ? daily
-                  ? '本题反馈已达上限，可查看参考解答'
-                  : '本题反馈已达上限，可继续练习'
-                : `本题反馈 ${current.attempts.length} / ${PRACTICE_ATTEMPT_LIMIT} 次`
+              ? programming
+                ? `最近 ${current.attempts.length} 次提交`
+                : reachedLimit
+                  ? daily
+                    ? '本题反馈已达上限，可查看参考解答'
+                    : '本题反馈已达上限，可继续练习'
+                  : `本题反馈 ${current.attempts.length} / ${PRACTICE_ATTEMPT_LIMIT} 次`
               : daily
                 ? '一道综合练习'
                 : `每组 ${state.questionCount} 题`
@@ -802,6 +847,10 @@ async function upload(event: Event) {
   width: min(100%, 744px);
   margin-inline: auto;
   padding: 32px;
+}
+.practice-reading.programming-reading {
+  width: 100%;
+  padding: 16px;
 }
 .practice-section-title {
   font-size: 22px;

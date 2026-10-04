@@ -1,8 +1,8 @@
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { Course } from '~/types/course'
 import type { GuideSettings, TodayPlan } from '~/types/guide'
-import type { PracticeRecord, PracticeSource } from '~/types/practice'
+import type { PlaybackSample, PracticeRecord, PracticeSource } from '~/types/practice'
 import type { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useLessonPractice } from '~/composables/useLessonPractice'
 import { databaseRequest } from '~/utils/database'
@@ -16,8 +16,14 @@ export function useDailyPractice(
   settings: GuideSettings,
   configured: Ref<boolean>,
   knowledge: ReturnType<typeof useLessonKnowledge>,
+  activePlayback: Ref<string | null>,
 ) {
   const state = reactive({ noticeReady: false, prompted: false, error: '' })
+  const playbackEnded = ref(false)
+  watch(activePlayback, () => (playbackEnded.value = false), { flush: 'sync' })
+  function sample(current: PlaybackSample) {
+    if (activePlayback.value) playbackEnded.value = current.ended && !current.seeking
+  }
   const caches = new Map<string, Record<string, PracticeRecord[]>>()
   let writes = Promise.resolve(true)
   const recordsKey = (id: string) => `daily-practice:${id}`
@@ -54,7 +60,10 @@ export function useDailyPractice(
   const records = computed(() => practice.state.records.filter((r) => r.path === path.value))
   const answered = computed(() => records.value.filter((r) => r.attempts.length > 0).length)
   const finished = computed(() => records.value.length > 0 && answered.value === records.value.length)
-  const shouldPrompt = computed(() => state.noticeReady && !state.prompted && complete.value)
+  // 今日计划可能只覆盖最后一课的开头；自动弹窗等整段视频播完，手动入口仍按计划开放。
+  const shouldPrompt = computed(
+    () => state.noticeReady && !state.prompted && complete.value && (!activePlayback.value || playbackEnded.value),
+  )
 
   watch(
     () => [course.value?.id, date.value] as const,
@@ -124,8 +133,8 @@ export function useDailyPractice(
     }
   }
   async function flush() {
-    practice.persist()
+    await practice.flush()
     await writes
   }
-  return { state, practice, items, complete, records, answered, finished, shouldPrompt, open, flush }
+  return { state, practice, items, complete, records, answered, finished, shouldPrompt, sample, open, flush }
 }

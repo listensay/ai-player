@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import { createRenderer, reactive, ref, nextTick, h as vueH } from 'vue'
+import { programmingQuestion as codeQuestion } from './fixtures/programming.mjs'
 
 // 只替换网络、文件和数据库边界；使用实际 Vue 状态、题目校验及练习流程。
 const boundaries = {
@@ -28,8 +29,14 @@ registerHooks({
 })
 
 const { useLessonPractice } = await import('../app/composables/useLessonPractice.ts')
-const { appendPracticeRecord, restorePractice, isRepeatedPracticeQuestion, practiceAnswerText } =
-  await import('../app/utils/practice.ts')
+const {
+  appendPracticeRecord,
+  restorePractice,
+  isRepeatedPracticeQuestion,
+  practiceAnswerText,
+  validatePracticeQuestion,
+  practicePrompt,
+} = await import('../app/utils/practice.ts')
 const { readPracticeFile, validateAttachments } = await import('../app/utils/practiceAttachments.ts')
 const { criterionPoints, validatePracticeGrade } = await import('../app/utils/practiceGrading.ts')
 const { practiceGroup, practiceGroupScore } = await import('../app/utils/practiceSession.ts')
@@ -668,10 +675,15 @@ async function mountDialog(t, practice, listeners = {}) {
     },
   })
   globalThis.practiceDialogStubs = Object.fromEntries(
-    ['UiButton', 'AppIcon', 'PracticeText', 'PracticeAttachmentList', 'AiProfileSelector'].map((name) => [
-      name,
-      stub(name),
-    ]),
+    [
+      'UiButton',
+      'AppIcon',
+      'PracticeText',
+      'PracticeAttachmentList',
+      'AiProfileSelector',
+      'ProgrammingWorkspace',
+      'ProgrammingResults',
+    ].map((name) => [name, stub(name)]),
   )
   const { outputText } = ts.transpileModule(code, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -863,4 +875,253 @@ test('返回作答后可重新提交并更新总分，末题提前提交显示�
   await dialog.click('材料与设置')
   assert.equal(dialog.button('完成'), undefined)
   assert.ok(dialog.button('返回练习'))
+})
+
+test('practice accepts unambiguous singleton strings without inventing answers or sources', () => {
+  const raw = question()
+  for (const field of ['concepts', 'criteria', 'sourceIds', 'correctOptionIds']) raw[field] = raw[field][0]
+  assert.deepEqual(validatePracticeQuestion(raw, sources, true), question())
+  assert.throws(() => validatePracticeQuestion({ ...raw, sourceIds: 's99' }, sources, true), /不存在的学习材料/)
+  assert.throws(
+    () => validatePracticeQuestion({ ...raw, correctOptionIds: 'C' }, sources, true),
+    /正确选项与题型不匹配/,
+  )
+  assert.throws(
+    () => validatePracticeQuestion({ ...raw, kind: 'multiple-choice' }, sources, true),
+    /正确选项与题型不匹配/,
+  )
+})
+
+test('practice array failures identify the field and preserve validation limits', () => {
+  for (const field of ['concepts', 'criteria', 'sourceIds', 'correctOptionIds']) {
+    for (const value of [undefined, null, [], {}, '', [42], ['']]) {
+      assert.throws(() => validatePracticeQuestion({ ...question(), [field]: value }, sources, true), new RegExp(field))
+    }
+  }
+  assert.throws(
+    () => validatePracticeQuestion({ ...question(), concepts: Array(6).fill('概念') }, sources),
+    /concepts.*最多 5 项/,
+  )
+  assert.throws(
+    () => validatePracticeQuestion({ ...question(), criteria: ['长'.repeat(501)] }, sources),
+    /criteria.*500/,
+  )
+  assert.throws(() => validatePracticeQuestion({ ...question(), sourceIds: 's1,s2' }, sources), /不存在的学习材料/)
+})
+
+test('lesson practice prompt specifies required arrays and their limits for all question kinds', () => {
+  const prompt = practicePrompt('课节', sources, null, [], 3)[0].content
+  assert.match(prompt, /包括选择题和判断题/)
+  assert.match(prompt, /concepts 为 1–5 项字符串数组/)
+  assert.match(prompt, /criteria 为 1–6 项字符串数组/)
+  assert.match(prompt, /只有一项也必须使用数组/)
+})
+
+function codeResult(input, passed = input.code === input.exercise.referenceCode) {
+  return {
+    version: 1,
+    mode: input.mode,
+    code: input.code,
+    at: Date.now(),
+    cases: (input.mode === 'run'
+      ? [input.exercise.tests.find((t) => t.id === input.caseId) ?? input.exercise.tests[0]]
+      : input.exercise.tests
+    ).map((t) => ({
+      id: t.id,
+      status: passed ? 'passed' : 'failed',
+      actual: passed ? JSON.stringify(t.expected) : 'undefined',
+      output: '',
+      error: '',
+      durationMs: 1,
+    })),
+  }
+}
+const codeFeedback = {
+  result: 'solid',
+  strengths: ['筛选和累加符合题目要求。'],
+  gaps: [],
+  nextStep: '尝试更多边界输入。',
+  sourceIds: ['s1'],
+  grade: {
+    items: [
+      { criterionIndex: 0, score: 70, status: 'implemented', evidence: '筛选正数后累加。', improvement: '无需补充。' },
+      { criterionIndex: 1, score: 30, status: 'implemented', evidence: '空数组返回零。', improvement: '无需补充。' },
+    ],
+  },
+}
+
+test('编程生成验证参考与初始代码后展示工作台，题型设置进入出题请求', async (t) => {
+  const executions = []
+  const h = harness(
+    t,
+    {
+      requestGuideJson: async (_settings, messages) => {
+        assert.match(messages[0].content, /programming.mode="completion"/)
+        return structuredClone(codeQuestion)
+      },
+    },
+    {
+      runCode: async (input) => {
+        executions.push(input)
+        return codeResult(input)
+      },
+    },
+  )
+  await open(h)
+  h.practice.state.programmingPreference = 'completion'
+  await h.practice.generate()
+  assert.equal(h.practice.state.error, '')
+  assert.equal(executions.length, 2)
+  assert.equal(h.practice.current.value.draft, codeQuestion.programming.starterCode)
+  const ui = await mountDialog(t, h.practice)
+  assert.ok(ui.find('ProgrammingWorkspace'))
+  assert.ok(ui.button('提交 AI'))
+  const saved = h.saves.at(-1)[2]
+  assert.deepEqual(restorePractice(saved, ['a.mp4'])[0].question.programming, codeQuestion.programming)
+})
+
+test('错误参考实现或不匹配题型不会替换已有编程草稿', async (t) => {
+  const old = { ...record('code-old'), question: codeQuestion, draft: '// 未完成草稿' }
+  const h = harness(
+    t,
+    {
+      dbFetchPractice: async () => ({ 'a.mp4': [old] }),
+      requestGuideJson: async () => ({ ...codeQuestion, prompt: '另一道编程题' }),
+    },
+    { runCode: async (input) => codeResult(input, false) },
+  )
+  await open(h)
+  await h.practice.generate()
+  assert.match(h.practice.state.error, /参考实现未通过/)
+  assert.equal(h.practice.current.value.id, 'code-old')
+  assert.equal(h.practice.current.value.draft, '// 未完成草稿')
+  h.practice.state.programmingPreference = 'implementation'
+  await h.practice.generate()
+  assert.match(h.practice.state.error, /题型.*不一致/)
+})
+
+test('编程测试无需 AI，运行自动执行全部用例，提交重新测试当前代码，保存代码与结果并恢复', async (t) => {
+  const old = { ...record('code'), question: codeQuestion, draft: codeQuestion.programming.starterCode }
+  const executions = [],
+    requests = []
+  const h = harness(
+    t,
+    {
+      dbFetchPractice: async () => ({ 'a.mp4': [old] }),
+      requestGuideJson: async (_settings, messages) => {
+        requests.push(messages)
+        return codeFeedback
+      },
+    },
+    {
+      runCode: async (input) => {
+        executions.push(input)
+        return codeResult(input)
+      },
+    },
+  )
+  await open(h)
+  h.available.value = false
+  await h.practice.executeCode()
+  const codeRun = h.practice.current.value.codeRun
+  assert.equal(codeRun.mode, 'test')
+  assert.deepEqual(
+    codeRun.cases.map((c) => c.id),
+    codeQuestion.programming.tests.map((t) => t.id),
+  )
+  assert.equal(requests.length, 0)
+  h.practice.updateDraft(codeQuestion.programming.referenceCode + '\n')
+  assert.notEqual(h.practice.current.value.codeRun.code, h.practice.current.value.draft)
+  h.available.value = true
+  await h.practice.review()
+  const attempt = h.practice.current.value.attempts[0]
+  assert.equal(executions.at(-1).mode, 'test')
+  assert.equal(attempt.answer, codeQuestion.programming.referenceCode + '\n')
+  assert.equal(attempt.codeRun.code, attempt.answer)
+  assert.match(requests[0][0].content, /实际测试状态不可改写/)
+  assert.match(requests[0][0].content, /"execution"/)
+  assert.equal(attempt.codeRun.cases[0].status, 'failed') // Failing local tests still permit AI review.
+  await h.practice.flush()
+  const restored = restorePractice(h.saves.at(-1)[2], ['a.mp4'])[0]
+  assert.deepEqual(restored.attempts, h.practice.current.value.attempts)
+  assert.deepEqual(restored.codeRun, h.practice.current.value.codeRun)
+  assert.equal(restored.draft, attempt.answer)
+  h.practice.resetCode()
+  assert.equal(h.practice.current.value.draft, codeQuestion.programming.starterCode)
+  assert.equal(h.practice.current.value.attempts[0].answer, attempt.answer)
+})
+
+test('取消运行、切题、换配置和关闭时迟到结果不能写回或请求 AI', async (t) => {
+  const pending = deferred(),
+    old = { ...record('code'), question: codeQuestion, draft: codeQuestion.programming.referenceCode }
+  let lastInput
+  const h = harness(
+    t,
+    { dbFetchPractice: async () => ({ 'a.mp4': [old] }) },
+    {
+      runCode: (input) => {
+        lastInput = input
+        return pending.promise
+      },
+    },
+  )
+  await open(h)
+  const action = h.practice.review()
+  assert.equal(h.practice.state.busy, 'review')
+  h.settings.model = 'changed'
+  await open(h, 'b.mp4')
+  pending.resolve(codeResult(lastInput))
+  await action
+  assert.equal(h.practice.current.value, undefined)
+  assert.equal(h.practice.state.records[0].attempts.length, 0)
+  assert.equal(h.practice.state.records[0].codeRun, undefined)
+  assert.equal(h.calls.length, 0)
+})
+
+test('编程提交可持续修改，保留最近20次；旧代码题仍按原格式读取', async (t) => {
+  const attempts = Array.from({ length: 20 }, (_, i) => ({ answer: `// old ${i}`, at: i + 1, feedback: codeFeedback }))
+  const old = { ...record('code'), question: codeQuestion, draft: codeQuestion.programming.referenceCode, attempts }
+  const h = harness(
+    t,
+    { dbFetchPractice: async () => ({ 'a.mp4': [old] }), requestGuideJson: async () => codeFeedback },
+    { runCode: async (input) => codeResult(input) },
+  )
+  await open(h)
+  assert.equal(h.practice.canReview.value, true)
+  await h.practice.review()
+  assert.equal(h.practice.current.value.attempts.length, 20)
+  assert.equal(h.practice.current.value.attempts[0].answer, '// old 1')
+  assert.equal(h.practice.current.value.attempts.at(-1).answer, codeQuestion.programming.referenceCode)
+  const legacy = { ...record('legacy'), question: { ...codeQuestion, programming: undefined }, draft: 'print(1)' }
+  assert.equal(restorePractice([legacy], ['a.mp4'])[0].draft, 'print(1)')
+})
+
+test('编程记录顺序保存，等待写入完成再退出，失败可重试', async (t) => {
+  const first = deferred(),
+    written = []
+  let calls = 0
+  const old = { ...record('code'), question: codeQuestion, draft: codeQuestion.programming.starterCode }
+  const h = harness(t, {
+    dbFetchPractice: async () => ({ 'a.mp4': [old] }),
+    dbSavePractice: async (_id, _path, records) => {
+      calls++
+      if (calls === 1) await first.promise
+      written.push(records[0].draft)
+      return true
+    },
+  })
+  await open(h)
+  h.practice.updateDraft('// first')
+  h.practice.updateDraft('// second')
+  const flushing = h.practice.flush()
+  await tick()
+  assert.equal(calls, 1)
+  first.resolve()
+  await flushing
+  assert.equal(written.at(-1), '// second')
+  h.io.dbSavePractice = async () => false
+  await assert.rejects(h.practice.flush(), /保存失败/)
+  h.io.dbSavePractice = async () => true
+  await h.practice.flush()
+  assert.equal(h.practice.state.storageError, '')
 })

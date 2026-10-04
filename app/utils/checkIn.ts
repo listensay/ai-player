@@ -1,7 +1,31 @@
 import type { PlaybackSample } from '../types/practice'
 import type { StudyDay } from '../types/checkIn'
+import type { TodayPlan, WorkEntry } from '../types/guide'
 import { isRecord } from './guide.ts'
 import { localDayKey } from './learningFeedback.ts'
+import { dailyPracticeItems } from './dailyPracticeScope.ts'
+
+/** 按当天原安排计算任务进度；倍速不折损完成量，提前学习不增加打卡要求。 */
+export function studyPlanProgress(
+  today: TodayPlan | null,
+  date: string,
+  targetSeconds: number,
+  work: WorkEntry[] = [],
+) {
+  if (today?.date !== date || targetSeconds <= 0) return null
+  const items = dailyPracticeItems(today, date)
+  const entries = work.filter((entry) => entry.date === date && entry.targetMinutes > 0)
+  const videoTarget = Math.min(targetSeconds, Math.max(0, today.minutes * 60))
+  const workTarget = targetSeconds - videoTarget
+  if (!(videoTarget > 0 && items.length) && !(workTarget > 0 && entries.length)) return null
+  const videoTotal = items.reduce((sum, item) => sum + item.seconds, 0)
+  const videoDone = items.filter((item) => item.done).reduce((sum, item) => sum + item.seconds, 0)
+  const workTotal = entries.reduce((sum, entry) => sum + entry.targetMinutes, 0)
+  const workDone = entries.filter((entry) => entry.done).reduce((sum, entry) => sum + entry.targetMinutes, 0)
+  const videoRatio = videoTotal > 0 ? videoDone / videoTotal : 0
+  const workRatio = workTotal > 0 ? workDone / workTotal : 0
+  return Math.min(1, (videoTarget * videoRatio + workTarget * workRatio) / targetSeconds)
+}
 
 /** 用媒体推进确认有效播放，再按真实经过的时间计时，排除跳转与缓冲。 */
 export function effectivePlaybackSeconds(previous: PlaybackSample | null, current: PlaybackSample): number {
@@ -34,13 +58,17 @@ export function splitStudySeconds(end: number, seconds: number): Array<{ date: s
 }
 
 /** extraSeconds 为当天记录的实践时间（编码、项目、复习），与有效看课时长合计判断是否达标。 */
-export function setStudyTarget(day: StudyDay, minutes: number, now: number, extraSeconds = 0) {
+export function setStudyTarget(day: StudyDay, minutes: number, now: number, extraSeconds = 0, planComplete = false) {
   if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) return
   if (day.checkedAt === null) day.targetSeconds = minutes * 60
-  checkStudyDay(day, now, extraSeconds)
+  checkStudyDay(day, now, extraSeconds, planComplete)
 }
-export function checkStudyDay(day: StudyDay, now: number, extraSeconds = 0) {
-  if (day.checkedAt === null && day.targetSeconds > 0 && day.seconds + extraSeconds >= day.targetSeconds)
+export function checkStudyDay(day: StudyDay, now: number, extraSeconds = 0, planComplete = false) {
+  if (
+    day.checkedAt === null &&
+    day.targetSeconds > 0 &&
+    (planComplete || day.seconds + extraSeconds >= day.targetSeconds)
+  )
     day.checkedAt = now
 }
 
@@ -73,7 +101,8 @@ export function restoreStudyDays(raw: unknown): Record<string, StudyDay> {
       date: value.date,
       seconds: value.seconds,
       targetSeconds: value.targetSeconds,
-      checkedAt: value.checkedAt !== null && value.seconds >= value.targetSeconds ? (value.checkedAt as number) : null,
+      // 完成安排或实践投入也能达标，不能仅凭观看时长撤销已保存的打卡。
+      checkedAt: value.checkedAt as number | null,
     }
   }
   return days

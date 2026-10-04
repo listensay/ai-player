@@ -92,6 +92,11 @@ export function provideCourseWorkspace() {
     guide.state.settings,
     guide.configured,
     knowledge,
+    computed(() =>
+      currentView.value === 'player' && course.value && video.value
+        ? JSON.stringify([course.value.id, video.value.path])
+        : null,
+    ),
   )
   watch(
     () =>
@@ -161,6 +166,8 @@ export function provideCourseWorkspace() {
     // 完整学习计划的每日总投入（看课 + 实践）作为打卡目标。
     targetMinutes: guide.todayTotalMinutes.value,
     workSeconds: guide.workSecondsByDate.value,
+    workItems: guide.todayWork.value,
+    ready: guide.guideReady.value && guide.recordsReady.value,
     budgetForDate: (date: string) => {
       if (date === guide.todayDate.value) return guide.todayTotalMinutes.value ?? guide.state.today?.minutes ?? 120
       if (date > guide.todayDate.value && !guide.schedulingEnabled.value) return 0
@@ -199,10 +206,7 @@ export function provideCourseWorkspace() {
     () => checkIn.justCheckedIn.value,
     (day) => {
       if (day) {
-        const hours = Math.floor(day.targetSeconds / 3600)
-        const minutes = Math.floor((day.targetSeconds % 3600) / 60)
-        const timeStr = hours > 0 ? `${hours} 小时${minutes > 0 ? ` ${minutes} 分钟` : ''}` : `${minutes} 分钟`
-        showToast(`今日学习 ${timeStr}，已打卡。`)
+        showToast('今日学习目标已达成，已打卡。')
       }
     },
   )
@@ -216,6 +220,7 @@ export function provideCourseWorkspace() {
   const hasNext = computed(() => !!video.value && !!guide.adjacent(video.value.path, 1))
 
   function onVideoSample(sample: import('~/types/practice').PlaybackSample) {
+    daily.sample(sample)
     companion.sample(sample)
     segment.sample(sample)
     const completed = segment.reminder.value?.item
@@ -262,13 +267,22 @@ export function provideCourseWorkspace() {
     if (video.value?.path === target.path && course.value?.id === courseId) void practice.open(target, scope, snapshot)
   }
 
-  async function openDailyPractice() {
-    if (!daily.complete.value) return
+  const canPromptDaily = computed(
+    () => daily.shouldPrompt.value && !practice.state.open && !helpOpen.value && !daily.practice.state.open,
+  )
+  function openDailyPractice() {
+    return showDailyPractice(false)
+  }
+  async function showDailyPractice(automatic: boolean) {
+    if (!daily.complete.value || (automatic && !canPromptDaily.value)) return
     const courseId = course.value?.id,
-      day = guide.todayDate.value
+      day = guide.todayDate.value,
+      path = video.value?.path,
+      view = currentView.value
     player.pause()
     await leaveFullscreen()
     if (course.value?.id !== courseId || guide.todayDate.value !== day || !daily.complete.value) return
+    if (automatic && (!canPromptDaily.value || video.value?.path !== path || currentView.value !== view)) return
     guideOpen.value = false
     helpOpen.value = false
     practice.close()
@@ -276,11 +290,11 @@ export function provideCourseWorkspace() {
     void daily.open()
   }
   watch(
-    () => daily.shouldPrompt.value && !practice.state.open && !helpOpen.value && !daily.practice.state.open,
+    canPromptDaily,
     (ready) => {
-      if (ready) void openDailyPractice()
+      if (ready) void showDailyPractice(true)
     },
-    { immediate: true },
+    { immediate: true, flush: 'post' },
   )
 
   function practiceSegment() {
@@ -482,7 +496,7 @@ export function provideCourseWorkspace() {
       }
       await useProgress().flush()
       guide.persist()
-      practice.persist()
+      await practice.flush()
       checkIn.persist()
       await daily.flush()
       await pomodoro.flush()
