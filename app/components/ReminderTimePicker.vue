@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { VTimePicker } from 'vuetify/components/VTimePicker'
 import UiButton from './UiButton.vue'
 const model = defineModel<string>({ required: true })
+withDefaults(defineProps<{ label?: string }>(), { label: '提醒时间' })
 const open = ref(false)
 const draft = ref(model.value)
 watch(open, (value) => {
@@ -21,15 +22,15 @@ function confirm() {
       <VTextField
         v-bind="props"
         :model-value="model"
-        label="提醒时间"
+        :label="label"
         readonly
-        aria-label="选择提醒时间"
+        :aria-label="`选择${label}`"
         @keydown.enter.prevent="open = !open"
         @keydown.space.prevent="open = !open"
       />
     </template>
-    <VCard aria-label="提醒时间选择器">
-      <VTimePicker v-model="draft" format="24hr" title="选择提醒时间" />
+    <VCard :aria-label="`${label}选择器`">
+      <VTimePicker v-model="draft" format="24hr" :title="`选择${label}`" />
       <div class="flex justify-end gap-2 p-3">
         <UiButton size="sm" variant="text" @click="open = false">取消</UiButton>
         <UiButton size="sm" variant="dark" @click="confirm">确定</UiButton>

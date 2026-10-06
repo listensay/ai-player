@@ -8,7 +8,7 @@
       <key>CFBundleURLName</key>
       <string>AI Player 学习提醒</string>
       <key>CFBundleURLSchemes</key>
-      <array><string>aiplayer-study</string></array>
+      <array><string>aiplayer-study</string><string>aiplayer</string></array>
     </dict>
   </array>
   <key>NSRemindersUsageDescription</key>

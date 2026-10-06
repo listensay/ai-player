@@ -1,5 +1,17 @@
 # 桌面界面回归
 
+## 学习管理扩展（2026-10-05）
+
+独立构建 **AI Player Learning Check**（`app.aiplayer.learning-management-check`），使用 `scripts/prepare-learning-management-fixture.mjs` 的合成课程。未替换正式安装应用或写入正式数据库。
+
+真实 macOS 窗口验证了首页待复习数量、闪卡翻面与评价后进入下一张、重启保留复习进度、作品登记保存、健康度与心流时段、减负预览及保存、跨课程撤销、防断卡能量扣减和连续天数增加。在 1280×900 与 860×700 下检查了学习管理布局，导航、筛选和主要操作无横向溢出。修复了首页恢复计划重置创建时间导致减负保存误判冲突的问题；保存时保留原始路线和对话，未来预算调整不改动既有投入。
+
+通过真实目录选择器选择 `.cache/learning-management-vault`，成功生成带 Frontmatter、知识总结、练习记录与播放器链接的 Markdown；修改文件内的课程笔记后再次同步，独立 SQLite 记录确认外部文字已回传。启用自动更新后生成了本机 WebCal 地址，实际 HTTP 请求取得有效 ICS；样例文件保存在 `.cache/learning-management-calendar.ics`。
+
+自动检查包含前端 428 项测试与 Rust 38 项测试，覆盖旧库默认值、异常数据、保存失败、复习重复领奖、跨天间隔、减负历史保护及实践时间、日历按日推进、UTF-8 折行、三方合并、AI 取消与迟到响应、Notion 内容冲突、原生文件边界和条件写入。
+
+真实 AI 模型、Notion 账号写入、Apple / Google 日历客户端订阅导入、macOS 快捷指令及全屏桌宠倒计时未进行外部环境验收；相关输入校验、网络失败、计算和状态切换由自动测试覆盖。使用方式与实现范围见 [学习管理扩展](learning-management.md)。
+
 ## 独立样例
 
 `node scripts/prepare-ui-fixture.mjs` 创建 8 节一分钟的合成视频、字幕、笔记和一份已完成第一天的学习计划。应用标识固定为 `app.aiplayer.regression`，不访问正式应用数据库；回归数据库已存在时脚本拒绝覆盖。关闭测试应用后可手动归档其整个数据目录，再重新准备。

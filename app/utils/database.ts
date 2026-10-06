@@ -13,6 +13,8 @@ export type DatabaseCollection =
   | 'library'
   | 'dashboard'
   | 'study-evidence'
+  | 'learning-sources'
+  | 'learning-plan'
   | 'day-snapshots'
   | 'practice-scopes'
   | 'ai-batch-cache'

@@ -17,6 +17,8 @@ import { useShortcuts } from '~/composables/useShortcuts'
 import { useStudyCheckIn } from '~/composables/useStudyCheckIn'
 import { provideDesktopSettings } from './useDesktopSettings'
 import { provideStudyTools } from '~/composables/useStudyTools'
+import { provideLearningManagement } from '~/composables/useLearningManagement'
+import type { ReviewCard } from '~/types/learningManagement'
 import { useReminderLinks } from '~/composables/useReminderLinks'
 import { useTranscripts } from '~/composables/useTranscripts'
 import { useNoteWorkspace } from './useNoteWorkspace'
@@ -40,6 +42,7 @@ export function provideCourseWorkspace() {
 
   const store = useCourseStore()
   const studyTools = provideStudyTools()
+  const learning = provideLearningManagement()
   const desktopSettings = provideDesktopSettings()
   const { stats } = store
   const player = usePlayer()
@@ -56,6 +59,7 @@ export function provideCourseWorkspace() {
   const pendingSeek = ref<{ path: string; seconds: number } | null>(null)
   const { treeOpen, desktopTreeOpen, treeVisible, toggleTree } = usePlayerDirectory()
   const rightPanelOpen = ref(true)
+  const noteRevision = ref(0)
   /** 笔记优先展示；切页签不打断转写与笔记编辑。 */
   const rightTab = ref<'knowledge' | 'notes' | 'transcript'>('notes')
   const transcripts = useTranscripts()
@@ -66,6 +70,44 @@ export function provideCourseWorkspace() {
 
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
+  let focusContext: { startedAt: number; courseId: string; path: string } | null = null
+  watch(
+    () => pomodoro.state.focusHistory.at(-1)?.startedAt,
+    (startedAt) => {
+      if (startedAt) focusContext = { startedAt, courseId: course.value?.id ?? '', path: video.value?.path ?? '' }
+    },
+    { flush: 'sync' },
+  )
+  watch(
+    () => pomodoro.state.focusHistory.at(-1)?.outcome,
+    (outcome) => {
+      const session = pomodoro.state.focusHistory.at(-1)
+      if (
+        outcome === 'completed' &&
+        session?.endedAt &&
+        focusContext?.startedAt === session.startedAt &&
+        learning.state.data.preferences.flowPrompt
+      ) {
+        learning.pendingFlow.value = {
+          ...focusContext,
+          id: `focus:${session.startedAt}`,
+          endedAt: session.endedAt,
+          hour: session.startHour,
+        }
+      }
+    },
+  )
+  watch(
+    () => pomodoro.state.timer.status,
+    (status, previous) => {
+      const shortcut = learning.state.data.preferences.shortcut.trim()
+      if (status === 'running' && previous !== 'running' && pomodoro.state.timer.phase === 'focus' && shortcut) {
+        void desktopInvoke('run_focus_shortcut', { name: shortcut }).catch(() =>
+          showToast('专注快捷指令未完成，请检查快捷指令名称。'),
+        )
+      }
+    },
+  )
   watch(
     () => [course.value?.id, video.value?.path] as const,
     ([id, path], _old, onCleanup) => {
@@ -182,7 +224,7 @@ export function provideCourseWorkspace() {
       return budgetTotal(budgetForDay(plan.program, stageForDay(plan.modules, day)?.practice, day))
     },
   }))
-  const checkIn = useStudyCheckIn(course, checkInPlan)
+  const checkIn = useStudyCheckIn(course, checkInPlan, learning)
   watch(
     () => [course.value?.id, checkIn.state.date, checkIn.seconds.value] as const,
     ([id, date, seconds]) => {
@@ -191,6 +233,7 @@ export function provideCourseWorkspace() {
     { flush: 'sync' },
   )
   const companion = useCompanion({
+    learning,
     pomodoro,
     desktopSettings,
     player,
@@ -213,6 +256,36 @@ export function provideCourseWorkspace() {
         daily.practice.state.open,
     ),
   })
+  let longStudy: { courseId: string; path: string; startedAt: number; seconds: number } | null = null
+  watch(
+    () => player.state.playing,
+    (playing) => {
+      if (playing)
+        longStudy = {
+          courseId: course.value?.id ?? '',
+          path: video.value?.path ?? '',
+          startedAt: Date.now(),
+          seconds: companion.snapshot.value.sessionSeconds,
+        }
+      else {
+        if (
+          !pomodoro.state.settings.enabled &&
+          longStudy &&
+          longStudy.courseId === course.value?.id &&
+          longStudy.path === video.value?.path &&
+          companion.snapshot.value.sessionSeconds - longStudy.seconds >= 1200 &&
+          learning.state.data.preferences.flowPrompt
+        )
+          learning.pendingFlow.value = {
+            ...longStudy,
+            id: `study:${longStudy.startedAt}`,
+            endedAt: Date.now(),
+            hour: new Date(longStudy.startedAt).getHours(),
+          }
+        longStudy = null
+      }
+    },
+  )
 
   watch(
     () => checkIn.justCheckedIn.value,
@@ -277,6 +350,58 @@ export function provideCourseWorkspace() {
     player.pause()
     await leaveFullscreen()
     if (video.value?.path === target.path && course.value?.id === courseId) void practice.open(target, scope, snapshot)
+  }
+
+  async function openWeakPractice(card: ReviewCard) {
+    const identity = { ...card }
+    appDialogs.close()
+    await router.push({
+      path: `/courses/${encodeURIComponent(identity.courseId)}/player`,
+      query: { lesson: identity.path },
+    })
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        stop()
+        reject(Error('课程打开超时，请重新打开课程。'))
+      }, 20000)
+      const stop = watch(
+        () => course.value?.id === identity.courseId && guide.guideReady.value,
+        (ready) => {
+          if (ready) {
+            clearTimeout(timeout)
+            stop()
+            resolve()
+          }
+        },
+        { flush: 'post' },
+      )
+      if (course.value?.id === identity.courseId && guide.guideReady.value) {
+        clearTimeout(timeout)
+        stop()
+        resolve()
+      }
+    })
+    if (course.value?.id !== identity.courseId || !course.value.videos.some((v) => v.path === identity.path))
+      throw Error('原课节暂不可用。')
+    player.pause()
+    await leaveFullscreen()
+    await practice.openSources(
+      identity.path,
+      `薄弱项专练 · ${identity.concepts.join('、') || identity.front}`,
+      async () => [
+        {
+          id: 'weak1',
+          kind: 'summary',
+          path: identity.path,
+          start: identity.seconds,
+          text: `针对以下薄弱知识生成不同情境的变式练习。\n知识点：${identity.concepts.join('、')}\n原问题：${identity.front}\n知识与解析：${identity.back}`.slice(
+            0,
+            12000,
+          ),
+        },
+      ],
+    )
+    if (course.value?.id === identity.courseId && practice.state.path === identity.path) await practice.generate(3)
   }
 
   const canPromptDaily = computed(
@@ -457,11 +582,15 @@ export function provideCourseWorkspace() {
       const path = typeof route.query.lesson === 'string' ? route.query.lesson : ''
       const selected = course.value.videos.find((v) => v.path === path) ?? video.value ?? course.value.videos[0]
       if (!selected) return
+      const canSeekImmediately = video.value?.path === selected.path && player.state.ready
       if (pendingSeek.value?.path !== selected.path) pendingSeek.value = null
       store.selectVideo(selected)
       if (typeof route.query.at === 'string') {
         const seconds = Number(route.query.at)
-        if (Number.isFinite(seconds) && seconds >= 0) pendingSeek.value = { path: selected.path, seconds }
+        if (Number.isFinite(seconds) && seconds >= 0) {
+          if (canSeekImmediately) seekTo(seconds)
+          else pendingSeek.value = { path: selected.path, seconds }
+        }
       }
       if (path !== selected.path)
         void router.replace({ path: route.path, query: { ...route.query, lesson: selected.path } })
@@ -518,6 +647,7 @@ export function provideCourseWorkspace() {
       await daily.flush()
       await pomodoro.flush()
       await studyTools.flush()
+      await learning.flush()
       await flushDatabaseWrites()
     },
   })
@@ -526,6 +656,21 @@ export function provideCourseWorkspace() {
     if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记尚未保存，请保存后重试。')
     await studyTools.flush()
     await flushDatabaseWrites()
+    if (request.lessonLink) {
+      const link = await desktopInvoke<NonNullable<typeof request.lessonLink>>('resolve_lesson_link', {
+        courseId: request.lessonLink.courseId,
+        path: request.lessonLink.path,
+        seconds: request.lessonLink.seconds,
+      })
+      player.pause()
+      await leaveFullscreen()
+      appDialogs.close()
+      await router.push({
+        path: `/courses/${encodeURIComponent(link.courseId)}/player`,
+        query: { lesson: link.path, at: String(link.seconds) },
+      })
+      return
+    }
     const target = await desktopInvoke<ReminderLinkDestination>('resolve_reminder_link', {
       reminderId: request.reminderId,
     })
@@ -561,6 +706,7 @@ export function provideCourseWorkspace() {
     if (target.notice) studyTools.state.notice = target.notice
   })
   const workspace = {
+    noteRevision,
     appDialogs,
     companion,
     pomodoro,
@@ -587,6 +733,8 @@ export function provideCourseWorkspace() {
     course,
     video,
     guide,
+    learning,
+    openWeakPractice,
     practice,
     knowledge,
     daily,

@@ -739,6 +739,7 @@ async function mountDialog(t, practice, listeners = {}) {
   return {
     button,
     find: (type) => walk(root).find((node) => node.type === type),
+    titled: (title) => walk(root).find((node) => node.props.title === title),
     text: () => text(root),
     async click(label) {
       const target = button(label)
@@ -750,6 +751,148 @@ async function mountDialog(t, practice, listeners = {}) {
     },
   }
 }
+
+test('作答后再练一题追加为第二题，重复内容被拦截且不覆盖作答', async (t) => {
+  const h = harness(t)
+  await open(h)
+  await h.practice.generate()
+  const first = h.practice.current.value
+  const dialog = await mountDialog(t, h.practice)
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  assert.equal(first.attempts.length, 1)
+  const savedAttempt = JSON.parse(JSON.stringify(first.attempts[0]))
+
+  await dialog.titled('再练一题').props.onClick()
+  await nextTick()
+  assert.match(h.practice.state.error, /已有题目/)
+  assert.equal(h.practice.history.value.length, 1)
+  assert.equal(h.practice.current.value.id, first.id)
+
+  h.io.requestGuideJson = async (...args) => {
+    h.calls.push(args)
+    return question('访问第二个元素应使用哪个索引？')
+  }
+  await dialog.titled('再练一题').props.onClick()
+  await nextTick()
+  assert.equal(h.practice.state.error, '')
+  assert.equal(h.practice.history.value.length, 2)
+  assert.notEqual(h.practice.current.value.id, first.id)
+  assert.equal(h.practice.current.value.attempts.length, 0)
+  assert.match(dialog.text().replace(/\s+/g, ''), /第2题\/2/)
+  assert.deepEqual(
+    dialog.find('VSelect').props.items.map((item) => item.title),
+    ['第 1 题 · 单选题', '第 2 题 · 单选题'],
+  )
+  const input = JSON.parse(h.calls.at(-1)[1][0].content.split('输入数据：')[1])
+  assert.equal(input.recent[0].prompt, first.question.prompt)
+
+  assert.equal(dialog.titled('下一题').props.disabled, true)
+  await dialog.titled('上一题').props.onClick()
+  await nextTick()
+  assert.equal(h.practice.current.value.id, first.id)
+  assert.equal(h.practice.current.value.draft, '["A"]')
+  assert.deepEqual(JSON.parse(JSON.stringify(h.practice.current.value.attempts[0])), savedAttempt)
+  assert.match(dialog.text().replace(/\s+/g, ''), /第1题\/2/)
+  assert.equal(dialog.titled('上一题').props.disabled, true)
+  // 单题组已答完，但本课还有新题，不能提前显示完成。
+  assert.equal(dialog.button('完成'), undefined)
+  await dialog.click('下一题')
+  assert.equal(h.practice.current.value.question.prompt, '访问第二个元素应使用哪个索引？')
+})
+
+test('整组与单题混合追加保持连续题号，跨组导航、漏答续练及恢复顺序一致', async (t) => {
+  const h = harness(t, {
+    requestGuideJson: async () => ({ questions: [question('第一题'), question('第二题'), question('第三题')] }),
+  })
+  await open(h)
+  await h.practice.generate(3)
+  const firstGroup = practiceGroup(h.practice.history.value, h.practice.current.value)
+  const dialog = await mountDialog(t, h.practice)
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+
+  for (const prompt of ['第四题', '第五题']) {
+    h.io.requestGuideJson = async () => question(prompt)
+    await dialog.titled('再练一题').props.onClick()
+  }
+  h.io.requestGuideJson = async () => ({ questions: [question('第六题'), question('第七题'), question('第八题')] })
+  await dialog.titled('再练一组').props.onClick()
+  await nextTick()
+  const ids = [...h.practice.history.value].reverse().map((r) => r.id)
+  const expectedItems = ids.map((id, index) => ({ value: id, title: `第 ${index + 1} 题 · 单选题` }))
+  const pickerItems = () => dialog.find('VSelect').props.items.map(({ value, title }) => ({ value, title }))
+  assert.deepEqual(pickerItems(), expectedItems)
+  assert.match(dialog.text().replace(/\s+/g, ''), /第6题\/8/)
+  assert.deepEqual(
+    practiceGroup(h.practice.history.value, firstGroup[0]).map((r) => r.id),
+    firstGroup.map((r) => r.id),
+  )
+
+  // 顶部上一题/下一题可以穿过单题组和整组边界，不会跳回各组的第一题。
+  for (const index of [4, 3, 2, 1, 0]) {
+    await dialog.titled('上一题').props.onClick()
+    await nextTick()
+    assert.equal(h.practice.current.value.id, ids[index])
+    assert.match(dialog.text().replace(/\s+/g, ''), new RegExp(`第${index + 1}题/8`))
+  }
+  assert.equal(dialog.titled('上一题').props.disabled, true)
+  for (let index = 1; index < ids.length; index++) {
+    await dialog.titled('下一题').props.onClick()
+    await nextTick()
+    assert.equal(h.practice.current.value.id, ids[index])
+  }
+  assert.equal(dialog.titled('下一题').props.disabled, true)
+
+  // 先答最后一题，续练按本课顺序回到第二题，不只回到最后一组。
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  assert.match(dialog.text(), /整组得分.*已答 1 \/ 3 题/s)
+  assert.equal(dialog.button('完成'), undefined)
+  await dialog.click('下一题')
+  assert.equal(h.practice.current.value.id, ids[1])
+
+  h.practice.close()
+  h.practice.state.records = restorePractice(JSON.parse(JSON.stringify(h.saves.at(-1)[2])), ['a.mp4'])
+  await open(h)
+  await nextTick()
+  assert.deepEqual(pickerItems(), expectedItems)
+  assert.match(dialog.text().replace(/\s+/g, ''), /第8题\/8/)
+})
+
+test('旧记录和同一时间生成的不同批次使用同一套连续题号，课节之间互不混排', async (t) => {
+  const records = [
+    { ...record('single'), groupId: 'single-group' },
+    { ...record('batch-two'), groupId: 'batch-group' },
+    { ...record('batch-one'), groupId: 'batch-group' },
+    record('legacy-scoped'),
+    record('legacy'),
+  ]
+  records[3].scope = { start: 0, end: 30 }
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': records, 'b.mp4': [record('other', 'b.mp4')] }) })
+  await open(h)
+  const dialog = await mountDialog(t, h.practice)
+  const items = dialog.find('VSelect').props.items
+  assert.deepEqual(
+    items.map((item) => item.value),
+    ['legacy', 'legacy-scoped', 'batch-one', 'batch-two', 'single'],
+  )
+  assert.deepEqual(
+    items.map((item) => item.title),
+    Array.from({ length: 5 }, (_, i) => `第 ${i + 1} 题 · 单选题`),
+  )
+  assert.match(dialog.text().replace(/\s+/g, ''), /第5题\/5/)
+  await open(h, 'b.mp4')
+  await nextTick()
+  assert.deepEqual(
+    dialog.find('VSelect').props.items.map((item) => item.value),
+    ['other'],
+  )
+  assert.match(dialog.text().replace(/\s+/g, ''), /第1题\/1/)
+})
 
 test('知识点准备失败后明确提示并可在弹窗重试，恢复后正常出题', async (t) => {
   let attempts = 0,
@@ -1218,5 +1361,72 @@ D. 函数只能操作全局变量，不能接收外部输入`
   assert.equal(
     validated.prompt,
     '根据课程介绍，面向函数编程的核心理念之一是“函数是一等公民”。以下哪一项描述正确体现了这一理念？',
+  )
+})
+
+test('课后练习题型与题数由 AI 依据知识点自主决定，界面不再向用户展示题型与题数选择器', async (t) => {
+  const generatedQuestions = [
+    question('知识点一考查：单选题'),
+    {
+      ...question('知识点二考查：判断题'),
+      kind: 'true-false',
+      options: [
+        { id: 'true', text: '正确' },
+        { id: 'false', text: '错误' },
+      ],
+      correctOptionIds: ['true'],
+    },
+    {
+      ...question('知识点三考查：简答题'),
+      kind: 'explain',
+      knowledge: { category: 'concept', level: 'proficiency', reason: '简答考查熟练度' },
+      options: undefined,
+      correctOptionIds: undefined,
+    },
+    {
+      ...codeQuestion,
+      prompt: '知识点四考查：编程题',
+    },
+  ]
+
+  let sentMessages = []
+  const h = harness(
+    t,
+    {
+      requestGuideJson: async (_settings, messages) => {
+        sentMessages = messages
+        return { questions: structuredClone(generatedQuestions) }
+      },
+    },
+    {
+      runCode: async (input) => codeResult(input),
+    },
+  )
+
+  await open(h)
+  const dialog = await mountDialog(t, h.practice)
+
+  // 验证弹窗不再向用户提供题型选择和题数选择
+  assert.doesNotMatch(dialog.text(), /代码补全 · JavaScript/)
+  assert.doesNotMatch(dialog.text(), /每组题数/)
+  assert.match(dialog.text(), /题型与题数由 AI 根据本课知识点内容、深度与数量智能生成/)
+
+  // 触发生成练习（自动模式）
+  await dialog.click('生成练习')
+  while (h.practice.state.busy) await tick()
+
+  // 验证 AI Prompt 提示 AI 自主评估并决定题数与题型
+  assert.ok(sentMessages.length > 0)
+  assert.match(sentMessages[0].content, /自主评估并决定生成最合适数量/)
+  assert.match(sentMessages[0].content, /为每道题自主选择最匹配的题型/)
+  assert.match(sentMessages[0].content, /按材料选择题型/)
+
+  if (h.practice.state.error) console.log('ERROR:', h.practice.state.error)
+  assert.equal(h.practice.state.error, '')
+  assert.equal(h.practice.history.value.length, 4)
+  assert.equal(h.practice.state.questionCount, 4)
+  assert.deepEqual(
+    [...h.practice.history.value].reverse().map((r) => r.question.kind),
+    ['single-choice', 'true-false', 'explain', 'code'],
   )
 })

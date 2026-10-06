@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { provideMilestones } from '~/composables/useMilestones'
 import MilestoneCelebration from '~/components/MilestoneCelebration.vue'
+import FlowCheckInPrompt from '~/components/FlowCheckInPrompt.vue'
 import AppUtilityDialog from '~/components/AppUtilityDialog.vue'
 import { isAppDialogKind } from '~/composables/useAppDialogs'
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
@@ -156,5 +157,6 @@ watch(
     />
     <AppUtilityDialog />
     <MilestoneCelebration />
+    <FlowCheckInPrompt />
   </VApp>
 </template>

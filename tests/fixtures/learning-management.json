@@ -1,0 +1,17 @@
+{
+  "identifier": "app.aiplayer.learning-management-check",
+  "productName": "AI Player Learning Check",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Player Learning Check",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 860,
+        "minHeight": 640,
+        "maximized": false
+      }
+    ]
+  }
+}

@@ -76,7 +76,7 @@ export function useLessonPractice(
     preparedSources: null as PracticeSource[] | null,
     questionCount: mode === 'daily' ? 1 : 3,
     generationProgress: '',
-    retryGenerationCount: 0,
+    retryGenerationCount: 0 as number | 'auto',
     programmingPreference: 'auto' as ProgrammingPreference,
   }
   // Keep recursive JSON test inputs out of Vue's recursive UnwrapRef type expansion.
@@ -372,7 +372,7 @@ export function useLessonPractice(
     }
   }
 
-  async function generate(count = 1) {
+  async function generate(count: number | 'auto' = 1) {
     if (state.busy || !state.open || !activeId || !state.historyReady) return
     if (mode === 'daily') {
       if (history.value.length) return
@@ -388,7 +388,7 @@ export function useLessonPractice(
       state.error = '请先在 AI 设置中填写服务地址和模型。'
       return
     }
-    if (!Number.isInteger(count) || count < 1 || count > 8) return
+    if (count !== 'auto' && (!Number.isInteger(count) || count < 1 || count > 8)) return
     const controller = new AbortController()
     request = controller
     state.busy = 'generate'
@@ -421,12 +421,13 @@ export function useLessonPractice(
           : count === 1
             ? [allBatches[history.value.length % allBatches.length]!]
             : allBatches
-      if (batches.length * count > historyLimit)
-        throw new Error(`知识点较多，请减少每组题数（本次最多保留 ${historyLimit} 题）。`)
+      const batchExpectedCount = typeof count === 'number' ? count : 4
+      if (batches.length * batchExpectedCount > historyLimit)
+        throw new Error(`知识点较多，请精简补充材料后重试（本次最多保留 ${historyLimit} 题）。`)
       const previous = history.value.map((r) => r.question)
       const identity = {
         kind: 'practice',
-        promptVersion: 3,
+        promptVersion: 4,
         courseId: activeId,
         path,
         title: state.title,
@@ -460,8 +461,25 @@ export function useLessonPractice(
             controller.signal,
           ),
         validate: async (raw, batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) => {
-          const questions = count === 1 ? [raw] : isRecord(raw) && Array.isArray(raw.questions) ? raw.questions : []
-          if (questions.length !== count) throw new Error('AI 返回的题目数量不完整，请重试。')
+          const questions =
+            count === 1
+              ? [raw]
+              : Array.isArray(raw)
+                ? raw
+                : isRecord(raw) && Array.isArray(raw.questions)
+                  ? raw.questions
+                  : count === 'auto' && isRecord(raw) && raw.kind
+                    ? [raw]
+                    : []
+          if (typeof count === 'number' && count > 1 && questions.length !== count) {
+            throw new Error('AI 返回的题目数量不完整，请重试。')
+          }
+          if ((count === 1 || count === 'auto') && !questions.length) {
+            throw new Error('AI 返回的题目数量不完整，请重试。')
+          }
+          if (count === 'auto' && questions.length > historyLimit) {
+            throw new Error('AI 返回的题目数量超出限制，请重试。')
+          }
           const validated: ReturnType<typeof validatePracticeQuestion>[] = []
           for (const item of questions) {
             const question =
@@ -504,6 +522,7 @@ export function useLessonPractice(
       )
       for (const record of pending) state.records = appendPracticeRecord(state.records, record, historyLimit)
       state.selectedId = pending[0]?.id ?? ''
+      state.questionCount = pending.length
       state.retryGenerationCount = 0
       if (await persist()) {
         await completeAiBatches(identity)

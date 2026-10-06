@@ -67,25 +67,32 @@ const sourceLabels = {
   supplement: daily ? '今日知识汇总' : '补充材料',
   summary: '知识点总结',
 }
+// 题号与导航使用本课完整出题顺序；生成批次只用于独立计分。
+const orderedHistory = computed(() => [...history.value].reverse())
 const historyItems = computed(() =>
-  [...history.value].reverse().map((record) => ({
+  orderedHistory.value.map((record, index) => ({
     value: record.id,
-    title: `第 ${practiceGroup(history.value, record).findIndex((item) => item.id === record.id) + 1} 题 · ${PRACTICE_KIND_LABELS[record.question.kind]}`,
+    title: `第 ${index + 1} 题 · ${PRACTICE_KIND_LABELS[record.question.kind]}`,
     subtitle: `${record.attempts.length ? '已作答' : '未作答'} · ${record.question.concepts.join('、')}`,
   })),
 )
 const group = computed(() => practiceGroup(history.value, current.value))
 const groupScore = computed(() => practiceGroupScore(group.value))
-const questionNumber = computed(() => group.value.findIndex((item) => item.id === current.value?.id) + 1)
-const lastQuestion = computed(() => questionNumber.value > 0 && questionNumber.value === group.value.length)
+const questionNumber = computed(() => orderedHistory.value.findIndex((item) => item.id === current.value?.id) + 1)
+const lastQuestion = computed(() => questionNumber.value > 0 && questionNumber.value === orderedHistory.value.length)
 const showGroupScore = computed(() => !daily && !!group.value.at(-1)?.attempts.length)
 const reachedLimit = computed(
   () => !programming.value && (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT,
 )
 const canContinue = computed(() => !daily && !!attempt.value && (answerSubmitted.value || reachedLimit.value))
-const allQuestionsCompleted = computed(() => groupScore.value.total > 0 && groupScore.value.unanswered === 0)
+const allQuestionsCompleted = computed(
+  () => orderedHistory.value.length > 0 && orderedHistory.value.every((record) => record.attempts.length > 0),
+)
 const nextUnansweredQuestion = computed(() => {
-  const following = [...group.value.slice(questionNumber.value), ...group.value.slice(0, questionNumber.value - 1)]
+  const following = [
+    ...orderedHistory.value.slice(questionNumber.value),
+    ...orderedHistory.value.slice(0, questionNumber.value - 1),
+  ]
   return following.find((record) => !record.attempts.length)
 })
 function continueQuestions() {
@@ -150,7 +157,8 @@ function choose(id: string, checked = true) {
   props.practice.updateDraft(JSON.stringify(ids))
 }
 function navigateQuestion(direction: number) {
-  const item = group.value[questionNumber.value - 1 + direction]
+  if (state.busy) return
+  const item = orderedHistory.value[questionNumber.value - 1 + direction]
   if (item) props.practice.select(item.id)
 }
 async function showMaterials() {
@@ -234,14 +242,14 @@ async function upload(event: Event) {
             <template #selection
               ><span class="font-bold"
                 >第 {{ questionNumber || '—' }} 题
-                <span class="ml-1 font-normal text-stone">/ {{ group.length }}</span></span
+                <span class="ml-1 font-normal text-stone">/ {{ orderedHistory.length }}</span></span
               ></template
             >
             <template #item="{ props: itemProps, item }"
               ><VListItem v-bind="itemProps" :subtitle="item.raw.subtitle"
             /></template>
           </VSelect>
-          <div v-if="!daily && group.length > 1 && current" class="flex shrink-0">
+          <div v-if="!daily && orderedHistory.length > 1 && current" class="flex shrink-0">
             <UiButton
               variant="text"
               size="sm"
@@ -667,24 +675,9 @@ async function upload(event: Event) {
                       {{ sources.filter((s) => s.kind === 'summary').length }} 个知识点
                     </p>
                     <p v-if="state.materialNotice" class="text-body-sm text-stone">{{ state.materialNotice }}</p>
-                    <VSelect
-                      v-if="!daily"
-                      v-model="state.programmingPreference"
-                      label="练习题型"
-                      :items="[
-                        { title: '按学习内容选择', value: 'auto' },
-                        { title: '代码补全 · JavaScript', value: 'completion' },
-                        { title: '功能实现 · JavaScript', value: 'implementation' },
-                      ]"
-                      :disabled="!!state.busy"
-                    />
-                    <VSelect
-                      v-if="!daily"
-                      v-model="state.questionCount"
-                      label="每组题数"
-                      :items="[3, 5, 8]"
-                      :disabled="!!state.busy"
-                    />
+                    <p v-if="!daily" class="text-caption text-stone">
+                      练习题型与题数由 AI 根据本课知识点内容、深度与数量智能生成。
+                    </p>
                     <VTextarea
                       v-if="!daily"
                       v-model="state.supplement"
@@ -757,7 +750,7 @@ async function upload(event: Event) {
                   : `本题反馈 ${current.attempts.length} / ${PRACTICE_ATTEMPT_LIMIT} 次`
               : daily
                 ? '一道综合练习'
-                : `每组 ${state.questionCount} 题`
+                : '根据知识点智能生成'
           }}</span>
           <div class="ml-auto flex flex-wrap gap-2">
             <UiButton v-if="daily" variant="text" :disabled="!!state.busy" @click="practice.close()">{{
@@ -784,9 +777,9 @@ async function upload(event: Event) {
                   >继续出题<AppIcon name="chevron-down" :size="16" /></UiButton
               ></template>
               <VList aria-label="继续出题"
-                ><VListItem title="再练一题" @click="practice.generate()" /><VListItem
-                  :title="`再练一组（每组 ${state.questionCount} 题）`"
-                  @click="practice.generate(state.questionCount)"
+                ><VListItem title="再练一题" @click="practice.generate(1)" /><VListItem
+                  title="再练一组"
+                  @click="practice.generate('auto')"
               /></VList>
             </VMenu>
             <UiButton v-if="current && view === 'materials'" variant="dark" @click="view = 'question'"
@@ -826,7 +819,7 @@ async function upload(event: Event) {
             <UiButton v-else-if="current" variant="dark" :disabled="!canReview" @click="practice.review()">{{
               submitLabel
             }}</UiButton>
-            <UiButton v-else variant="dark" :disabled="!canGenerate" @click="practice.generate(state.questionCount)"
+            <UiButton v-else variant="dark" :disabled="!canGenerate" @click="practice.generate('auto')"
               ><AppIcon name="sparkles" :size="16" />生成练习</UiButton
             >
           </div>

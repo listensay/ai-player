@@ -464,7 +464,7 @@ test('播放进度保存失败保留队列，重试完成后才清除；重启�
   f.faults.write = true
   await assert.rejects(progress.flush())
   assert.equal(progress.state.pendingCount, 1)
-  progress.update('course', 'a.mp4', 98, 100)
+  progress.update('course', 'a.mp4', 100, 100, { ended: true })
   f.faults.write = false
   await progress.retry()
   assert.equal(progress.state.pendingCount, 0)
@@ -472,8 +472,56 @@ test('播放进度保存失败保留队列，重试完成后才清除；重启�
   const reopened = createProgressStore()
   t.after(reopened.dispose)
   await reopened.ready()
-  assert.equal(reopened.get('course', 'a.mp4').time, 98)
+  assert.equal(reopened.get('course', 'a.mp4').time, 100)
   assert.equal(reopened.get('course', 'a.mp4').done, true)
+})
+
+test('播放到 95% 或接近片尾仍未完成，保存重启后保留续播位置', async (t) => {
+  const f = fixture(t),
+    progress = createProgressStore()
+  t.after(progress.dispose)
+  await progress.ready()
+  const duration = 19 * 60 + 43
+  for (const time of [duration * 0.95, 18 * 60 + 50, duration * 0.98, duration - 0.01, duration]) {
+    progress.update('course', 'a.mp4', time, duration)
+    assert.equal(progress.get('course', 'a.mp4').done, false)
+    assert.equal(progress.get('course', 'a.mp4').time, time)
+    await progress.flush()
+    assert.equal(f.progress().done, 0)
+  }
+  progress.update('course', 'a.mp4', 18 * 60 + 50, duration)
+  await progress.flush()
+  f.restart()
+  const reopened = createProgressStore()
+  t.after(reopened.dispose)
+  await reopened.ready()
+  assert.equal(reopened.get('course', 'a.mp4').time, 1130)
+  assert.equal(reopened.get('course', 'a.mp4').ratio, 1130 / duration)
+  assert.equal(reopened.get('course', 'a.mp4').done, false)
+})
+
+test('播放结束才自动完成，重播保留完成标记，重置后不再按比例完成', async (t) => {
+  const f = fixture(t),
+    progress = createProgressStore()
+  t.after(progress.dispose)
+  await progress.ready()
+  progress.update('course', 'a.mp4', 99.99, 100, { ended: true })
+  assert.equal(progress.get('course', 'a.mp4').done, true)
+  progress.update('course', 'a.mp4', 5, 100)
+  await progress.flush()
+  assert.equal(f.progress().time, 5)
+  assert.equal(f.progress().done, 1)
+  progress.markDone('course', 'a.mp4', false)
+  assert.equal(progress.get('course', 'a.mp4').time, 0)
+  assert.equal(progress.get('course', 'a.mp4').done, false)
+  progress.update('course', 'a.mp4', 98, 100)
+  await progress.flush()
+  assert.equal(f.progress().done, 0)
+  progress.markDone('course', 'a.mp4', true)
+  await progress.flush()
+  assert.equal(f.progress().time, 100)
+  assert.equal(f.progress().ratio, 1)
+  assert.equal(f.progress().done, 1)
 })
 
 test('进度保存中的新修改不会被旧写入出队操作删除', async (t) => {

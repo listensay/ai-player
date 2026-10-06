@@ -2,6 +2,7 @@ mod asr;
 mod companion;
 mod db;
 mod files;
+mod learning_integrations;
 mod mac_reminders;
 mod media_duration;
 mod reminder_links;
@@ -77,11 +78,11 @@ async fn export_study_digest(
     format: String,
     bytes: Vec<u8>,
 ) -> db::Result<bool> {
-    if bytes.len() > 20_000_000 || !matches!(format.as_str(), "md" | "png") {
+    if bytes.len() > 20_000_000 || !matches!(format.as_str(), "md" | "png" | "ics") {
         return Err("报告格式或大小无效".into());
     }
     if (format == "png" && !bytes.starts_with(b"\x89PNG\r\n\x1a\n"))
-        || (format == "md" && std::str::from_utf8(&bytes).is_err())
+        || (matches!(format.as_str(), "md" | "ics") && std::str::from_utf8(&bytes).is_err())
     {
         return Err("报告内容无效".into());
     }
@@ -146,6 +147,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(asr::AsrManager::default())
         .manage(reminder_links::ReminderLinks::default())
+        .manage(learning_integrations::CalendarServer::default())
         .manage(companion::CompanionHitState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
@@ -191,6 +193,11 @@ pub fn run() {
             database_request,
             export_learning_plan,
             export_study_digest,
+            learning_integrations::publish_learning_calendar,
+            learning_integrations::choose_knowledge_vault,
+            learning_integrations::knowledge_vault_document,
+            learning_integrations::open_learning_resource,
+            learning_integrations::run_focus_shortcut,
             export_performance_report,
             mac_reminders::mac_reminders_status,
             mac_reminders::mac_reminders_export,
@@ -198,6 +205,7 @@ pub fn run() {
             reminder_links::pending_reminder_link,
             reminder_links::acknowledge_reminder_link,
             reminder_links::resolve_reminder_link,
+            reminder_links::resolve_lesson_link,
             files::choose_course_folder,
             files::course_locations,
             files::save_course_location,

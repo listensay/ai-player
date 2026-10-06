@@ -7,6 +7,8 @@ import { restoreFeedback, localDayKey } from './learningFeedback.ts'
 import { parseProgram, restoreStudyRecords } from './studyProgram.ts'
 
 export interface HomeCourse {
+  /** Original record used only for optimistic persistence comparisons. */
+  sourcePlan?: unknown
   course: LibraryCourse
   context: DailyContext | null
   days: Record<string, StudyDay>
@@ -74,6 +76,14 @@ export function restoreHomeCourse(raw: unknown, today = localDayKey()): HomeCour
       ]),
     ]
     const plan = guide.plan ? validateLearningPlan(guide.plan, paths, true) : null
+    result.sourcePlan = guide.plan ?? null
+    if (
+      plan &&
+      isRecord(guide.plan) &&
+      typeof guide.plan.createdAt === 'number' &&
+      Number.isFinite(guide.plan.createdAt)
+    )
+      plan.createdAt = guide.plan.createdAt
     if (plan && isRecord(guide.plan) && guide.plan.program) plan.program = parseProgram(guide.plan.program)
     const feedback = restoreFeedback(guide, paths)
     result.context = {

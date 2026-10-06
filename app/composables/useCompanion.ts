@@ -24,8 +24,10 @@ import {
   snoozeCompanionCare,
 } from '~/utils/companion'
 import type { CompanionAction, CompanionSnapshot } from '~/utils/companion'
+import type { provideLearningManagement } from './useLearningManagement'
 
 export function useCompanion(options: {
+  learning?: ReturnType<typeof provideLearningManagement>
   pomodoro?: ReturnType<typeof createPomodoro>
   desktopSettings: ReturnType<typeof provideDesktopSettings>
   player: ReturnType<typeof usePlayer>
@@ -61,12 +63,20 @@ export function useCompanion(options: {
         { notes: [], practices: [] },
         [],
         digestPeriod('week', 0),
+        undefined,
+        options.learning?.state.data.rewardDays,
       ).growth.level
     } catch {
       /* Growth decoration must never block playback or overwrite learning records. */
     }
   }
   const error = ref('')
+  watch(
+    () => options.learning?.state.data.rewardDays.length,
+    () => {
+      void refreshGrowth()
+    },
+  )
   const { miniOpen, opening, openMini, toggleMini } = useCompanionWindow(() => publish(true), error)
   let previous: PlaybackSample | null = null
   let previousKey = ''
@@ -112,6 +122,12 @@ export function useCompanion(options: {
       celebration.value = ''
     }, 6500)
   }
+  watch(
+    () => options.learning?.reward.value,
+    (day) => {
+      if (day) celebrate('抗遗忘复习完成 · 亲密度 +5', `review:${day}`)
+    },
+  )
   // Snapshot IDs and booleans: hydration, date changes and plan replacement aren't achievements.
   watch(
     () => ({
@@ -188,6 +204,11 @@ export function useCompanion(options: {
         : []
     return {
       bondLevel: bondLevel.value,
+      quietFocus:
+        !!options.learning?.state.data.preferences.quietFocus &&
+        state.fullscreen &&
+        options.pomodoro?.snapshot.value.phase === 'focus' &&
+        options.pomodoro?.snapshot.value.status === 'running',
       lessonKey: lessonKey.value,
       lesson: video.value?.title ?? '',
       course: course.value?.name ?? '',

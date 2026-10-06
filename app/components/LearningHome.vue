@@ -20,6 +20,10 @@ import { dailyPlanComplete } from '~/utils/knowledge'
 import UiButton from '~/components/UiButton.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import WelcomeScreen from '~/components/WelcomeScreen.vue'
+import { useLearningManagement } from '~/composables/useLearningManagement'
+import { useAppDialogs } from '~/composables/useAppDialogs'
+const learning = useLearningManagement(),
+  dialogs = useAppDialogs()
 
 const store = useCourseStore(),
   router = useRouter(),
@@ -164,6 +168,21 @@ function taskTitle(path: string) {
       {{ error || store.state.error }}
     </p>
     <p v-if="partial" role="status" class="text-caption text-error">部分课程读取失败。</p>
+    <section
+      v-if="learning.state.ready"
+      class="pane flex flex-wrap items-center justify-between gap-4 p-5"
+      aria-label="今日待复习"
+    >
+      <div>
+        <h2 class="text-subheading">今日待复习 · {{ learning.due.value.length }}</h2>
+        <p class="mt-1 text-body-sm text-stone">
+          {{ learning.due.value.length ? '花几分钟，把学过的知识记牢。' : '今天的复习已完成。' }}
+        </p>
+      </div>
+      <UiButton @click="dialogs.open('study', 'review')">{{
+        learning.due.value.length ? '开始复习' : '查看复习卡'
+      }}</UiButton>
+    </section>
     <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div class="min-w-0 space-y-6">
         <section v-if="resume" class="rounded-3xl bg-sunbeam-yellow p-6 md:p-7" aria-label="继续学习">

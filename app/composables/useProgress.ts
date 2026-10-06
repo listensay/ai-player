@@ -6,8 +6,6 @@ import { dbFetchAllProgress, dbSaveProgress } from '~/utils/dbClient'
  * 观看进度：存在 SQLite 数据库 video_progress 表中。
  * 结构：{ [courseId]: { [videoPath]: VideoProgress } }
  */
-const DONE_RATIO = 0.95
-
 type ProgressMap = Record<string, Record<string, VideoProgress>>
 
 export function createProgressStore(
@@ -103,7 +101,8 @@ export function createProgressStore(
     const bucket = (state.map[courseId] ??= {})
     const prev = bucket[path]
     const ratio = Math.min(1, Math.max(0, time / duration))
-    const done = opts.ended || ratio >= DONE_RATIO || prev?.done === true
+    // Playback position alone is not completion; wait for the media ended event.
+    const done = opts.ended === true || prev?.done === true
     bucket[path] = { time, duration, ratio, done, updatedAt: Date.now() }
     scheduleSave({ courseId, path, time, duration, ratio, done })
   }

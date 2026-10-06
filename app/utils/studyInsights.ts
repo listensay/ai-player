@@ -65,6 +65,7 @@ export function buildStudyInsights(
   history: FocusSession[],
   period: { start: string; end: string; label: string },
   today = localDayKey(),
+  reviewDays: string[] = [],
 ) {
   const within = (day: string) => validDate(day) && day >= period.start && day <= period.end
   const atPeriod = (at: number) => within(localDayKey(new Date(at)))
@@ -169,7 +170,8 @@ export function buildStudyInsights(
         .map((s) => s.startedAt),
     ).size,
   })
-  const points = checkDays.size * 10 + stageTasks * 5
+  const points =
+    checkDays.size * 10 + stageTasks * 5 + new Set(reviewDays.filter((d) => validDate(d) && d <= today)).size * 5
   const level = points >= 300 ? 3 : points >= 70 ? 2 : 1
   return {
     period,

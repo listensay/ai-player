@@ -10,18 +10,27 @@ import type { StudyReminder } from '~/types/studyTools'
 import UiButton from '~/components/UiButton.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import StudyFormDialog from '~/components/StudyFormDialog.vue'
+import ReviewQueuePanel from '~/components/ReviewQueuePanel.vue'
+import LearningOutcomesPanel from '~/components/LearningOutcomesPanel.vue'
+import LearningHealthPanel from '~/components/LearningHealthPanel.vue'
+import LearningConnectionsPanel from '~/components/LearningConnectionsPanel.vue'
 
 const props = defineProps<{ initialSection?: string }>()
-const activeSection = ref<'insights' | 'reminders'>('insights')
+const activeSection = ref('insights')
 watch(
   () => props.initialSection,
   (section) => {
-    activeSection.value = section === 'reminders' ? 'reminders' : 'insights'
+    activeSection.value = ['insights', 'reminders', 'review', 'outcomes', 'connections'].includes(section ?? '')
+      ? section!
+      : 'insights'
   },
   { immediate: true },
 )
 const sections = [
   { id: 'insights', title: '成长与复盘', icon: 'dashboard' },
+  { id: 'review', title: '抗遗忘复习', icon: 'reset' },
+  { id: 'outcomes', title: '实践作品', icon: 'graduation' },
+  { id: 'connections', title: '知识库与日历', icon: 'note' },
   { id: 'reminders', title: '学习提醒', icon: 'bell' },
 ] as const
 const tools = useStudyTools(),
@@ -126,13 +135,17 @@ const coursePaused = (id: string) =>
 </script>
 
 <template>
-  <section class="scroll-soft min-h-0 flex-1 overflow-y-auto">
+  <section class="learning-management-surface scroll-soft min-h-0 flex-1 overflow-y-auto bg-page-cream">
     <div class="mx-auto max-w-5xl px-5 py-8">
       <p v-if="tools.state.error || home.error.value" role="alert" class="text-body-sm text-error">
         {{ tools.state.error || home.error.value }}
       </p>
       <div class="grid items-start gap-8 sm:grid-cols-[minmax(0,1fr)_168px]">
         <div class="min-w-0">
+          <ReviewQueuePanel v-if="activeSection === 'review'" id="study-review" />
+          <LearningOutcomesPanel v-if="activeSection === 'outcomes'" id="study-outcomes" />
+          <LearningConnectionsPanel v-if="activeSection === 'connections'" id="study-connections" />
+          <LearningHealthPanel v-if="activeSection === 'insights'" class="mb-8" />
           <StudyInsightsPanel
             v-show="activeSection === 'insights'"
             id="study-insights"
@@ -344,3 +357,9 @@ const coursePaused = (id: string) =>
     </StudyFormDialog>
   </section>
 </template>
+
+<style scoped>
+.learning-management-surface {
+  --color-page-cream: #f9f4f2;
+}
+</style>

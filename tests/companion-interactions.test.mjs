@@ -12,6 +12,7 @@ const { descriptor } = parse(readFileSync(filename, 'utf8'))
 const compiled = compileScript(descriptor, { id: 'pet-interactions' })
   .content.replace(/import PlayboMascot from .*\n/, 'const PlayboMascot = {}\n')
   .replace(/import AppIcon from .*\n/, 'const AppIcon = {}\n')
+  .replace("from '~/utils/checkIn'", `from '${new URL('../app/utils/checkIn.ts', import.meta.url).href}'`)
   .replaceAll("from 'vue'", `from '${import.meta.resolve('vue')}'`)
 const { outputText } = ts.transpileModule(compiled, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -56,6 +57,14 @@ function mount(t) {
   })
   return { pet, props, events, app, windowEvents }
 }
+test('全屏安静陪读收起气泡，退出后恢复原有提示', (t) => {
+  const { pet, props } = mount(t)
+  assert.equal(pet.bubbleVisible.value, true)
+  props.state.quietFocus = true
+  assert.equal(pet.bubbleVisible.value, false)
+  props.state.quietFocus = false
+  assert.equal(pet.bubbleVisible.value, true)
+})
 test('单击回应四秒后恢复状态，双击只发送一次播放指令', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const { pet, events } = mount(t)

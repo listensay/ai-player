@@ -63,6 +63,7 @@ const monthLabel = computed(() => {
 
 function detailFor(date: string) {
   const record = checkIn?.state.days[date]
+  const protection = checkIn?.protections.value.find((p) => p.date === date)
   const isChecked = record?.checkedAt != null
   const isToday = date === todayKey.value
   const seconds = checkIn?.secondsFor(date) ?? record?.seconds ?? 0
@@ -82,19 +83,23 @@ function detailFor(date: string) {
     endDate: checkIn?.endDate.value,
     checkedAt: record?.checkedAt,
   })
-  const status = isChecked
-    ? '已打卡'
-    : isRest
-      ? '休息日'
-      : isMissed
-        ? '未达标'
-        : date > todayKey.value
-          ? '尚未开始'
-          : targetSeconds === 0
-            ? '无学习目标'
-            : seconds > 0
-              ? '已学习'
-              : '未学习'
+  const status = protection
+    ? protection.kind === 'freeze'
+      ? '已保护'
+      : '已补卡'
+    : isChecked
+      ? '已打卡'
+      : isRest
+        ? '休息日'
+        : isMissed
+          ? '未达标'
+          : date > todayKey.value
+            ? '尚未开始'
+            : targetSeconds === 0
+              ? '无学习目标'
+              : seconds > 0
+                ? '已学习'
+                : '未学习'
   return { date, record, isChecked, isToday, isMissed, isRest, status, seconds, targetSeconds }
 }
 

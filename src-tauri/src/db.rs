@@ -119,6 +119,40 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
     let course =
         || -> Result<SqlValue> { Ok(SqlValue::Text(canonical(db, text(q, "courseId")?)?)) };
     match endpoint {
+        "learning-sources" => {
+            let mut practices = Vec::new();
+            for r in rows(
+                db,
+                "SELECT course_id,records_json FROM lesson_practices",
+                vec![],
+            )? {
+                let records: Value = serde_json::from_str(r["records_json"].as_str().unwrap_or(""))
+                    .map_err(|_| "练习记录格式异常".to_string())?;
+                practices.push(json!({"courseId":r["course_id"],"records":records}));
+            }
+            let notes: Vec<Value> = rows(db, "SELECT course_id,video_path,content,updated_at FROM notes", vec![])?
+                .iter().map(|r| json!({"courseId":r["course_id"],"path":r["video_path"],"content":r["content"],"updatedAt":r["updated_at"]})).collect();
+            let mut summaries = Vec::new();
+            // Deliberately scoped: never return AI credentials or unrelated settings.
+            for r in rows(db, "SELECT key,value_json FROM app_settings WHERE key LIKE 'daily-practice:%' OR key LIKE 'lesson-knowledge:%'", vec![])? {
+                let key = r["key"].as_str().unwrap_or("");
+                let value: Value = serde_json::from_str(r["value_json"].as_str().unwrap_or(""))
+                    .map_err(|_| "学习材料格式异常".to_string())?;
+                if let Some(id) = key.strip_prefix("daily-practice:") {
+                    let records: Vec<Value> = value.as_object().ok_or("每日练习记录格式异常")?.values()
+                        .map(|v| v.as_array().ok_or("每日练习记录格式异常"))
+                        .collect::<std::result::Result<Vec<_>,_>>()?.into_iter().flatten().cloned().collect();
+                    practices.push(json!({"courseId":id,"records":records}));
+                } else if let Some(identity) = key.strip_prefix("lesson-knowledge:") {
+                    let identity: Value = serde_json::from_str(identity).map_err(|_| "知识点索引无效".to_string())?;
+                    // Full-lesson summaries own the index; partial summaries duplicate their points.
+                    if identity[2].is_null() && !value.is_null() && value["version"] == 2 {
+                        summaries.push(json!({"courseId":identity[0],"path":identity[1],"createdAt":value["createdAt"],"overview":value["overview"],"points":value["points"]}));
+                    }
+                }
+            }
+            Ok(json!({"practices":practices,"notes":notes,"summaries":summaries}))
+        }
         "library" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
                 (
@@ -438,6 +472,10 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
         "progress" => upsert(db,"video_progress","course_id,video_path,time,duration,ratio,done,updated_at","course_id,video_path",vec![course()?,json!(text(b,"path")?),default("time",json!(0)),default("duration",json!(0)),default("ratio",json!(0)),json!(b["done"]==true),time.clone()])?,
         "notes" => {
             let content = b["content"].as_str().ok_or("笔记内容无效")?;
+            if b.get("expectedContent").is_some() {
+                let previous = read(db,"notes",&json!({"courseId":course()?,"videoPath":text(b,"videoPath")?}))?;
+                if previous["content"] != b["expectedContent"] { return Err("笔记已修改，请重新同步。".into()); }
+            }
             upsert(db,"notes","course_id,video_path,content,updated_at","course_id,video_path",vec![course()?,json!(text(b,"videoPath")?),json!(content),time.clone()])?;
         }
         "note-images" => {
@@ -453,6 +491,37 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
             }
         }
         "guide" => upsert(db,"learning_guides","course_id,plan_json,metadata_json,view,include_optional,mastery_json,questions_json,today_json,updated_at","course_id",vec![course()?,b["plan"].clone(),b["metadata"].clone(),default("view",json!("all")),json!(b["includeOptional"]==true),b["mastery"].clone(),b["questions"].clone(),b["today"].clone(),time.clone()])?,
+        "learning-plan" => {
+            let id = canonical(db,text(b,"courseId")?)?;
+            let guide = read(db,"guide",&json!({"courseId":id}))?;
+            if guide["plan"] != b["expectedPlan"] { return Err("计划已修改，请重新预览。".into()); }
+            let plan = &b["plan"];
+            if !plan.is_object() || !plan["program"].is_object() || !plan["lessons"].is_array() { return Err("学习计划无效".into()); }
+            let key = format!("study-records:{id}");
+            let mut records = read(db,"settings",&json!({"key":key}))?;
+            if records.is_null() { records = json!({"entries":[],"checks":{},"activeModuleId":"","undo":null}); }
+            if !records.is_object() { return Err("阶段记录无效".into()); }
+            if b["undo"] == true {
+                if records["undo"]["plan"] != *plan || records["undo"]["label"] != "自适应减负" { return Err("撤销记录已变化，请重新读取。".into()); }
+                records["undo"] = Value::Null;
+            } else { records["undo"] = json!({"plan":guide["plan"],"includeOptional":guide["includeOptional"],"view":guide["view"],"label":"自适应减负","at":now(),"scheduleOnly":true}); }
+            // A schedule preview may normalize display fields. Preserve the original route and conversation.
+            let mut scheduled = guide["plan"].clone();
+            scheduled["program"] = plan["program"].clone();
+            scheduled["dailyMinutes"] = plan["dailyMinutes"].clone();
+            if let Some(modules) = scheduled["modules"].as_array_mut() {
+                for module in modules {
+                    if let Some(next) = plan["modules"].as_array().and_then(|ms|ms.iter().find(|m|m["id"] == module["id"])) {
+                        if module["practice"].is_object() && next["practice"].is_object() {
+                            module["practice"]["startDay"] = next["practice"]["startDay"].clone();
+                            module["practice"]["endDay"] = next["practice"]["endDay"].clone();
+                        }
+                    }
+                }
+            }
+            upsert(db,"app_settings","key,value_json,updated_at","key",vec![json!(key),json!(records.to_string()),time.clone()])?;
+            db.execute("UPDATE learning_guides SET plan_json=?,updated_at=? WHERE course_id=?", params![scheduled.to_string(),now(),id]).map_err(|e|e.to_string())?;
+        }
         "practice" => {
             if !b["records"].is_array() { return Err("练习记录无效".into()); }
             upsert(db,"lesson_practices","course_id,video_path,records_json,updated_at","course_id,video_path",vec![course()?,json!(text(b,"videoPath")?),b["records"].clone(),time.clone()])?;
@@ -472,6 +541,107 @@ mod persistence_tests {
         db.execute_batch("PRAGMA trusted_schema=OFF;").unwrap();
         db.execute_batch(include_str!("schema.sql")).unwrap();
         db
+    }
+    #[test]
+    fn learning_sources_migrate_old_records_without_exposing_other_settings() {
+        let mut db = database();
+        let before = read(&db, "learning-sources", &json!({})).unwrap();
+        assert_eq!(before, json!({"notes":[],"summaries":[],"practices":[]}));
+        for (key, value) in [
+            ("ai_settings", json!({"apiKey":"SECRET"})),
+            ("learning-notion", json!({"token":"SECRET"})),
+            (
+                "daily-practice:one",
+                json!({"daily:day":[{"id":"practice"}]}),
+            ),
+            (
+                "lesson-knowledge:[\"one\",\"1.mp4\",null]",
+                json!({"version":2,"createdAt":1,"overview":"overview","points":[]}),
+            ),
+        ] {
+            request(
+                &mut db,
+                "settings",
+                "POST",
+                json!({}),
+                json!({"key":key,"value":value}),
+            )
+            .unwrap();
+        }
+        request(
+            &mut db,
+            "notes",
+            "POST",
+            json!({}),
+            json!({"courseId":"one","videoPath":"1.mp4","content":"note"}),
+        )
+        .unwrap();
+        let value = read(&db, "learning-sources", &json!({})).unwrap();
+        assert_eq!(value["notes"][0]["content"], "note");
+        assert_eq!(value["summaries"][0]["courseId"], "one");
+        assert_eq!(value["practices"][0]["records"][0]["id"], "practice");
+        assert!(!value.to_string().contains("SECRET"));
+    }
+    #[test]
+    fn incoming_note_edit_must_match_current_content() {
+        let mut db = database();
+        request(
+            &mut db,
+            "notes",
+            "POST",
+            json!({}),
+            json!({"courseId":"one","videoPath":"1.mp4","content":"new draft"}),
+        )
+        .unwrap();
+        assert!(request(&mut db,"notes","POST",json!({}),json!({"courseId":"one","videoPath":"1.mp4","content":"remote","expectedContent":"old draft"})).is_err());
+        assert_eq!(
+            read(&db, "notes", &json!({"courseId":"one","videoPath":"1.mp4"})).unwrap()["content"],
+            "new draft"
+        );
+    }
+    #[test]
+    fn adaptive_schedule_preserves_conversation_and_supports_guarded_undo() {
+        let mut db = database();
+        let original = json!({"version":1,"createdAt":1,"dailyMinutes":30,"modules":[],"lessons":[],"messages":[{"role":"user","content":"保留学情"}],"program":{"days":14}});
+        request(&mut db,"guide","POST",json!({}),json!({"courseId":"one","plan":original,"metadata":{},"mastery":{},"questions":[],"today":null})).unwrap();
+        let mut next = original.clone();
+        next["dailyMinutes"] = json!(15);
+        next["program"]["days"] = json!(28);
+        next["messages"] = json!([]);
+        request(
+            &mut db,
+            "learning-plan",
+            "POST",
+            json!({}),
+            json!({"courseId":"one","expectedPlan":original,"plan":next}),
+        )
+        .unwrap();
+        let current = read(&db, "guide", &json!({"courseId":"one"})).unwrap()["plan"].clone();
+        assert_eq!(current["messages"], original["messages"]);
+        assert_eq!(current["program"]["days"], 28);
+        assert!(request(
+            &mut db,
+            "learning-plan",
+            "POST",
+            json!({}),
+            json!({"courseId":"one","expectedPlan":original,"plan":next})
+        )
+        .is_err());
+        request(
+            &mut db,
+            "learning-plan",
+            "POST",
+            json!({}),
+            json!({"courseId":"one","expectedPlan":current,"plan":original,"undo":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            read(&db, "guide", &json!({"courseId":"one"})).unwrap()["plan"],
+            original
+        );
+        assert!(
+            read(&db, "settings", &json!({"key":"study-records:one"})).unwrap()["undo"].is_null()
+        );
     }
     #[test]
     fn history_scope_read_excludes_answers_and_other_settings() {

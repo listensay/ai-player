@@ -14,6 +14,7 @@ import { formatStudyClock, formatStudyHours } from '~/utils/checkIn'
 const {
   player,
   noteEditor,
+  noteRevision,
   stage,
   treeOpen,
   desktopTreeOpen,
@@ -255,7 +256,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           v-show="rightTab === 'notes'"
           :active="rightPanelOpen && rightTab === 'notes'"
           :ref="bindNoteEditor"
-          :key="`${course.id}:${video.path}`"
+          :key="`${course.id}:${video.path}:${noteRevision}`"
           :video="video"
           :course-id="course.id"
           class="flex-1 border-0"

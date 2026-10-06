@@ -9,6 +9,57 @@ use tauri::{Emitter, Manager, Url};
 pub struct OpenRequest {
     token: String,
     reminder_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lesson_link: Option<LessonLink>,
+}
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LessonLink {
+    course_id: String,
+    path: String,
+    seconds: f64,
+}
+fn lesson_link(url: &Url) -> Option<LessonLink> {
+    if url.scheme() != "aiplayer"
+        || url.host_str() != Some("lesson")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+    {
+        return None;
+    }
+    let pairs: Vec<_> = url.query_pairs().collect();
+    if pairs.len() != 3 {
+        return None;
+    }
+    let find = |key: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.to_string())
+    };
+    let course_id = find("course")?;
+    let path = find("lesson")?;
+    let seconds: f64 = find("at")?.parse().ok()?;
+    if course_id.is_empty()
+        || course_id.len() > 200
+        || path.is_empty()
+        || path.len() > 4000
+        || path.starts_with('/')
+        || path.contains('\\')
+        || path.split('/').any(|p| p == ".." || p == ".")
+        || !seconds.is_finite()
+        || !(0.0..=864000.0).contains(&seconds)
+    {
+        return None;
+    }
+    Some(LessonLink {
+        course_id,
+        path,
+        seconds,
+    })
 }
 
 #[derive(Default)]
@@ -35,12 +86,17 @@ fn reminder_id(url: &Url) -> Option<String> {
 
 impl ReminderLinks {
     fn receive(&self, urls: &[Url]) -> db::Result<bool> {
-        let Some(id) = urls.iter().rev().find_map(reminder_id) else {
+        let Some((id, lesson_link)) = urls.iter().rev().find_map(|url| {
+            reminder_id(url)
+                .map(|id| (id, None))
+                .or_else(|| lesson_link(url).map(|link| (String::new(), Some(link))))
+        }) else {
             return Ok(false);
         };
         *self.0.lock().map_err(|e| e.to_string())? = Some(OpenRequest {
             token: uuid::Uuid::new_v4().to_string(),
             reminder_id: id,
+            lesson_link,
         });
         Ok(true)
     }
@@ -157,10 +213,81 @@ pub async fn resolve_reminder_link(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn resolve_lesson_link(
+    app: tauri::AppHandle,
+    course_id: String,
+    path: String,
+    seconds: f64,
+) -> db::Result<LessonLink> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+        let course = db::request(
+            &mut conn,
+            "library",
+            "GET",
+            json!({"id":course_id}),
+            Value::Null,
+        )?;
+        let course_id = course["id"]
+            .as_str()
+            .ok_or("链接对应的课程暂不可用。")?
+            .to_string();
+        let guide = db::request(
+            &mut conn,
+            "guide",
+            "GET",
+            json!({"courseId":course_id}),
+            Value::Null,
+        )?;
+        let progress = db::request(
+            &mut conn,
+            "progress",
+            "GET",
+            json!({"courseId":course_id}),
+            Value::Null,
+        )?;
+        if path.is_empty()
+            || path.starts_with('/')
+            || path.split('/').any(|p| p == ".." || p == ".")
+            || !seconds.is_finite()
+            || !(0.0..=864000.0).contains(&seconds)
+            || (guide["metadata"][&path].is_null() && progress[&path].is_null())
+        {
+            return Err("链接对应的课节暂不可用。".into());
+        }
+        Ok(LessonLink {
+            course_id,
+            path,
+            seconds,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     const ID: &str = "4c46e3b1-5a5c-42de-b95a-457053e0b375";
+    #[test]
+    fn lesson_links_preserve_timestamp_and_reject_invalid_paths() {
+        let link = lesson_link(
+            &Url::parse("aiplayer://lesson?course=course&lesson=chapter%2F1.mp4&at=12.5").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(link.path, "chapter/1.mp4");
+        assert_eq!(link.seconds, 12.5);
+        for url in [
+            "aiplayer://lesson?course=course&lesson=..%2Fsecret&at=0",
+            "aiplayer://lesson?course=course&lesson=1.mp4&at=NaN",
+            "aiplayer://lesson?course=course&lesson=1.mp4&at=-1",
+            "aiplayer://lesson?course=course&lesson=1.mp4&at=0&extra=1",
+        ] {
+            assert!(lesson_link(&Url::parse(url).unwrap()).is_none());
+        }
+    }
     fn url() -> Url {
         Url::parse(&format!("aiplayer-study://reminder/{ID}")).unwrap()
     }

@@ -9,8 +9,10 @@ import { requestGuideJson } from '~/utils/guideAi'
 import { isRecord } from '~/utils/guide'
 import { localDayKey } from '~/utils/learningFeedback'
 import { exportStudyDigest } from '~/utils/studyDigestExport'
+import { useOptionalLearningManagement } from './useLearningManagement.ts'
 
 export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>) {
+  const learning = useOptionalLearningManagement()
   const timer = usePomodoro(),
     ai = useAiSettings()
   const kind = ref<'week' | 'month'>('week'),
@@ -28,7 +30,14 @@ export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>)
     disposed = false
   const period = computed(() => digestPeriod(kind.value, offset.value, today.value))
   const data = computed(() =>
-    buildStudyInsights(courses.value, evidence.value, timer.state.focusHistory, period.value, today.value),
+    buildStudyInsights(
+      courses.value,
+      evidence.value,
+      timer.state.focusHistory,
+      period.value,
+      today.value,
+      learning?.state.data.rewardDays,
+    ),
   )
   const markdown = computed(() => digestMarkdown(data.value, reflection.value))
   function invalidate() {

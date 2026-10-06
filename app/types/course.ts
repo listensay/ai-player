@@ -44,7 +44,7 @@ export interface VideoProgress {
   duration: number
   /** 0–1 的完成比例 */
   ratio: number
-  /** 是否已看完（比例 ≥ 0.95 或播放结束） */
+  /** 是否已看完（播放结束或手动标记完成；重播保留完成状态） */
   done: boolean
   /** 最近一次更新时间戳 */
   updatedAt: number

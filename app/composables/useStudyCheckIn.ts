@@ -14,6 +14,7 @@ import {
 } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 import { dbFetchCheckIns, dbSaveCheckIns } from '~/utils/dbClient'
+import type { provideLearningManagement } from './useLearningManagement'
 
 export type StudyCheckInInstance = ReturnType<typeof useStudyCheckIn>
 export const CHECK_IN_KEY: InjectionKey<StudyCheckInInstance> = Symbol('study-check-in')
@@ -32,7 +33,11 @@ export interface CheckInPlan {
   budgetForDate?: (date: string) => number
 }
 
-export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPlan>) {
+export function useStudyCheckIn(
+  course: Ref<Course | null>,
+  plan: Ref<CheckInPlan>,
+  learning?: ReturnType<typeof provideLearningManagement>,
+) {
   const state = reactive({ days: {} as Record<string, StudyDay>, date: localDayKey(), storageError: '' })
   const justCheckedIn = ref<StudyDay | null>(null)
   let activeId = ''
@@ -42,7 +47,15 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
   let dayTimer: ReturnType<typeof setInterval> | undefined
 
   const current = computed(() => state.days[state.date])
-  const streak = computed(() => studyStreak(state.days, state.date))
+  const protections = computed(
+    () => learning?.state.data.protections.filter((p) => p.courseId === course.value?.id) ?? [],
+  )
+  const streak = computed(() => {
+    const days = { ...state.days }
+    for (const p of protections.value)
+      days[p.date] = { ...(days[p.date] ?? { date: p.date, targetSeconds: 0, seconds: 0 }), checkedAt: p.at }
+    return studyStreak(days, state.date)
+  })
   const total = computed(() => Object.values(state.days).filter((day) => day.checkedAt !== null).length)
   const isAchieved = computed(() => !!current.value?.checkedAt)
   const targetSeconds = computed(() => current.value?.targetSeconds ?? minutesFor(state.date) * 60)
@@ -200,6 +213,7 @@ export function useStudyCheckIn(course: Ref<Course | null>, plan: Ref<CheckInPla
     state,
     current,
     streak,
+    protections,
     total,
     isAchieved,
     targetSeconds,

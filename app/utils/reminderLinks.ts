@@ -1,6 +1,7 @@
 export interface ReminderLinkRequest {
   token: string
   reminderId: string
+  lessonLink?: { courseId: string; path: string; seconds: number }
 }
 export interface ReminderLinkDestination {
   courseId: string | null

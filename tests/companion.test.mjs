@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
-import { createRenderer, reactive, ref, nextTick } from 'vue'
+import { createRenderer, reactive, ref, nextTick, watch } from 'vue'
 import {
   createCompanionSession,
   recordCompanionPlayback,
@@ -115,6 +115,8 @@ registerHooks({
   },
 })
 const { useCompanion } = await import('../app/composables/useCompanion.ts')
+const { createProgressStore } = await import('../app/composables/useProgress.ts')
+const { buildTodayPlan } = await import('../app/utils/learningFeedback.ts')
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 function harness(t, desktopSettings = { state: { ready: true, autoOpenCompanion: false }, load: async () => {} }) {
   globalThis.companionIO = { commands: [], events: [], listener: null, unlistened: false }
@@ -194,6 +196,43 @@ test('读取旧计划或巩固记录不庆祝；完成当前任务才庆祝且�
   await nextTick()
   assert.match(h.companion.snapshot.value.celebration, /已打卡/)
 })
+test('18:50 / 19:43 不提前完成计划或触发桌宠庆祝，播放结束后才庆祝', async (t) => {
+  const h = harness(t)
+  const progress = createProgressStore({ read: async () => ({}), write: async () => true })
+  t.after(progress.dispose)
+  await progress.ready()
+  const lessons = ['a.mp4', 'b.mp4'].map((path) => ({ path, concepts: [] }))
+  const durations = { 'a.mp4': 1183, 'b.mp4': 600 }
+  const refreshToday = () => {
+    h.options.today.value = buildTodayPlan(
+      lessons,
+      durations,
+      progress.courseProgress('a'),
+      {},
+      [],
+      30,
+      '2026-10-05',
+      h.options.today.value,
+    )
+  }
+  refreshToday()
+  h.options.todayReady.value = true
+  const stop = watch(() => progress.courseProgress('a'), refreshToday, { deep: true })
+  t.after(stop)
+  await nextTick()
+  for (const time of [1130, 1182.99]) {
+    progress.update('a', 'a.mp4', time, 1183)
+    await nextTick()
+    assert.equal(h.options.today.value.items[0].done, false)
+    assert.equal(h.companion.snapshot.value.celebration, '')
+  }
+  progress.update('a', 'a.mp4', 1183, 1183, { ended: true })
+  await nextTick()
+  assert.equal(h.options.today.value.items[0].done, true)
+  assert.equal(h.options.today.value.items[1].done, false)
+  assert.equal(h.companion.snapshot.value.celebration, '课节完成')
+})
+
 test('切日期或切巩固计划不会误庆祝；提交当前巩固会庆祝', async (t) => {
   const h = harness(t)
   h.options.dailyReady.value = true
