@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process'
 await import('./desktop-runtime.mjs')
 const dev = process.argv[2] === 'dev'
-const args = dev ? ['--host', '127.0.0.1', '--port', '1420'] : ['build']
+const args = dev
+  ? ['--host', '127.0.0.1', '--port', '1420']
+  : [
+      'build',
+      ...(process.argv[2] === 'smoke' ? ['--mode', 'desktop-smoke', '--outDir', '.cache/desktop-smoke-dist'] : []),
+    ]
 const child = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...args], {
   stdio: 'inherit',
   env: process.env,

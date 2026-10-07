@@ -120,38 +120,77 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
         || -> Result<SqlValue> { Ok(SqlValue::Text(canonical(db, text(q, "courseId")?)?)) };
     match endpoint {
         "learning-sources" => {
+            let id = q["courseId"]
+                .as_str()
+                .map(|id| canonical(db, id))
+                .transpose()?;
+            let args = || {
+                id.as_ref()
+                    .map(|id| vec![SqlValue::Text(id.clone())])
+                    .unwrap_or_default()
+            };
             let mut practices = Vec::new();
             for r in rows(
                 db,
-                "SELECT course_id,records_json FROM lesson_practices",
-                vec![],
+                if id.is_some() {
+                    "SELECT course_id,records_json FROM lesson_practices WHERE course_id=?"
+                } else {
+                    "SELECT course_id,records_json FROM lesson_practices"
+                },
+                args(),
             )? {
                 let records: Value = serde_json::from_str(r["records_json"].as_str().unwrap_or(""))
                     .map_err(|_| "练习记录格式异常".to_string())?;
                 practices.push(json!({"courseId":r["course_id"],"records":records}));
             }
-            let notes: Vec<Value> = rows(db, "SELECT course_id,video_path,content,updated_at FROM notes", vec![])?
+            let notes: Vec<Value> = rows(db, if id.is_some() { "SELECT course_id,video_path,content,updated_at FROM notes WHERE course_id=?" } else { "SELECT course_id,video_path,content,updated_at FROM notes" }, args())?
                 .iter().map(|r| json!({"courseId":r["course_id"],"path":r["video_path"],"content":r["content"],"updatedAt":r["updated_at"]})).collect();
             let mut summaries = Vec::new();
             // Deliberately scoped: never return AI credentials or unrelated settings.
-            for r in rows(db, "SELECT key,value_json FROM app_settings WHERE key LIKE 'daily-practice:%' OR key LIKE 'lesson-knowledge:%'", vec![])? {
+            let settings = if let Some(id) = &id {
+                let prefix = format!("lesson-knowledge:[{},", json!(id));
+                rows(
+                    db,
+                    "SELECT key,value_json FROM app_settings WHERE key=? OR (key>=? AND key<?)",
+                    vec![
+                        SqlValue::Text(format!("daily-practice:{id}")),
+                        SqlValue::Text(prefix.clone()),
+                        SqlValue::Text(format!("{prefix}\u{10ffff}")),
+                    ],
+                )?
+            } else {
+                rows(db, "SELECT key,value_json FROM app_settings WHERE key LIKE 'daily-practice:%' OR key LIKE 'lesson-knowledge:%'", vec![])?
+            };
+            for r in settings {
                 let key = r["key"].as_str().unwrap_or("");
                 let value: Value = serde_json::from_str(r["value_json"].as_str().unwrap_or(""))
                     .map_err(|_| "学习材料格式异常".to_string())?;
                 if let Some(id) = key.strip_prefix("daily-practice:") {
-                    let records: Vec<Value> = value.as_object().ok_or("每日练习记录格式异常")?.values()
+                    let records: Vec<Value> = value
+                        .as_object()
+                        .ok_or("每日练习记录格式异常")?
+                        .values()
                         .map(|v| v.as_array().ok_or("每日练习记录格式异常"))
-                        .collect::<std::result::Result<Vec<_>,_>>()?.into_iter().flatten().cloned().collect();
+                        .collect::<std::result::Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .flatten()
+                        .cloned()
+                        .collect();
                     practices.push(json!({"courseId":id,"records":records}));
                 } else if let Some(identity) = key.strip_prefix("lesson-knowledge:") {
-                    let identity: Value = serde_json::from_str(identity).map_err(|_| "知识点索引无效".to_string())?;
+                    let identity: Value =
+                        serde_json::from_str(identity).map_err(|_| "知识点索引无效".to_string())?;
                     // Full-lesson summaries own the index; partial summaries duplicate their points.
                     if identity[2].is_null() && !value.is_null() && value["version"] == 2 {
                         summaries.push(json!({"courseId":identity[0],"path":identity[1],"createdAt":value["createdAt"],"overview":value["overview"],"points":value["points"]}));
                     }
                 }
             }
-            Ok(json!({"practices":practices,"notes":notes,"summaries":summaries}))
+            let mut result = json!({"practices":practices,"notes":notes,"summaries":summaries});
+            if let Some(id) = id {
+                result["courseId"] = json!(id);
+            }
+            Ok(result)
         }
         "library" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
@@ -225,7 +264,16 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
             Ok(json!({"notes":notes,"practices":practices}))
         }
         "dashboard" => {
-            let library = read(db, "library", &json!({}))?;
+            let library = if let Some(id) = q["courseId"].as_str() {
+                let entry = read(db, "library", &json!({"id":id}))?;
+                if entry.is_null() {
+                    json!([])
+                } else {
+                    json!([entry])
+                }
+            } else {
+                read(db, "library", &json!({}))?
+            };
             let mut result = Vec::new();
             for entry in library.as_array().ok_or("课程库格式异常")? {
                 let id = entry["id"].as_str().ok_or("课程编号无效")?;
@@ -844,6 +892,83 @@ mod persistence_tests {
         assert_eq!(data["2026-09-26"]["plannedMinutes"], 30);
         assert_eq!(data["2026-09-26"]["initialMinutes"], 60);
         assert!(request(&mut db,"day-snapshots","POST",json!({}),json!({"courseId":"one","snapshot":{"date":"bad","plannedMinutes":30,"capturedAt":30,"tasks":[]}})).is_err());
+    }
+
+    #[test]
+    fn incremental_sources_and_dashboard_only_return_the_requested_canonical_course() {
+        let mut db = database();
+        for id in ["one", "two"] {
+            request(
+                &mut db,
+                "recent-courses",
+                "POST",
+                json!({}),
+                json!({"id":id,"name":id}),
+            )
+            .unwrap();
+            request(
+                &mut db,
+                "notes",
+                "POST",
+                json!({}),
+                json!({"courseId":id,"videoPath":"one.mp4","content":id}),
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO lesson_practices VALUES (?, 'one.mp4', '[]', 1)",
+                [id],
+            )
+            .unwrap();
+            request(
+                &mut db,
+                "settings",
+                "POST",
+                json!({}),
+                json!({"key":format!("daily-practice:{id}"),"value":{"day":[]}}),
+            )
+            .unwrap();
+            request(&mut db, "settings", "POST", json!({}), json!({"key":format!("lesson-knowledge:{}",json!([id,"one.mp4",null])),"value":{"version":2,"createdAt":1,"overview":id,"points":[]}})).unwrap();
+        }
+        db.execute("INSERT INTO course_aliases VALUES ('old-one','one')", [])
+            .unwrap();
+        let data = request(
+            &mut db,
+            "learning-sources",
+            "GET",
+            json!({"courseId":"old-one"}),
+            Value::Null,
+        )
+        .unwrap();
+        assert_eq!(data["courseId"], "one");
+        for key in ["notes", "practices", "summaries"] {
+            assert!(!data[key].as_array().unwrap().is_empty());
+            assert!(data[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row["courseId"] == "one"));
+        }
+        let dashboard = request(
+            &mut db,
+            "dashboard",
+            "GET",
+            json!({"courseId":"old-one"}),
+            Value::Null,
+        )
+        .unwrap();
+        assert_eq!(dashboard.as_array().unwrap().len(), 1);
+        assert_eq!(dashboard[0]["course"]["id"], "one");
+        assert_eq!(
+            request(
+                &mut db,
+                "dashboard",
+                "GET",
+                json!({"courseId":"missing"}),
+                Value::Null
+            )
+            .unwrap(),
+            json!([])
+        );
     }
 
     #[test]

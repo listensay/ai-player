@@ -15,6 +15,10 @@ const code = compileScript(descriptor, { id: 'programming-workspace-test', inlin
     /import \{ PROGRAMMING_MODES \} from [^\n]+/,
     "const PROGRAMMING_MODES = { completion: '代码补全', implementation: '功能实现' }",
   )
+  .replace(
+    /from '~\/utils\/programmingLanguages'/g,
+    `from '${new URL('../app/utils/programmingLanguages.ts', import.meta.url).href}'`,
+  )
   .replace(/import (\w+) from '~\/components\/[^\n]+/g, 'const $1 = globalThis.programmingWorkspaceStubs.$1')
   .replace(/from ['"]vue['"]/g, `from '${import.meta.resolve('vue')}'`)
 const stub = (name) => ({
@@ -34,7 +38,7 @@ const { outputText } = ts.transpileModule(code, {
 })
 const { default: Workspace } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
-async function mount(t) {
+async function mount(t, language = exercise.language) {
   const element = (type) => ({
     type,
     props: {},
@@ -74,7 +78,7 @@ async function mount(t) {
   const root = element('root')
   const app = renderer.createApp(Workspace, {
     question,
-    exercise,
+    exercise: { ...exercise, language },
     draft: exercise.starterCode,
     busy: false,
     onExecute: (...args) => events.push(args),
@@ -100,8 +104,9 @@ test('工作台不提供自选输入与用例预览，测试输入只在结果�
   assert.equal(ui.find('select'), undefined)
   for (const hidden of ['运行示例', '全部测试用例', '正负数混合', '全部为负数', '示例'])
     assert.ok(!ui.text().includes(hidden), `界面不出现：${hidden}`)
-  for (const shown of ['接口约定', '实现要求', '提示', '参考答案', '测试'])
-    assert.ok(ui.text().includes(shown), `界面显示：${shown}`)
+  for (const shown of ['接口约定', '实现要求', '测试']) assert.ok(ui.text().includes(shown), `界面显示：${shown}`)
+  assert.ok(!ui.text().includes(exercise.referenceCode), '工作台不再绕过分层提示直接暴露答案')
+  for (const hint of exercise.hints) assert.ok(!ui.text().includes(hint), '旧提示由分层助手接管')
 })
 
 test('“测试”按钮一次发出无参数执行事件，由上层自动执行全部用例', async (t) => {
@@ -152,4 +157,13 @@ test('题目区可由分隔线拖动或键盘调整宽度', async (t) => {
   handle.props.onKeydown({ key: 'ArrowLeft', preventDefault() {} })
   await nextTick()
   assert.equal(handle.props['aria-valuenow'], 68)
+})
+
+test('工作台按题目显示语言并传递给编辑器', async (t) => {
+  const ui = await mount(t, 'python')
+  assert.ok(ui.text().includes('Python'))
+  assert.ok(ui.text().includes('solution.py'))
+  assert.ok(!ui.text().includes('solution.js'))
+  assert.ok(!ui.text().includes('JavaScript'))
+  assert.equal(ui.find('ProgrammingEditor').props.language, 'python')
 })

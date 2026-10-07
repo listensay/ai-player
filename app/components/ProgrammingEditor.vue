@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import type { editor } from 'monaco-editor'
+import { startPerformanceMeasure } from '~/utils/performance'
+import { programmingFilename, programmingLanguageName } from '~/utils/programmingLanguages'
+import type { ProgrammingLanguage } from '~/utils/programmingLanguages'
 import UiButton from '~/components/UiButton.vue'
 const props = defineProps<{
   modelValue: string
+  language: ProgrammingLanguage
   readonly?: boolean
   location?: { line: number; column?: number; nonce: number }
 }>()
@@ -27,13 +31,15 @@ function syncValue(value: string) {
 async function initialize() {
   error.value = ''
   loading.value = true
+  const measure = startPerformanceMeasure('programming-ready')
   try {
-    const { monaco } = await import('~/utils/codeEditor')
+    const { monaco, prepareLanguage } = await import('~/utils/codeEditor')
+    await prepareLanguage(props.language)
     if (disposed || !root.value) return
     model = monaco.editor.createModel(
       props.modelValue,
-      'javascript',
-      monaco.Uri.parse(`inmemory://practice/${crypto.randomUUID()}/solution.js`),
+      props.language,
+      monaco.Uri.parse(`inmemory://practice/${crypto.randomUUID()}/${programmingFilename(props.language)}`),
     )
     model.updateOptions({ tabSize: 2, insertSpaces: true })
     instance = monaco.editor.create(root.value, {
@@ -48,7 +54,7 @@ async function initialize() {
       wordWrap: 'on',
       tabSize: 2,
       padding: { top: 12, bottom: 12 },
-      ariaLabel: 'JavaScript 代码编辑器',
+      ariaLabel: `${programmingLanguageName(props.language)} 代码编辑器`,
       accessibilitySupport: 'auto',
       fixedOverflowWidgets: true,
     })
@@ -62,9 +68,12 @@ async function initialize() {
       })
     })
     instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => emit('save'))
+    if (import.meta.env.MODE === 'desktop-smoke') window.__AI_PLAYER_SMOKE_EDITOR__ = instance
+    measure.finish()
   } catch {
     error.value = '代码编辑器加载失败。'
   } finally {
+    measure.cancel()
     loading.value = false
   }
 }
@@ -86,6 +95,8 @@ watch(
 onBeforeUnmount(() => {
   disposed = true
   subscription?.dispose()
+  if (import.meta.env.MODE === 'desktop-smoke' && window.__AI_PLAYER_SMOKE_EDITOR__ === instance)
+    window.__AI_PLAYER_SMOKE_EDITOR__ = undefined
   instance?.dispose()
   model?.dispose()
 })

@@ -20,7 +20,11 @@
     "test:ui": "node --test tests/playerLayout.test.mjs tests/playerDirectory.test.mjs tests/noteLoading.test.mjs tests/companion-interactions.test.mjs",
     "ui:prepare": "node scripts/prepare-ui-fixture.mjs",
     "ui:build": "tauri build --debug --bundles app --config tests/fixtures/ui-regression.json",
-    "ui:pomodoro": "tauri build --debug --bundles app --config tests/fixtures/pomodoro-test.json"
+    "ui:pomodoro": "tauri build --debug --bundles app --config tests/fixtures/pomodoro-test.json",
+    "smoke:frontend": "node scripts/desktop-frontend.mjs smoke",
+    "test:desktop": "node scripts/desktop-smoke.mjs",
+    "benchmark:check": "node scripts/benchmark.mjs .cache/performance.json --check",
+    "bundle:check": "node scripts/check-bundle.mjs"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",

@@ -4,6 +4,28 @@
 运行 `node scripts/desktop-runtime.mjs` 后，执行 `npm run check:rust` 检查 Rust 格式、Clippy 和测试。
 CI 在 macOS 上运行这些检查并构建桌面应用，Cargo 缓存目录使用 runner 临时目录，不依赖本机 SSD 挂载。
 
+## 自动桌面回归与性能检查
+
+```bash
+npm run check
+npm run bundle:check
+npm run benchmark:check
+npm run check:rust
+npm run test:desktop
+```
+
+`test:desktop` 构建 `app.aiplayer.smoke` 独立应用，在临时目录创建两节合成视频、笔记、Python / JavaScript 练习与一分钟番茄钟。运行两次原生进程，自动验证笔记编辑与切课、Python 按需加载、JavaScript 执行与取消、番茄钟暂停播放，以及备份准备后重启恢复。回归不配置外部 AI，不读取正式课程库；临时数据路径和结果记录在 `.cache/desktop-smoke-report.json`。
+
+测试操作发生在真实 Tauri WebView 中：笔记使用浏览器编辑命令，代码使用实际 Monaco 编辑接口，按钮触发实际组件事件，执行器和存储使用真实原生命令。番茄钟通过推进测试进程内的时钟验证到点行为；恢复测试验证确认界面后，调用原生命令准备恢复，再由测试运行器重启进程。它不替代真实键盘输入、系统保存对话框或安装包升级的人工验收。
+
+桌面测试插件仅由 `desktop-smoke` Cargo feature 编译，并要求专用应用标识和临时目录标记。Monaco 测试入口仅在 `desktop-smoke` 前端模式中存在；`bundle:check` 会拒绝包含该入口的正式构建。测试前端产物独立输出到 `.cache/desktop-smoke-dist`，不会覆盖正式前端产物。
+
+CI 执行这套检查并保存 CPU / 读取次数报告、构建依赖报告和桌面回归报告。耗时超限、关键指标缺失、重复整库读取、恢复失败或桌面测试超时都会使检查失败。
+
+- `incrementalLearning.test.mjs` 覆盖并发读取、变化期间的读取、失败重试、课程别名、跨日索引、快照保存去重及初始额度保留。
+- `performanceBudgets.test.mjs` 验证性能门槛能拒绝变慢、缺失指标与重复读取。
+- Rust 备份测试覆盖 WAL 数据、图片和设置、文件权限、定时去重、升级前备份、清理保留、重启恢复及损坏 / 不兼容文件拒绝；数据库测试覆盖按课程过滤和别名解析。
+
 自动化测试覆盖：
 
 - `playerSettings.test.mjs`：使用实际播放器状态与模拟媒体加载事件，验证最近播放、连续切课、同一视频重载、设置延迟返回及快捷键调速时的实际倍速；旧视频事件和迟到设置不能覆盖用户的新选择。

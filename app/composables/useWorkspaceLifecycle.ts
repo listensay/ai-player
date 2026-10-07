@@ -2,6 +2,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import type { Ref } from 'vue'
 import type { Router } from 'vue-router'
 import type { NoteEditorHandle } from '~/types/note'
+import { registerWorkspaceFlush } from '~/utils/workspaceFlush'
 import { desktopInvoke } from '~/utils/platform'
 
 export function protectNoteNavigation(
@@ -50,6 +51,13 @@ export function useWorkspaceLifecycle(options: {
       closing = false
     }
   }
+  const unregisterFlush = registerWorkspaceFlush(async () => {
+    if (options.activeJobs()) throw Error('请先完成或取消正在进行的任务。')
+    await options.note.value?.save()
+    await options.flush()
+    await options.note.value?.save()
+    if (options.note.value?.hasUnsavedChanges()) throw Error('笔记有新的修改，请重试。')
+  })
   onMounted(async () => {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -71,6 +79,7 @@ export function useWorkspaceLifecycle(options: {
   })
   onBeforeUnmount(() => {
     disposed = true
+    unregisterFlush()
     removeGuard()
     unlistenClose?.()
     unlistenQuit?.()

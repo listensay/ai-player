@@ -1,5 +1,11 @@
 # 桌面界面回归
 
+## 增量刷新、按需语言与备份恢复（2026-10-07）
+
+`npm run test:desktop` 在独立的 `app.aiplayer.smoke` 应用和临时数据库中完成两次真实 macOS 原生进程运行。验证笔记输入、自动保存、切课与返回；Python 编辑器首次打开且未加载 TypeScript 服务；JavaScript 代码修改、测试通过、取消及重新测试；一分钟番茄钟在推进测试时钟后暂停实际视频；备份设置中的创建和恢复确认；准备恢复后拒绝迟到写入，重启后恢复笔记、代码和测试结果。
+
+保存的 [原生耗时记录](performance/desktop-round3.json) 包括首次与再次初始化，测试运行器会检查每个必需指标及其上限。按钮和存储使用真实组件与原生命令，代码编辑使用实际 Monaco 编辑接口；本轮没有把该自动检查当作真实键盘输入、系统文件对话框或所有像素布局的人工验收。未修改正式应用数据，也未替换正式安装包。
+
 ## 学习管理扩展（2026-10-05）
 
 独立构建 **AI Player Learning Check**（`app.aiplayer.learning-management-check`），使用 `scripts/prepare-learning-management-fixture.mjs` 的合成课程。未替换正式安装应用或写入正式数据库。

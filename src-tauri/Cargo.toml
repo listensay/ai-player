@@ -9,6 +9,9 @@ rust-version = "1.88"
 name = "ai_player_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+desktop-smoke = []
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
@@ -18,7 +21,7 @@ tauri-plugin-dialog = "2"
 # 允许原生 API 请求通过空 Origin 显式省略 WebView 来源；TLS 校验与 URL 权限仍由插件执行。
 tauri-plugin-http = { version = "~2.6", features = ["unsafe-headers"] }
 tauri-plugin-notification = "2"
-rusqlite = { version = "0.38", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }

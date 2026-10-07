@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { defineAsyncComponent, ref, watch } from 'vue'
 import { buildInfo, diagnosticsReport } from '~/utils/diagnostics'
 import { performanceReport } from '~/utils/performance'
 import { desktopInvoke } from '~/utils/platform'
@@ -7,20 +7,31 @@ import PageSectionNav from '~/components/PageSectionNav.vue'
 import { useDesktopSettings } from '~/composables/useDesktopSettings'
 import PomodoroSettingsPanel from '~/components/PomodoroSettingsPanel.vue'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
+import ProgrammingSettingsPanel from '~/components/ProgrammingSettingsPanel.vue'
 import UiButton from '~/components/UiButton.vue'
+const BackupSettingsPanel = defineAsyncComponent(() => import('./BackupSettingsPanel.vue'))
 const settings = useDesktopSettings()
 const props = defineProps<{ initialSection?: string }>()
-const activeSection = ref<'companion' | 'ai' | 'about' | 'pomodoro'>('companion')
+const activeSection = ref<'companion' | 'ai' | 'about' | 'pomodoro' | 'programming' | 'backups'>('companion')
 watch(
   () => props.initialSection,
   (section) => {
-    activeSection.value = section === 'ai' || section === 'about' || section === 'pomodoro' ? section : 'companion'
+    activeSection.value =
+      section === 'ai' ||
+      section === 'about' ||
+      section === 'pomodoro' ||
+      section === 'programming' ||
+      section === 'backups'
+        ? section
+        : 'companion'
   },
   { immediate: true },
 )
 const sections = [
   { id: 'companion', title: '桌宠设置', icon: 'pip' },
   { id: 'ai', title: 'AI 服务设置', icon: 'sparkles' },
+  { id: 'programming', title: '编程环境', icon: 'keyboard' },
+  { id: 'backups', title: '备份与恢复', icon: 'folder' },
   { id: 'about', title: '关于与诊断', icon: 'clock' },
   { id: 'pomodoro', title: '番茄钟', icon: 'clock' },
 ] as const
@@ -34,6 +45,7 @@ const metricLabels = {
   'course-open': '课程打开',
   'video-ready': '视频就绪',
   'note-ready': '笔记就绪',
+  'programming-ready': '编程编辑器就绪',
 }
 watch(activeSection, (section) => {
   if (section === 'about') metrics.value = performanceReport()
@@ -117,7 +129,9 @@ async function exportReport() {
               <p v-if="reportError" role="alert" class="text-body-sm text-error">{{ reportError }}</p>
             </div>
           </section>
+          <BackupSettingsPanel v-if="activeSection === 'backups'" />
           <PomodoroSettingsPanel v-if="activeSection === 'pomodoro'" />
+          <ProgrammingSettingsPanel v-if="activeSection === 'programming'" />
           <AiSettingsPanel v-show="activeSection === 'ai'" id="settings-ai" />
         </div>
         <PageSectionNav v-model="activeSection" label="设置导航" prefix="settings" :items="sections" />

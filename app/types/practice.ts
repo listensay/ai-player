@@ -49,7 +49,7 @@ export interface ProgrammingTest {
 }
 export interface ProgrammingExercise {
   version: 1
-  language: 'javascript'
+  language: import('../utils/programmingLanguages').ProgrammingLanguage
   mode: 'completion' | 'implementation'
   functionName: string
   signature: string
@@ -103,6 +103,19 @@ export interface PracticeAttachment {
 }
 export type PracticeAttachmentContent =
   { kind: 'code'; text: string } | { kind: 'image'; mediaType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string }
+export type PracticeHelpLevel = 0 | 1 | 2 | 3 | 4
+export type PracticeHintLevel = 1 | 2 | 3
+export interface PracticeHint {
+  level: PracticeHintLevel
+  text: string
+  sourceIds: string[]
+  viewedAt: number
+}
+export interface PracticeHelp {
+  /** 本题已查看的最高层级，收起提示或修改答案不降低层级。 */
+  level: PracticeHelpLevel
+  hints: PracticeHint[]
+}
 export interface PracticeRecord {
   id: string
   /** 同一次生成的题目共同计分；旧记录按课节与范围合并。 */
@@ -113,6 +126,7 @@ export interface PracticeRecord {
   sources: PracticeSource[]
   question: PracticeQuestion
   draft: string
+  help?: PracticeHelp
   codeRun?: ProgrammingRun
   attachments?: PracticeAttachment[]
   attempts: Array<{
@@ -120,6 +134,8 @@ export interface PracticeRecord {
     attachments?: PracticeAttachment[]
     feedback: PracticeFeedback
     at: number
+    /** 提交时的快照；旧提交未记录，不能推断为独立完成。 */
+    helpLevel?: PracticeHelpLevel
     codeRun?: ProgrammingRun
   }>
 }

@@ -1,0 +1,21 @@
+{
+  "identifier": "app.aiplayer.smoke",
+  "productName": "AI Player Smoke",
+  "build": {
+    "beforeBuildCommand": "npm run smoke:frontend",
+    "frontendDist": "../.cache/desktop-smoke-dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Player Smoke",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 860,
+        "minHeight": 640,
+        "maximized": false
+      }
+    ]
+  }
+}

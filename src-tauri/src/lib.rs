@@ -1,10 +1,15 @@
 mod asr;
+mod backups;
 mod companion;
 mod db;
+#[cfg(feature = "desktop-smoke")]
+mod desktop_smoke;
 mod files;
 mod learning_integrations;
 mod mac_reminders;
 mod media_duration;
+mod programming;
+mod programming_process;
 mod reminder_links;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -23,6 +28,7 @@ pub struct AppState {
     db: Mutex<Connection>,
     roots: Mutex<HashSet<PathBuf>>,
     frontend_ready: AtomicBool,
+    restore_pending: AtomicBool,
 }
 
 #[tauri::command]
@@ -36,6 +42,9 @@ async fn database_request(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+        if method != "GET" && state.restore_pending.load(Ordering::SeqCst) {
+            return Err("恢复已准备完成，请重新启动应用".into());
+        }
         db::request(&mut conn, &endpoint, &method, query, body)
     })
     .await
@@ -144,8 +153,12 @@ fn finish_close(app: tauri::AppHandle) {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "desktop-smoke")]
+    let builder = builder.plugin(desktop_smoke::init());
+    builder
         .manage(asr::AsrManager::default())
+        .manage(programming::ProgrammingManager::default())
         .manage(reminder_links::ReminderLinks::default())
         .manage(learning_integrations::CalendarServer::default())
         .manage(companion::CompanionHitState::default())
@@ -153,7 +166,9 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            #[cfg(not(feature = "desktop-smoke"))]
             let directory = app.path().app_data_dir()?;
+            #[cfg(not(feature = "desktop-smoke"))]
             let directory = if std::env::var("AI_PLAYER_DEV_ISOLATE")
                 .map(|v| v == "1")
                 .unwrap_or(false)
@@ -162,7 +177,12 @@ pub fn run() {
             } else {
                 directory
             };
+            #[cfg(feature = "desktop-smoke")]
+            let directory = desktop_smoke::directory().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&directory)?;
+            let backups = backups::initialize(&directory, &app.package_info().version.to_string())
+                .map_err(std::io::Error::other)?;
+            app.manage(backups);
             let conn = db::open(&directory.join("ai-player.db")).map_err(std::io::Error::other)?;
             let roots = files::saved_roots(&conn).map_err(std::io::Error::other)?;
             for root in &roots {
@@ -172,16 +192,31 @@ pub fn run() {
                 db: Mutex::new(conn),
                 roots: Mutex::new(roots),
                 frontend_ready: AtomicBool::new(false),
+                restore_pending: AtomicBool::new(false),
             });
+            backups::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(feature = "desktop-smoke")]
+            desktop_smoke::desktop_smoke_report,
+            backups::backup_status,
+            backups::set_backup_enabled,
+            backups::create_backup,
+            backups::import_backup,
+            backups::export_backup,
+            backups::restore_backup,
+            backups::restart_after_restore,
             asr::confirm_asr_quit,
             asr::asr_start,
             asr::asr_stop,
             asr::asr_health,
             asr::asr_transcribe,
             asr::asr_cancel,
+            programming::programming_environments,
+            programming::choose_programming_directory,
+            programming::run_programming,
+            programming::cancel_programming,
             frontend_ready,
             finish_close,
             companion::open_companion,
@@ -225,6 +260,7 @@ pub fn run() {
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<asr::AsrManager>().shutdown();
+                app.state::<programming::ProgrammingManager>().shutdown();
             }
             if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
                 if code.is_none()

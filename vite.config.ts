@@ -30,5 +30,5 @@ export default defineConfig({
   clearScreen: false,
   server: { strictPort: true },
   worker: { format: 'es' },
-  build: { target: 'es2022' },
+  build: { target: 'es2022', manifest: true },
 })

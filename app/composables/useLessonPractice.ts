@@ -38,6 +38,13 @@ import { assignmentReviewPrompt, programmingReviewPrompt } from '~/utils/practic
 import { CODE_LIMIT, programmingQuestion } from '~/utils/programming'
 import type { ProgrammingPreference } from '~/utils/programming'
 import { runProgramming, verifyProgrammingExercise } from '~/utils/programmingRunner'
+import { availableProgrammingLanguages } from '~/utils/programmingEnvironments'
+import {
+  nextPracticeHintLevel,
+  practiceHelpLevel,
+  practiceHintPrompt,
+  validatePracticeHint,
+} from '~/utils/practiceHints'
 
 interface PracticeOptions {
   mode?: 'lesson' | 'daily'
@@ -68,8 +75,9 @@ export function useLessonPractice(
     records: [] as PracticeRecord[],
     selectedId: '',
     historyReady: false,
-    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload' | 'test',
+    busy: '' as '' | 'loading' | 'generate' | 'review' | 'upload' | 'test' | 'hint',
     error: '',
+    hintError: '',
     storageError: '',
     materialNotice: '',
     mode,
@@ -167,6 +175,7 @@ export function useLessonPractice(
     if (state.busy) return
     state.selectedId = id
     state.error = ''
+    state.hintError = ''
   }
   function updateDraft(answer: string) {
     if (current.value && !state.busy) {
@@ -184,6 +193,55 @@ export function useLessonPractice(
   function resetCode() {
     const exercise = programmingQuestion(current.value?.question)
     if (exercise && !state.busy) updateDraft(exercise.starterCode)
+  }
+  async function revealHint() {
+    const record = current.value
+    if (!record || state.busy || !state.open || !state.historyReady) return
+    const level = nextPracticeHintLevel(record)
+    if (!level) return
+    state.hintError = ''
+    if (!configured.value) {
+      state.hintError = '请先选择有效的 AI 配置。'
+      return
+    }
+    const controller = new AbortController(),
+      revision = courseRevision,
+      path = state.path
+    request = controller
+    state.busy = 'hint'
+    try {
+      const raw = await requestGuideJson({ ...settings }, practiceHintPrompt(record, level), controller.signal)
+      controller.signal.throwIfAborted()
+      if (
+        courseRevision !== revision ||
+        state.path !== path ||
+        current.value?.id !== record.id ||
+        !state.open ||
+        request !== controller
+      )
+        return
+      const hint = validatePracticeHint(raw, level, record.sources)
+      record.help = {
+        level: Math.max(practiceHelpLevel(record), level) as typeof level | 4,
+        hints: [...(record.help?.hints ?? []), { ...hint, viewedAt: Date.now() }],
+      }
+      await persist()
+    } catch (error) {
+      if (!controller.signal.aborted && request === controller) state.hintError = (error as Error).message
+    } finally {
+      if (request === controller) {
+        request = null
+        state.busy = ''
+      }
+    }
+  }
+  function revealReference() {
+    const record = current.value
+    if (!record || state.busy || !state.open || !state.historyReady) return
+    if (record.help?.level === 4) return
+    record.help = { level: 4, hints: record.help?.hints ?? [] }
+    state.hintError = ''
+    persist()
   }
   // 测试用例由出题时固定提供，运行即自动执行全部用例，不提供自选输入。
   async function executeCode() {
@@ -273,6 +331,7 @@ export function useLessonPractice(
     state.open = true
     state.error = ''
     state.materialNotice = ''
+    state.hintError = ''
     state.note = ''
     state.cues = []
     state.preparedSources = options.sources ? [] : null
@@ -344,6 +403,7 @@ export function useLessonPractice(
       scope: null,
       open: true,
       error: '',
+      hintError: '',
       materialNotice: '',
       note: '',
       cues: [],
@@ -400,6 +460,8 @@ export function useLessonPractice(
     const path = state.path
     try {
       const submittedSettings = { ...settings }
+      const programmingLanguages = await availableProgrammingLanguages()
+      controller.signal.throwIfAborted()
       const dailyMaterial =
         mode === 'daily'
           ? await prepareDailyPracticeSources({
@@ -427,7 +489,8 @@ export function useLessonPractice(
       const previous = history.value.map((r) => r.question)
       const identity = {
         kind: 'practice',
-        promptVersion: 4,
+        promptVersion: 5,
+        programmingLanguages,
         courseId: activeId,
         path,
         title: state.title,
@@ -457,6 +520,7 @@ export function useLessonPractice(
               count,
               mode === 'daily',
               identity.programmingPreference,
+              programmingLanguages,
             ),
             controller.signal,
           ),
@@ -494,6 +558,8 @@ export function useLessonPractice(
             )
               throw new Error('AI 返回的编程题型与所选题型不一致，请重新生成。')
             if (programming) {
+              if (!programmingLanguages.includes(programming.language))
+                throw new Error('本机未安装题目所需的编程环境，请在设置中重新检测。')
               state.generationProgress = '正在验证编程题'
               await verifyProgrammingExercise(programming, controller.signal, codeRunner)
             }
@@ -551,13 +617,19 @@ export function useLessonPractice(
       return
     state.error = ''
     const answer = practiceAnswerText(record.question, record.draft)
+    const helpLevel = practiceHelpLevel(record)
     const submittedFiles = (record.attachments ?? []).map((file) => ({ ...file }))
     if (!answer.trim() && !submittedFiles.length) {
       state.error = isChoiceQuestion(record.question) ? '请选择答案后提交。' : '请填写作答内容或上传代码、图片后提交。'
       return
     }
     if (isChoiceQuestion(record.question)) {
-      record.attempts.push({ answer, feedback: reviewPracticeChoice(record.question, record.draft), at: Date.now() })
+      record.attempts.push({
+        answer,
+        feedback: reviewPracticeChoice(record.question, record.draft),
+        at: Date.now(),
+        helpLevel,
+      })
       persist()
       return
     }
@@ -595,6 +667,7 @@ export function useLessonPractice(
       if (controller.signal.aborted) return
       record.attempts.push({
         answer,
+        helpLevel,
         ...(submittedFiles.length ? { attachments: submittedFiles } : {}),
         feedback: validatePracticeFeedback(raw, record.sources, record.question, graded),
         at: Date.now(),
@@ -651,6 +724,7 @@ export function useLessonPractice(
       state.supplement = ''
       state.storageError = ''
       state.error = ''
+      state.hintError = ''
       state.historyReady = false
       state.preparedSources = null
       activeId = course.value?.id ?? ''
@@ -669,9 +743,11 @@ export function useLessonPractice(
       available.value,
     ],
     () => {
-      if (state.busy !== 'generate' && state.busy !== 'review') return
+      if (state.busy !== 'generate' && state.busy !== 'review' && state.busy !== 'hint') return
+      const wasHint = state.busy === 'hint'
       cancel()
-      state.error = 'AI 配置已变更，请重新提交请求。'
+      if (wasHint) state.hintError = 'AI 配置已变更，请重新获取提示。'
+      else state.error = 'AI 配置已变更，请重新提交请求。'
     },
     { flush: 'sync' },
   )
@@ -704,6 +780,8 @@ export function useLessonPractice(
     updateDraft,
     resetCode,
     executeCode,
+    revealHint,
+    revealReference,
     generate,
     review,
   }

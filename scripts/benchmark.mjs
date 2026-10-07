@@ -1,5 +1,6 @@
+import { checkPerformanceBudgets } from './performance-budgets.mjs'
 import { performance } from 'node:perf_hooks'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
 import { reactive } from 'vue'
 import { buildTodayPlan } from '../app/utils/learningFeedback.ts'
@@ -24,10 +25,12 @@ registerHooks({
         url:
           'data:text/javascript,' +
           encodeURIComponent(
-            'export const databaseRequest = async () => { globalThis.benchmarkWrites.snapshot++; return true }',
+            'export const databaseRequest = async () => { globalThis.benchmarkWrites.snapshot++; return true }; export const flushDatabaseWrites = async () => {}',
           ),
         shortCircuit: true,
       }
+    if (specifier.startsWith('~/'))
+      return next(new URL(`../app/${specifier.slice(2)}.ts`, import.meta.url).href, context)
     return next(specifier, context)
   },
 })
@@ -115,16 +118,43 @@ for (let i = 0; i < 50; i++) {
   await new Promise((resolve) => setImmediate(resolve))
 }
 persistence.reset()
+const { createLearningData } = await import('../app/utils/learningData.ts')
+const learningRefresh = { dashboard: 0, sources: 0, scopedDashboard: 0, scopedSources: 0 }
+const learning = createLearningData(async (endpoint, options) => {
+  const scoped = !!options.query.courseId
+  const key =
+    endpoint === 'dashboard' ? (scoped ? 'scopedDashboard' : 'dashboard') : scoped ? 'scopedSources' : 'sources'
+  learningRefresh[key]++
+  return endpoint === 'dashboard'
+    ? [
+        {
+          course: { id: 'benchmark', name: 'Benchmark', status: 'active' },
+          data: { guide: null, progress: {}, days: {}, snapshots: {}, records: null },
+        },
+      ]
+    : { notes: [], practices: [], summaries: [] }
+})
+for (let i = 0; i < 50; i++) {
+  await learning.courses(date)
+  await learning.sources()
+}
+learning.invalidate('notes', { body: { courseId: 'benchmark' } })
+learning.invalidate('progress', { body: { courseId: 'benchmark' } })
+await learning.courses(date)
+await learning.sources()
 const report = {
   node: process.version,
   platform: process.platform,
   arch: process.arch,
   date,
   results,
+  learningRefresh,
   typingBurst: { updates: 100, serializations },
   repeatedViewChanges: { changes: 50, writes },
   note: 'Synthetic Vue-reactive CPU benchmark and write counts. Not startup time, UI latency, or real database I/O.',
 }
+if (process.argv[2]?.startsWith('.cache/')) await mkdir('.cache', { recursive: true })
 if (process.argv[2]) await writeFile(process.argv[2], JSON.stringify(report, null, 2) + '\n')
 console.log(JSON.stringify(report, null, 2))
+if (process.argv.includes('--check')) checkPerformanceBudgets(report)
 delete globalThis.benchmarkWrites

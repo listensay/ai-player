@@ -8,12 +8,14 @@ import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 import PracticeText from '~/components/PracticeText.vue'
 import PracticeAttachmentList from '~/components/PracticeAttachmentList.vue'
+import PracticeHintPanel from '~/components/PracticeHintPanel.vue'
 import ProgrammingWorkspace from '~/components/ProgrammingWorkspace.vue'
 import ProgrammingResults from '~/components/ProgrammingResults.vue'
 import { programmingQuestion } from '~/utils/programming'
 import { PRACTICE_FILE_ACCEPT } from '~/utils/practiceAttachments'
 import { criterionPoints, GRADE_STATUS_LABELS } from '~/utils/practiceGrading'
 import { practiceGroup, practiceGroupScore } from '~/utils/practiceSession'
+import { practiceHelpLabel } from '~/utils/practiceHints'
 import {
   PRACTICE_KIND_LABELS,
   KNOWLEDGE_LEVEL_LABELS,
@@ -128,19 +130,21 @@ const correctCount = computed(() => history.value.filter((r) => r.attempts.at(-1
 const latestScore = computed(() => current.value?.attempts.at(-1)?.feedback.grade?.score)
 const points = computed(() => (current.value ? criterionPoints(current.value.question) : []))
 const busyText = computed(() =>
-  state.busy === 'test'
-    ? '正在执行代码…'
-    : state.busy === 'review' && programming.value
-      ? '正在测试并提交 AI 评阅…'
-      : state.busy === 'loading'
-        ? '正在准备知识点…'
-        : state.busy === 'generate'
-          ? `正在生成练习 ${state.generationProgress}…`
-          : state.busy === 'upload'
-            ? '正在保存作业文件…'
-            : daily || props.practice.attachments.value.length
-              ? '正在逐项评阅作业并评分…'
-              : '正在评估作答…',
+  state.busy === 'hint'
+    ? '正在生成提示…'
+    : state.busy === 'test'
+      ? '正在执行代码…'
+      : state.busy === 'review' && programming.value
+        ? '正在测试并提交 AI 评阅…'
+        : state.busy === 'loading'
+          ? '正在准备知识点…'
+          : state.busy === 'generate'
+            ? `正在生成练习 ${state.generationProgress}…`
+            : state.busy === 'upload'
+              ? '正在保存作业文件…'
+              : daily || props.practice.attachments.value.length
+                ? '正在逐项评阅作业并评分…'
+                : '正在评估作答…',
 )
 const shownScope = computed(() => (current.value ? current.value.scope : state.scope))
 function scopeText(scope: PracticeScope | null) {
@@ -337,7 +341,20 @@ async function upload(event: Event) {
               @execute="practice.executeCode"
               @reset="practice.resetCode"
               @save="practice.persist"
-            />
+            >
+              <template #help>
+                <PracticeHintPanel
+                  :record="current"
+                  :busy="!!state.busy"
+                  :loading="state.busy === 'hint'"
+                  :configured="configured"
+                  :error="state.hintError"
+                  @hint="practice.revealHint"
+                  @reference="practice.revealReference"
+                  @settings="emit('settings')"
+                />
+              </template>
+            </ProgrammingWorkspace>
             <div v-if="view === 'question' && !programming" class="space-y-6">
               <div class="flex items-center gap-3">
                 <h3
@@ -524,6 +541,7 @@ async function upload(event: Event) {
               </section>
               <div class="practice-submitted">
                 <h4 class="mb-2 text-body-sm font-bold text-stone">本次作答</h4>
+                <p class="mb-3 text-body-sm text-deep-indigo">{{ practiceHelpLabel(attempt.helpLevel) }}</p>
                 <pre v-if="attempt.answer" class="whitespace-pre-wrap break-words">{{ attempt.answer }}</pre>
                 <PracticeAttachmentList
                   v-if="attempt.attachments?.length"
@@ -565,14 +583,21 @@ async function upload(event: Event) {
               </div>
             </section>
 
+            <PracticeHintPanel
+              v-if="!programming || view !== 'question'"
+              :record="current"
+              :busy="!!state.busy"
+              :loading="state.busy === 'hint'"
+              :configured="configured"
+              :error="state.hintError"
+              @hint="practice.revealHint"
+              @reference="practice.revealReference"
+              @settings="emit('settings')"
+            />
             <VExpansionPanels v-if="!programming || view !== 'question'" v-model="detailPanel" class="practice-details">
               <VExpansionPanel v-if="view === 'feedback'" value="question">
                 <VExpansionPanelTitle>查看题目</VExpansionPanelTitle>
                 <VExpansionPanelText><PracticeText :text="questionPrompt" /></VExpansionPanelText>
-              </VExpansionPanel>
-              <VExpansionPanel value="answer">
-                <VExpansionPanelTitle>参考答案</VExpansionPanelTitle>
-                <VExpansionPanelText><PracticeText :text="current.question.referenceAnswer" /></VExpansionPanelText>
               </VExpansionPanel>
               <VExpansionPanel
                 v-if="current.question.criteria.length || current.question.knowledge"

@@ -10,9 +10,16 @@ const filename = new URL('../app/components/ProgrammingEditor.vue', import.meta.
 const { descriptor } = parse(readFileSync(filename, 'utf8'))
 const script = compileScript(descriptor, { id: 'programming-editor-test', inlineTemplate: true })
   .content.replace(/import UiButton from '[^']+'/u, 'const UiButton = { render: () => null }')
+  .replace(
+    /from '~\/utils\/programmingLanguages'/g,
+    `from '${new URL('../app/utils/programmingLanguages.ts', import.meta.url).href}'`,
+  )
   .replace("import('~/utils/codeEditor')", 'globalThis.programmingEditorIO.load()')
+  .replace("from '~/utils/performance'", `from '${new URL('../app/utils/performance.ts', import.meta.url).href}'`)
 const source = ts
-  .transpileModule(script, { compilerOptions: { target: 99, module: 99 } })
+  .transpileModule(script.replaceAll('import.meta.env.MODE', JSON.stringify('test')), {
+    compilerOptions: { target: 99, module: 99 },
+  })
   .outputText.replaceAll('from "vue"', `from ${JSON.stringify(import.meta.resolve('vue'))}`)
   .replaceAll("from 'vue'", `from ${JSON.stringify(import.meta.resolve('vue'))}`)
 const { default: Editor } = await import(`data:text/javascript,${encodeURIComponent(source)}`)
@@ -47,7 +54,8 @@ function mount(t, limit = 32000) {
   }
   const monaco = {
     editor: {
-      createModel(value) {
+      createModel(value, language, uri) {
+        calls.push({ language, uri })
         content = value
         return { updateOptions() {}, dispose: () => calls.push('model disposed') }
       },
@@ -57,7 +65,7 @@ function mount(t, limit = 32000) {
     KeyMod: { CtrlCmd: 1 },
     KeyCode: { KeyS: 2 },
   }
-  globalThis.programmingEditorIO = { load: async () => ({ monaco }) }
+  globalThis.programmingEditorIO = { load: async () => ({ monaco, prepareLanguage: async () => {} }) }
   const state = reactive({ code: 'initial', readonly: false, location: undefined, rejected: false, saves: 0 })
   const renderer = createRenderer({
     createElement: () => ({}),
@@ -75,6 +83,7 @@ function mount(t, limit = 32000) {
     render: () =>
       h(Editor, {
         modelValue: state.code,
+        language: 'python',
         readonly: state.readonly,
         location: state.location,
         'onUpdate:modelValue': (value) => {
@@ -125,4 +134,10 @@ test('连续输入、外部重置、只读、保存和错误定位同步到编�
   assert.ok(editor.calls.includes('focus'))
   editor.save()
   assert.equal(editor.state.saves, 1)
+})
+
+test('Python 编辑器使用对应语言和文件扩展名', async (t) => {
+  const editor = mount(t)
+  await settle()
+  assert.ok(editor.calls.some((call) => call.language === 'python' && call.uri.endsWith('/solution.py')))
 })

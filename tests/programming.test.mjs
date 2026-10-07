@@ -8,6 +8,7 @@ import {
   restoreProgrammingRun,
   equalJson,
   PROGRAMMING_PROMPT,
+  programmingPrompt,
 } from '../app/utils/programming.ts'
 import { verifyProgrammingExercise, runProgramming } from '../app/utils/programmingRunner.ts'
 import { programmingExercise as exercise } from './fixtures/programming.mjs'
@@ -23,7 +24,7 @@ test('补全与实现题校验语言、接口、TODO、测试覆盖和重复用�
   assert.deepEqual(validateProgrammingExercise(exercise), exercise)
   assert.equal(validateProgrammingExercise({ ...exercise, mode: 'implementation' }).mode, 'implementation')
   for (const patch of [
-    { language: 'python' },
+    { language: 'unknown-language' },
     { functionName: 'sumPositive();' },
     { mode: 'unknown' },
     { starterCode: exercise.referenceCode },
@@ -224,4 +225,19 @@ test('Worker 派发失败或取消后立即释放，后续运行仍可完成', a
   workers[2].onmessage({ data: { result: run(exercise.referenceCode) } })
   assert.ok((await succeeded).cases.every((item) => item.status === 'passed'))
   assert.equal(workers[2].terminated, 1)
+})
+
+test('支持本机语言的题目可校验与恢复，出题范围由检测结果决定', () => {
+  for (const language of ['python', 'java', 'cpp', 'rust', 'go', 'typescript']) {
+    const question = validateProgrammingExercise({ ...exercise, language })
+    assert.equal(question.language, language)
+    const result = run(exercise.referenceCode)
+    assert.deepEqual(restoreProgrammingRun(result, question), result)
+  }
+  const prompt = programmingPrompt(['python', 'java'])
+  assert.match(prompt, /本次可用编程语言：python, java/)
+  assert.match(prompt, /Python 3/)
+  assert.match(prompt, /标准输入读取一行 JSON/)
+  assert.doesNotMatch(prompt, /同步 JavaScript 参考实现/)
+  assert.match(programmingPrompt([]), /不生成可执行的 code/)
 })

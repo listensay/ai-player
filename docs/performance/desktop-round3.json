@@ -1,0 +1,98 @@
+{
+  "platform": "darwin",
+  "arch": "arm64",
+  "reports": [
+    {
+      "phase": "first",
+      "success": true,
+      "steps": [
+        "home-load",
+        "note-edit-switch-restore",
+        "programming-execution-and-cancellation",
+        "pomodoro-pauses-playing-video",
+        "backup-ui-and-staged-restore"
+      ],
+      "metrics": [
+        {
+          "duration": 137,
+          "name": "ai-player:webview-ready"
+        },
+        {
+          "duration": 19,
+          "name": "ai-player:home-load"
+        },
+        {
+          "duration": 56,
+          "name": "ai-player:course-open"
+        },
+        {
+          "duration": 84.99999999999997,
+          "name": "ai-player:note-ready"
+        },
+        {
+          "duration": 144,
+          "name": "ai-player:video-ready"
+        },
+        {
+          "duration": 19,
+          "name": "ai-player:note-ready"
+        },
+        {
+          "duration": 62.00000000000023,
+          "name": "ai-player:video-ready"
+        },
+        {
+          "duration": 240,
+          "name": "ai-player:programming-ready"
+        },
+        {
+          "duration": 17.999999999999773,
+          "name": "ai-player:note-ready"
+        },
+        {
+          "duration": 61,
+          "name": "ai-player:video-ready"
+        },
+        {
+          "duration": 13,
+          "name": "ai-player:programming-ready"
+        },
+        {
+          "duration": 39,
+          "name": "ai-player:home-load"
+        }
+      ]
+    },
+    {
+      "phase": "second",
+      "success": true,
+      "steps": ["home-load", "restart-restores-note-and-code-results"],
+      "metrics": [
+        {
+          "duration": 130,
+          "name": "ai-player:webview-ready"
+        },
+        {
+          "duration": 17,
+          "name": "ai-player:home-load"
+        },
+        {
+          "duration": 33,
+          "name": "ai-player:course-open"
+        },
+        {
+          "duration": 93.99999999999996,
+          "name": "ai-player:note-ready"
+        },
+        {
+          "duration": 145,
+          "name": "ai-player:video-ready"
+        },
+        {
+          "duration": 213,
+          "name": "ai-player:programming-ready"
+        }
+      ]
+    }
+  ]
+}

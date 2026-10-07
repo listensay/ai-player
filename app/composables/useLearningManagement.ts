@@ -12,16 +12,15 @@ import {
 } from 'vue'
 import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
 import { subscribeDatabaseChanges } from '~/utils/databaseChanges'
-import { restoreHomeCourse, type HomeCourse } from '~/utils/learningHome'
+import type { HomeCourse } from '~/utils/learningHome'
+import { readLearningCourses, readLearningSources, createReviewIndex, resetLearningData } from '~/utils/learningData'
 import { localDayKey } from '~/utils/learningFeedback'
 import {
   canAcceptWork,
-  collectReviewCards,
   dueReviewCards,
   emptyLearningManagement,
   mergeReviewCards,
   parseLearningManagement,
-  parseLearningSources,
   recordReview,
 } from '~/utils/learningManagement'
 import { learningCalendar } from '~/utils/learningOutcomes'
@@ -117,6 +116,7 @@ export function provideLearningManagement() {
       if (pendingFlow.value?.id === pending.id) pendingFlow.value = null
     }
   }
+  const reviewIndex = createReviewIndex()
   let version = 0,
     stopped = false,
     refreshTimer: ReturnType<typeof setTimeout> | undefined,
@@ -127,7 +127,7 @@ export function provideLearningManagement() {
     dirty = true
     if (refreshing) return refreshing
     refreshing = (async () => {
-      loading.value = true
+      loading.value = !courses.value.length
       while (dirty && !stopped) {
         dirty = false
         const token = ++version
@@ -137,16 +137,10 @@ export function provideLearningManagement() {
           await store.load()
           if (!store.state.ready) break
           await flushDatabaseWrites()
-          const [rawCourses, rawSources] = await Promise.all([
-            databaseRequest<unknown>('dashboard'),
-            databaseRequest('learning-sources'),
-          ])
+          const [parsedCourses, parsedSources] = await Promise.all([readLearningCourses(day), readLearningSources()])
           if (token !== version || stopped) return
-          if (!Array.isArray(rawCourses)) throw Error('课程库读取失败。')
-          const parsedCourses = rawCourses.map((r) => restoreHomeCourse(r, day))
           if (parsedCourses.some((c) => c.error)) throw Error('部分课程记录无法读取，请重新打开课程。')
-          const parsedSources = parseLearningSources(rawSources)
-          const cards = collectReviewCards(parsedSources, parsedCourses, day)
+          const cards = reviewIndex(parsedSources, parsedCourses, day)
           if (localDayKey() !== day) {
             dirty = true
             continue
@@ -211,7 +205,16 @@ export function provideLearningManagement() {
   const unsubscribe = subscribeDatabaseChanges((collection, options) => {
     const key = (options.body as { key?: string } | undefined)?.key ?? ''
     if (
-      ['notes', 'practice', 'library', 'learning-plan', 'guide'].includes(collection) ||
+      [
+        'notes',
+        'practice',
+        'library',
+        'recent-courses',
+        'learning-plan',
+        'guide',
+        'check-in',
+        'day-snapshots',
+      ].includes(collection) ||
       (collection === 'progress' && (options.body as { done?: boolean })?.done) ||
       (collection === 'settings' && /^(lesson-knowledge:|daily-practice:|study-records:)/u.test(key))
     )
@@ -244,7 +247,10 @@ export function provideLearningManagement() {
     reward,
     pendingFlow,
     checkFlow,
-    refresh,
+    refresh: () => {
+      resetLearningData()
+      return refresh()
+    },
     calendarUrl,
     calendarError,
     publishCalendar,

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { PracticeQuestion, ProgrammingExercise, ProgrammingRun } from '~/types/practice'
 import { PROGRAMMING_MODES } from '~/utils/programming'
+import { programmingLanguageName, programmingFilename } from '~/utils/programmingLanguages'
 import ProgrammingEditor from '~/components/ProgrammingEditor.vue'
 import ProgrammingResults from '~/components/ProgrammingResults.vue'
 import PracticeText from '~/components/PracticeText.vue'
@@ -27,7 +28,6 @@ const root = ref<HTMLElement>(),
   confirmReset = ref(false)
 const location = ref<{ line: number; column?: number; nonce: number }>()
 const stale = computed(() => !!props.run && props.run.code !== props.draft)
-const details = ref<string>()
 function locate(value: { line: number; column?: number }) {
   location.value = { ...value, nonce: Date.now() }
 }
@@ -82,19 +82,7 @@ onBeforeUnmount(() => {
       <ol class="list-decimal space-y-2 pl-5">
         <li v-for="item in question.criteria" :key="item"><PracticeText :text="item" /></li>
       </ol>
-      <VExpansionPanels v-model="details" class="mt-5">
-        <VExpansionPanel v-if="exercise.hints.length" value="hints"
-          ><VExpansionPanelTitle>提示</VExpansionPanelTitle
-          ><VExpansionPanelText
-            ><PracticeText v-for="hint in exercise.hints" :key="hint" :text="hint" class="mb-3" /></VExpansionPanelText
-        ></VExpansionPanel>
-        <VExpansionPanel value="reference"
-          ><VExpansionPanelTitle>参考答案</VExpansionPanelTitle
-          ><VExpansionPanelText>
-            <pre class="mb-4">{{ exercise.referenceCode }}</pre>
-            <PracticeText :text="question.referenceAnswer" /></VExpansionPanelText
-        ></VExpansionPanel>
-      </VExpansionPanels>
+      <div class="mt-5"><slot name="help" /></div>
     </section>
     <div
       v-if="!collapsed"
@@ -113,8 +101,10 @@ onBeforeUnmount(() => {
     />
     <section class="code-pane" aria-label="编程作答">
       <div class="editor-titlebar">
-        <div class="editor-file"><span class="language-mark" aria-hidden="true">JS</span>solution.js</div>
-        <span class="editor-language">JavaScript</span>
+        <div class="editor-file">
+          <span class="language-mark" aria-hidden="true">&lt;/&gt;</span>{{ programmingFilename(exercise.language) }}
+        </div>
+        <span class="editor-language">{{ programmingLanguageName(exercise.language) }}</span>
       </div>
       <div class="code-toolbar">
         <button
@@ -143,6 +133,8 @@ onBeforeUnmount(() => {
       </div>
       <div class="editor-space">
         <ProgrammingEditor
+          :key="exercise.language"
+          :language="exercise.language"
           :model-value="draft"
           :readonly="busy"
           :location="location"
@@ -318,12 +310,6 @@ onBeforeUnmount(() => {
 .result-space.results-hidden {
   flex: 0 0 36px;
   min-height: 36px;
-}
-pre {
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 13px;
 }
 @media (max-width: 900px) {
   .requirements {
