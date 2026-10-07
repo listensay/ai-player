@@ -7,7 +7,7 @@ import { formatTime } from '~/utils/time'
 /** Note commands capture their lesson and playhead before loading the editor. */
 export function useNoteWorkspace(
   key: Ref<string>,
-  rightTab: Ref<'knowledge' | 'notes' | 'transcript'>,
+  rightTab: Ref<'knowledge' | 'notes' | 'transcript' | 'assistant'>,
   player: ReturnType<typeof usePlayer>,
   notify: (message: string) => void,
   reveal: () => void = () => {},
@@ -67,5 +67,5 @@ export function useNoteWorkspace(
       notify((error as Error).message)
     }
   }
-  return { noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote }
+  return { readyNote: ready, noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote }
 }

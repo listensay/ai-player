@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { startPerformanceMeasure } from '~/utils/performance'
 import type { Component } from 'vue'
 import type { VideoEntry } from '~/types/course'
-import type { NoteEditorHandle } from '~/types/note'
+import type { NoteEditorHandle, NoteSelection } from '~/types/note'
 import UiButton from './UiButton.vue'
 
 const props = defineProps<{ video: VideoEntry; courseId: string; active: boolean }>()
@@ -53,6 +53,15 @@ defineExpose({
     await editor.value?.save()
   },
   insertTimestamp: (seconds: number) => editor.value?.insertTimestamp(seconds),
+  getSelection: () => editor.value?.getSelection() ?? null,
+  replaceSelection: (selection: NoteSelection, markdown: string) => {
+    if (!editor.value) throw Error('笔记编辑器尚未就绪。')
+    editor.value.replaceSelection(selection, markdown)
+  },
+  insertMarkdown: (markdown: string) => {
+    if (!editor.value) throw Error('笔记编辑器尚未就绪。')
+    editor.value.insertMarkdown(markdown)
+  },
   insertInline: (text: string) => editor.value?.insertInline(text),
   insertScreenshot: async (blob: Blob, seconds: number, ratio?: number) => {
     await editor.value?.insertScreenshot(blob, seconds, ratio)

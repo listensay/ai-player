@@ -15,7 +15,8 @@ import UiButton from '~/components/UiButton.vue'
  * 组件按视频路径 key 化，切换课时时整个重建，避免防抖保存写错文件。
  */
 import { Crepe } from '@milkdown/crepe'
-import { editorViewCtx } from '@milkdown/kit/core'
+import type { NoteSelection } from '~/types/note'
+import { editorViewCtx, parserCtx } from '@milkdown/kit/core'
 import { insert } from '@milkdown/kit/utils'
 import { Selection, TextSelection } from '@milkdown/kit/prose/state'
 import '@milkdown/crepe/theme/common/style.css'
@@ -129,6 +130,36 @@ function insertInline(token: string) {
       }
     }
     view.dispatch(tr.scrollIntoView())
+    view.focus()
+  })
+}
+
+/** AI changes are explicit transactions, so normal editor undo still works. */
+function getSelection(): NoteSelection | null {
+  if (!crepe || destroyed) return null
+  return crepe.editor.action((ctx) => {
+    const { doc, selection } = ctx.get(editorViewCtx).state
+    if (selection.empty) return null
+    return { from: selection.from, to: selection.to, text: doc.textBetween(selection.from, selection.to, '\n'), document: JSON.stringify(doc.toJSON()) }
+  })
+}
+function replaceSelection(selection: NoteSelection, markdown: string) {
+  if (!crepe || destroyed) throw Error('编辑器尚未就绪。')
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx)
+    if (JSON.stringify(view.state.doc.toJSON()) !== selection.document) throw Error('原笔记已修改，请重新选中文字后生成，避免覆盖新内容。')
+    const parsed = ctx.get(parserCtx)(markdown)
+    if (!parsed) throw Error('无法解析生成的 Markdown。')
+    view.dispatch(view.state.tr.replaceRange(selection.from, selection.to, parsed.slice(0)).scrollIntoView())
+    view.focus()
+  })
+}
+function insertMarkdown(markdown: string) {
+  if (!crepe || destroyed) throw Error('编辑器尚未就绪。')
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx), parsed = ctx.get(parserCtx)(markdown)
+    if (!parsed) throw Error('无法解析生成的 Markdown。')
+    view.dispatch(view.state.tr.insert(view.state.doc.content.size, parsed.content).scrollIntoView())
     view.focus()
   })
 }
@@ -297,6 +328,9 @@ defineExpose({
   hasUnsavedChanges: () => session.state.dirty,
   insertTimestamp,
   insertInline,
+  insertMarkdown,
+  getSelection,
+  replaceSelection,
   insertScreenshot,
   setPlayhead,
   save,
