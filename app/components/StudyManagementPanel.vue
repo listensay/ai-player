@@ -30,7 +30,7 @@ const sections = [
   { id: 'insights', title: '成长与复盘', icon: 'dashboard' },
   { id: 'review', title: '抗遗忘复习', icon: 'reset' },
   { id: 'outcomes', title: '实践作品', icon: 'graduation' },
-  { id: 'connections', title: '知识库与日历', icon: 'note' },
+  { id: 'connections', title: '学习日历', icon: 'note' },
   { id: 'reminders', title: '学习提醒', icon: 'bell' },
 ] as const
 const tools = useStudyTools(),

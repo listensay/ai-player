@@ -4,7 +4,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::time::Duration;
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, Webview, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const LABEL: &str = "companion";
 const WIDTH: f64 = 280.0;
@@ -152,16 +152,16 @@ fn track_cursor(window: &WebviewWindow, state: &CompanionHitState) -> Result<(),
 }
 
 #[tauri::command]
-pub fn companion_is_open(app: tauri::AppHandle, window: WebviewWindow) -> Result<bool, String> {
-    if window.label() != "main" {
+pub fn companion_is_open(app: tauri::AppHandle, webview: Webview) -> Result<bool, String> {
+    if webview.label() != "main" {
         return Err("只能从学习主窗口查询桌宠".into());
     }
     Ok(app.get_webview_window(LABEL).is_some())
 }
 
 #[tauri::command]
-pub fn close_companion(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
-    if window.label() != "main" {
+pub fn close_companion(app: tauri::AppHandle, webview: Webview) -> Result<(), String> {
+    if webview.label() != "main" {
         return Err("只能从学习主窗口关闭桌宠".into());
     }
     if let Some(companion) = app.get_webview_window(LABEL) {
@@ -172,10 +172,11 @@ pub fn close_companion(app: tauri::AppHandle, window: WebviewWindow) -> Result<(
 
 /// A single, local companion WebView. Playback and persistence stay in the main window.
 #[tauri::command]
-pub async fn open_companion(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
-    if window.label() != "main" {
+pub async fn open_companion(app: tauri::AppHandle, webview: Webview) -> Result<(), String> {
+    if webview.label() != "main" {
         return Err("只能从学习主窗口打开桌宠".into());
     }
+    let window = webview.window();
     if window.is_fullscreen().map_err(|e| e.to_string())? {
         return Ok(());
     }
@@ -237,7 +238,7 @@ pub async fn reveal_learning_window(
     if window.label() != LABEL {
         return Err("此操作仅用于桌宠".into());
     }
-    let main = app.get_webview_window("main").ok_or("学习窗口已关闭")?;
+    let main = app.get_window("main").ok_or("学习窗口已关闭")?;
     main.unminimize().map_err(|e| e.to_string())?;
     main.show().map_err(|e| e.to_string())?;
     main.set_focus().map_err(|e| e.to_string())
@@ -247,10 +248,10 @@ pub async fn reveal_learning_window(
 #[tauri::command]
 pub fn set_companion_fullscreen(
     app: tauri::AppHandle,
-    window: WebviewWindow,
+    webview: Webview,
     fullscreen: bool,
 ) -> Result<(), String> {
-    if window.label() != "main" {
+    if webview.label() != "main" {
         return Err("只能从学习主窗口更新桌宠".into());
     }
     if let Some(companion) = app.get_webview_window(LABEL) {

@@ -1,36 +1,12 @@
 import { onBeforeUnmount, onMounted } from 'vue'
-import type { Ref } from 'vue'
-import type { Router } from 'vue-router'
-import type { NoteEditorHandle } from '~/types/note'
 import { registerWorkspaceFlush } from '~/utils/workspaceFlush'
 import { desktopInvoke } from '~/utils/platform'
 
-export function protectNoteNavigation(
-  router: Router,
-  note: Ref<NoteEditorHandle | null>,
-  notify: (message: string) => void,
-) {
-  return router.beforeEach(async (to, from) => {
-    if (to.path === from.path && to.query.lesson === from.query.lesson) return true
-    try {
-      await note.value?.save()
-      if (note.value?.hasUnsavedChanges()) throw new Error('笔记尚未保存，请重试。')
-      return true
-    } catch (error) {
-      notify(`无法离开当前课节：${(error as Error).message}`)
-      return false
-    }
-  })
-}
-
 export function useWorkspaceLifecycle(options: {
-  router: Router
-  note: Ref<NoteEditorHandle | null>
   notify: (message: string) => void
   activeJobs: () => boolean
   flush: () => Promise<void>
 }) {
-  const removeGuard = protectNoteNavigation(options.router, options.note, options.notify)
   let unlistenClose: (() => void) | undefined, unlistenQuit: (() => void) | undefined
   let closing = false,
     disposed = false
@@ -39,11 +15,7 @@ export function useWorkspaceLifecycle(options: {
     closing = true
     try {
       if (options.activeJobs() && !(await desktopInvoke<boolean>('confirm_asr_quit'))) return
-      await options.note.value?.save()
-      if (options.note.value?.hasUnsavedChanges()) throw new Error('笔记尚未保存')
       await options.flush()
-      await options.note.value?.save()
-      if (options.note.value?.hasUnsavedChanges()) throw new Error('笔记有新的修改，请重试。')
       await desktopInvoke('finish_close')
     } catch (error) {
       options.notify(`数据尚未保存，请重试后关闭窗口：${(error as Error).message}`)
@@ -53,10 +25,7 @@ export function useWorkspaceLifecycle(options: {
   }
   const unregisterFlush = registerWorkspaceFlush(async () => {
     if (options.activeJobs()) throw Error('请先完成或取消正在进行的任务。')
-    await options.note.value?.save()
     await options.flush()
-    await options.note.value?.save()
-    if (options.note.value?.hasUnsavedChanges()) throw Error('笔记有新的修改，请重试。')
   })
   onMounted(async () => {
     try {
@@ -74,13 +43,12 @@ export function useWorkspaceLifecycle(options: {
       }
       await desktopInvoke('frontend_ready')
     } catch {
-      options.notify('关闭窗口保护初始化失败，请先保存笔记。')
+      options.notify('关闭窗口保护初始化失败，请稍后重试关闭。')
     }
   })
   onBeforeUnmount(() => {
     disposed = true
     unregisterFlush()
-    removeGuard()
     unlistenClose?.()
     unlistenQuit?.()
   })

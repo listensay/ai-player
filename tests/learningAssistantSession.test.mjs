@@ -14,6 +14,7 @@ registerHooks({
     return next(specifier, context)
   },
 })
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
 const { useLearningAssistant } = await import('../app/composables/useLearningAssistant.ts')
 const deferred = () => {
   let resolve
@@ -32,14 +33,9 @@ function mount(t) {
     requests.push({ ...d, messages, signal })
     return d.promise
   }
-  const editor = {
-    getMarkdown: () => '尚未保存的秘密笔记',
-    getSelection: () => ({ from: 1, to: 3, text: '简写', document: 'original' }),
-    insertMarkdown: (value) => writes.push(value),
-    replaceSelection: (_s, value) => writes.push(value),
-    save: async () => {},
-    hasUnsavedChanges: () => false,
-  }
+  t.mock.method(navigator.clipboard, 'writeText', async (value) => {
+    writes.push(value)
+  })
   const options = {
     course: ref({ id: 'course' }),
     video: ref({ path: 'one.mp4', title: '第一课' }),
@@ -62,8 +58,6 @@ function mount(t) {
         return true
       },
     },
-    noteEditor: ref(editor),
-    readyNote: async () => editor,
     reveal() {},
     notify() {},
   }
@@ -85,7 +79,7 @@ function mount(t) {
   t.after(() => app.unmount())
   return { a, options, writes, requests, queue, seeks, app }
 }
-test('问答冻结提问时刻，不默认上传笔记；插入使用原时间戳', async (t) => {
+test('问答冻结提问时刻，不默认上传笔记；复制使用原时间戳', async (t) => {
   const { a, options, requests, writes } = mount(t)
   a.open()
   const task = a.ask('解释锁')
@@ -94,8 +88,8 @@ test('问答冻结提问时刻，不默认上传笔记；插入使用原时间�
   requests[0].resolve({ markdown: '锁用于互斥', sources: ['s:1'] })
   await task
   assert.equal(a.turns.value[0].seconds, 100)
-  await a.insertNote(a.turns.value[0].markdown, a.turns.value[0].seconds)
-  assert.match(writes[0], /\[01:40\]/)
+  await a.copyResult(a.turns.value[0].markdown, a.turns.value[0].seconds)
+  assert.match(writes[0], /1:40/)
 })
 test('切课或取消会中断请求，晚到结果不能污染新课节', async (t) => {
   const { a, options, requests } = mount(t)
@@ -113,11 +107,11 @@ test('切课或取消会中断请求，晚到结果不能污染新课节', async
   await canceled
   assert.equal(a.turns.value.length, 0)
 })
-test('明确勾选笔记才发送；服务切换取消旧请求并重置截图授权', async (t) => {
+test('主动粘贴文字才提供给整理工具；服务切换取消旧请求并重置截图授权', async (t) => {
   const { a, options, requests } = mount(t)
-  a.open()
-  a.includeNote.value = true
-  const task = a.ask('整理我的笔记')
+  a.open('notes')
+  a.noteInput.value = '主动粘贴的秘密笔记'
+  const task = a.improveNote('整理我的笔记')
   assert.match(requests[0].messages[0].content, /秘密笔记/)
   a.imageConsent.value = true
   options.settings.model = 'other'
@@ -160,17 +154,6 @@ test('高光模式默认关闭，不跳过核心；可撤销；离开播放器�
   await nextTick()
   assert.equal(a.skipTransitions.value, false)
 })
-test('笔记加载期间切课，禁止旧生成内容写入新笔记', async (t) => {
-  const { a, options, writes } = mount(t),
-    loading = deferred()
-  options.readyNote = () => loading.promise
-  const task = a.insertNote('旧答案', 100)
-  options.video.value = { path: 'two.mp4', title: '第二课' }
-  loading.resolve(options.noteEditor.value)
-  await task
-  assert.deepEqual(writes, [])
-})
-
 test('重新打开笔记工具会取消旧生成，晚到结果不能关联到新选区', async (t) => {
   const { a, requests } = mount(t)
   a.open('notes')
@@ -182,13 +165,13 @@ test('重新打开笔记工具会取消旧生成，晚到结果不能关联到�
   await pending
   assert.equal(a.noteResult.value, null)
 })
-test('重复点击插入在等待编辑器期间只写入一次', async (t) => {
-  const { a, options, writes } = mount(t),
-    waiting = deferred()
-  options.readyNote = () => waiting.promise
-  const first = a.insertNote('结果', 100),
-    second = a.insertNote('结果', 100)
-  waiting.resolve(options.noteEditor.value)
-  await Promise.all([first, second])
-  assert.equal(writes.length, 1)
+test('复制失败保留生成结果并显示错误', async (t) => {
+  const { a } = mount(t)
+  t.mock.method(navigator.clipboard, 'writeText', async () => {
+    throw Error('denied')
+  })
+  a.noteResult.value = { markdown: '需要保留的内容', sources: [] }
+  await a.copyResult(a.noteResult.value.markdown)
+  assert.equal(a.noteResult.value.markdown, '需要保留的内容')
+  assert.match(a.error.value, /复制失败/)
 })

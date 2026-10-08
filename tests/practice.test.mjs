@@ -12,7 +12,7 @@ const boundaries = {
   '~/utils/guideAi': ['requestGuideJson'],
   '~/utils/guideMedia': ['loadLessonSubtitles'],
   '~/utils/database': ['databaseRequest'],
-  '~/utils/dbClient': ['dbFetchPractice', 'dbSavePractice', 'dbFetchNote'],
+  '~/utils/dbClient': ['dbFetchPractice', 'dbSavePractice'],
 }
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -92,7 +92,6 @@ function harness(t, overrides = {}, options = {}) {
       }
       return structuredClone(checkpoints.get(options.query.key) ?? null)
     },
-    dbFetchNote: async () => ({ content: '', updatedAt: null }),
     dbFetchPractice: async () => ({}),
     dbSavePractice: async (...args) => {
       saves.push(args)
@@ -128,7 +127,10 @@ function harness(t, overrides = {}, options = {}) {
   return { practice, saves, calls, io, settings, available, course: activeCourse, checkpoints }
 }
 async function open(h, path = 'a.mp4') {
-  await h.practice.open(video(path), null, note)
+  const courseId = h.course.value.id
+  await h.practice.open(video(path), null)
+  // Supply material through the same editable field a user can paste Notion text into.
+  if (h.course.value.id === courseId && h.practice.state.path === path) h.practice.state.note = note
 }
 
 test('每课节独立保留 20 题，追加新题不挤掉其他课节', () => {
@@ -1636,4 +1638,26 @@ test('每日巩固和编程题使用相同帮助记录，恢复初始代码不�
     assert.equal(h.practice.current.value.attempts[0].helpLevel, 4)
     assert.ok(h.practice.current.value.attempts[0].codeRun)
   }
+})
+
+test('打开练习只载入字幕，笔记材料由用户主动粘贴', async (t) => {
+  const h = harness(t)
+  let fileReads = 0
+  await h.practice.open(
+    {
+      ...video('a.mp4'),
+      parent: {
+        getFileHandle: async () => {
+          fileReads++
+          throw Error('Must not read local notes')
+        },
+      },
+    },
+    null,
+  )
+  assert.equal(fileReads, 0)
+  assert.equal(h.practice.state.note, '')
+  h.practice.state.note = note
+  await h.practice.generate()
+  assert.equal(h.calls.length, 1)
 })

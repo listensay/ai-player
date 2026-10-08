@@ -12,7 +12,7 @@ const workspace = useCourseWorkspace(),
   a = reactive(workspace.assistant)
 const modes: Array<{ id: AssistantMode; label: string }> = [
   { id: 'ask', label: '随堂问答' },
-  { id: 'notes', label: '笔记 AI' },
+  { id: 'notes', label: '整理文字' },
   { id: 'map', label: '知识脑图' },
   { id: 'cards', label: '记忆闪卡' },
   { id: 'feynman', label: '费曼对练' },
@@ -71,7 +71,7 @@ function seek(seconds: number) {
   workspace.seekTo(seconds)
 }
 function saveCode(code: string, language: string) {
-  void a.insertNote(`\`\`\`${language}\n${code}\n\`\`\``, a.imageSeconds)
+  void a.copyResult(`\`\`\`${language}\n${code}\n\`\`\``, a.imageSeconds)
 }
 </script>
 <template>
@@ -96,7 +96,7 @@ function saveCode(code: string, language: string) {
       </nav>
     </div>
     <p class="mb-3 text-caption text-stone">
-      生成预览仅保留在本课会话中，切课后清空。请将需要保留的内容加入笔记或复习队列。
+      生成预览仅保留在本课会话中，切课后清空。需要保留的内容可复制到 Notion 或加入复习队列。
     </p>
     <details v-if="a.contextPreview" class="material-preview mb-4 rounded-xl border border-linen p-3">
       <summary class="cursor-pointer text-caption font-medium">
@@ -113,16 +113,10 @@ function saveCode(code: string, language: string) {
           {{ source.id === 'n:note' ? '【用户笔记，时间为关联位置】' : '' }}{{ source.text }}
         </p>
         <p v-if="a.contextPreview.note" class="whitespace-pre-wrap">附带笔记：{{ a.contextPreview.note }}</p>
-        <p v-if="!a.contextPreview.evidence.length">当前没有字幕或知识点；请先转写字幕或在笔记 AI 中提供文字。</p>
+        <p v-if="!a.contextPreview.evidence.length">当前没有字幕或知识点；请先转写字幕或在整理文字中提供内容。</p>
       </div>
     </details>
-    <label v-if="!['notes', 'vision', 'highlights'].includes(a.mode)" class="mb-4 flex items-center gap-2 text-caption"
-      ><input
-        v-model="a.includeNote"
-        type="checkbox"
-        :disabled="!!a.busy"
-      />同时发送当前已加载的笔记（含未保存内容）</label
-    >
+
     <div
       v-if="a.busy"
       role="status"
@@ -168,8 +162,8 @@ function saveCode(code: string, language: string) {
         <UiButton
           size="sm"
           variant="ghost"
-          @click="a.insertNote(`### ${turn.question}\n\n${turn.markdown}`, turn.seconds)"
-          >插入 {{ formatTime(turn.seconds) }} 笔记</UiButton
+          @click="a.copyResult(`### ${turn.question}\n\n${turn.markdown}`, turn.seconds)"
+          >复制回答</UiButton
         >
       </article>
       <form class="space-y-2" @submit.prevent="a.ask()">
@@ -186,9 +180,7 @@ function saveCode(code: string, language: string) {
     </div>
 
     <div v-else-if="a.mode === 'notes'" class="space-y-3">
-      <p class="text-caption text-stone">
-        在笔记中选中文字后点击“AI 整理”，或粘贴文字。留空则整理当前字幕。生成不会自动改写笔记。
-      </p>
+      <p class="text-caption text-stone">粘贴需要整理的文字，留空则整理当前字幕。</p>
       <label class="block text-body-sm" for="assistant-note">待整理文字</label
       ><textarea id="assistant-note" v-model="a.noteInput" rows="5" maxlength="12000" :disabled="!!a.busy" />
       <div class="flex flex-wrap gap-2">
@@ -204,13 +196,7 @@ function saveCode(code: string, language: string) {
       </div>
       <article v-if="a.noteResult" class="space-y-3 rounded-xl border border-linen p-3">
         <PracticeText :text="a.noteResult.markdown" />
-        <div class="flex flex-wrap gap-2">
-          <UiButton size="sm" @click="a.saveNoteResult(false)">追加到笔记</UiButton
-          ><UiButton v-if="a.selection" size="sm" variant="ghost" @click="a.saveNoteResult(true)"
-            >确认替换原选区</UiButton
-          >
-        </div>
-        <p class="text-caption text-stone">可在编辑器撤销；若原笔记已变化，将拒绝替换。</p>
+        <UiButton size="sm" @click="a.copyResult(a.noteResult.markdown)">复制内容</UiButton>
       </article>
     </div>
 
@@ -223,8 +209,8 @@ function saveCode(code: string, language: string) {
       <details v-if="a.graph.length">
         <summary class="text-caption">Mermaid 源码</summary>
         <pre class="scroll-soft mt-2 overflow-auto rounded-xl bg-cream-deep p-3 text-caption">{{ a.mermaid }}</pre>
-        <UiButton size="sm" variant="ghost" class="mt-2" @click="a.insertNote('```mermaid\n' + a.mermaid + '\n```')"
-          >脑图源码加入笔记</UiButton
+        <UiButton size="sm" variant="ghost" class="mt-2" @click="a.copyResult('```mermaid\n' + a.mermaid + '\n```')"
+          >复制脑图源码</UiButton
         >
       </details>
     </div>
@@ -314,7 +300,7 @@ function saveCode(code: string, language: string) {
             size="sm"
             variant="ghost"
             @click="
-              a.insertNote(
+              a.copyResult(
                 '### 费曼对练\n\n' +
                   a.feynman.question?.question +
                   '\n\n我的解释：\n' +
@@ -364,7 +350,7 @@ function saveCode(code: string, language: string) {
         <p v-if="a.extraction.warnings" role="status" class="text-body-sm text-error">
           识别提醒：{{ a.extraction.warnings }}
         </p>
-        <UiButton size="sm" @click="a.insertNote(a.extraction.markdown, a.imageSeconds)">识别结果加入笔记</UiButton
+        <UiButton size="sm" @click="a.copyResult(a.extraction.markdown, a.imageSeconds)">复制识别结果</UiButton
         ><UiButton v-if="a.extraction.code && !scratchOpen" size="sm" variant="ghost" @click="scratchOpen = true"
           >将代码载入独立 Monaco 练习台</UiButton
         ><LearningCodeScratch

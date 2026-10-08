@@ -23,7 +23,6 @@ import { provideLearningManagement } from '~/composables/useLearningManagement'
 import type { ReviewCard } from '~/types/learningManagement'
 import { useReminderLinks } from '~/composables/useReminderLinks'
 import { useTranscripts } from '~/composables/useTranscripts'
-import { useNoteWorkspace } from './useNoteWorkspace'
 import { useWorkspaceLifecycle } from './useWorkspaceLifecycle'
 import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
 import type { ReminderLinkDestination } from '~/utils/reminderLinks'
@@ -61,9 +60,7 @@ export function provideCourseWorkspace() {
   const pendingSeek = ref<{ path: string; seconds: number } | null>(null)
   const { treeOpen, desktopTreeOpen, treeVisible, toggleTree } = usePlayerDirectory()
   const rightPanelOpen = ref(true)
-  const noteRevision = ref(0)
-  /** 笔记优先展示；切页签不打断转写与笔记编辑。 */
-  const rightTab = ref<'knowledge' | 'notes' | 'transcript' | 'assistant'>('notes')
+  const rightTab = ref<'knowledge' | 'notion' | 'transcript' | 'assistant'>('notion')
   const transcripts = useTranscripts()
 
   const currentView = computed(() => (route.path.endsWith('/player') ? ('player' as const) : ('dashboard' as const)))
@@ -94,15 +91,6 @@ export function provideCourseWorkspace() {
     },
     { immediate: true, flush: 'sync' },
   )
-  const { readyNote, noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote } = useNoteWorkspace(
-    computed(() => (course.value && video.value ? JSON.stringify([course.value.id, video.value.path]) : '')),
-    rightTab,
-    player,
-    showToast,
-    () => {
-      rightPanelOpen.value = true
-    },
-  )
   const guide = useLearningGuide(
     course,
     computed(() => !store.state.library.some((c) => c.id === course.value?.id && c.status !== 'active')),
@@ -118,8 +106,6 @@ export function provideCourseWorkspace() {
     transcripts,
     knowledge,
     learning,
-    noteEditor,
-    readyNote,
     reveal: () => {
       rightPanelOpen.value = true
       rightTab.value = 'assistant'
@@ -158,7 +144,7 @@ export function provideCourseWorkspace() {
     (value, previous) => {
       if (currentView.value !== 'player' || !course.value || !video.value) return
       if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2])
-        rightTab.value = 'notes'
+        rightTab.value = 'notion'
     },
     { immediate: true },
   )
@@ -343,11 +329,10 @@ export function provideCourseWorkspace() {
     const target = video.value,
       courseId = course.value?.id
     if (!target) return
-    const snapshot = noteEditor.value?.getMarkdown()
     daily.practice.close()
     player.pause()
     await leaveFullscreen()
-    if (video.value?.path === target.path && course.value?.id === courseId) void practice.open(target, scope, snapshot)
+    if (video.value?.path === target.path && course.value?.id === courseId) void practice.open(target, scope)
   }
 
   async function openWeakPractice(card: ReviewCard) {
@@ -453,11 +438,11 @@ export function provideCourseWorkspace() {
   }
 
   async function noteAfterSegment() {
-    const seconds = segment.reminder.value?.end
     player.pause()
     segment.dismiss()
     await leaveFullscreen()
-    if (seconds !== undefined) await noteAt(seconds)
+    rightPanelOpen.value = true
+    rightTab.value = 'notion'
   }
 
   function selectGuideVideo(path: string, seconds?: number) {
@@ -523,9 +508,6 @@ export function provideCourseWorkspace() {
     toggleMute: () => player.toggleMute(),
     toggleFullscreen: () => stage.value?.toggleFullscreen(),
     rateStep: (dir) => player.stepRate(dir),
-    insertTimestamp,
-    screenshot: () => void screenshot(),
-    saveNote: () => void saveNote(),
     prevEpisode: () => navigateEpisode(-1),
     nextEpisode: () => navigateEpisode(1),
     toggleHelp: () => (helpOpen.value = !helpOpen.value),
@@ -538,12 +520,6 @@ export function provideCourseWorkspace() {
       treeOpen.value = false
     },
   })
-
-  // 播放头每走过 1 秒，同步一次到笔记，用于高亮所在片段的时间戳
-  watch(
-    () => Math.floor(player.state.currentTime),
-    (sec) => noteEditor.value?.setPlayhead(sec),
-  )
 
   let routeVersion = 0
   watch(
@@ -630,8 +606,6 @@ export function provideCourseWorkspace() {
     if (toastTimer) clearTimeout(toastTimer)
   })
   useWorkspaceLifecycle({
-    router,
-    note: noteEditor,
     notify: showToast,
     activeJobs: () => !!transcripts.activeJobs.value,
     async flush() {
@@ -651,8 +625,6 @@ export function provideCourseWorkspace() {
     },
   })
   const reminderLinks = useReminderLinks(async (request) => {
-    await noteEditor.value?.save()
-    if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记尚未保存，请保存后重试。')
     await studyTools.flush()
     await flushDatabaseWrites()
     if (request.lessonLink) {
@@ -673,7 +645,6 @@ export function provideCourseWorkspace() {
     const target = await desktopInvoke<ReminderLinkDestination>('resolve_reminder_link', {
       reminderId: request.reminderId,
     })
-    if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记有新的修改，请保存后重试。')
     // A second click for the current player only reveals it; never reload or rewind a playing lesson.
     const alreadyPlayingCourse = target.courseId === course.value?.id && currentView.value === 'player'
     if (!alreadyPlayingCourse) {
@@ -685,7 +656,6 @@ export function provideCourseWorkspace() {
       await flushDatabaseWrites()
     }
     await leaveFullscreen()
-    if (noteEditor.value?.hasUnsavedChanges()) throw new Error('当前笔记有新的修改，请保存后重试。')
     helpOpen.value = false
     guideOpen.value = false
     practice.close()
@@ -705,7 +675,6 @@ export function provideCourseWorkspace() {
     if (target.notice) studyTools.state.notice = target.notice
   })
   const workspace = {
-    noteRevision,
     appDialogs,
     companion,
     pomodoro,
@@ -713,7 +682,6 @@ export function provideCourseWorkspace() {
     store,
     stats,
     player,
-    noteEditor,
     stage,
     helpOpen,
     guideOpen,
@@ -754,11 +722,7 @@ export function provideCourseWorkspace() {
     selectGuideVideo,
     playVideoFromDashboard,
     selectVideo,
-    insertTimestamp,
-    screenshot,
-    saveNote,
     seekTo,
-    quoteToNote,
   }
   provide(COURSE_WORKSPACE, workspace)
   return workspace

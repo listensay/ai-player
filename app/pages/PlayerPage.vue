@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, ref } from 'vue'
+import { useLearningPanelWidth } from '~/composables/useLearningPanelWidth'
 import { useCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { usePageTitle } from '~/composables/usePageTitle'
 import { formatTime } from '~/utils/time'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTree from '~/components/CourseTree.vue'
-import LazyNoteEditor from '~/components/LazyNoteEditor.vue'
+import NotionPanel from '~/components/NotionPanel.vue'
 import TranscriptPanel from '~/components/TranscriptPanel.vue'
 import LessonKnowledgePanel from '~/components/LessonKnowledgePanel.vue'
 import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
@@ -16,8 +17,6 @@ const LearningAssistantPanel = defineAsyncComponent(() => import('~/components/L
 const {
   assistant,
   player,
-  noteEditor,
-  noteRevision,
   stage,
   treeOpen,
   desktopTreeOpen,
@@ -42,18 +41,13 @@ const {
   noteAfterSegment,
   selectVideo,
   startSegment,
-  insertTimestamp,
-  screenshot,
-  seekTo,
-  quoteToNote,
   showToast,
 } = useCourseWorkspace()
 function bindStage(instance: unknown) {
   stage.value = instance as typeof stage.value
 }
-function bindNoteEditor(instance: unknown) {
-  noteEditor.value = instance as typeof noteEditor.value
-}
+const panel = ref<HTMLElement | null>(null)
+const panelWidth = useLearningPanelWidth(panel)
 usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
 </script>
 
@@ -61,6 +55,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
   <main v-if="course" class="relative flex min-h-0 flex-1 overflow-hidden">
     <div
       class="player-layout scroll-soft grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:overflow-hidden"
+      :style="panelWidth.style.value"
       :class="{ 'directory-collapsed': !desktopTreeOpen, 'right-panel-collapsed': !rightPanelOpen }"
     >
       <!-- 目录：大屏可收起侧栏，小屏作为抽屉；隐藏时保留筛选状态。 -->
@@ -179,8 +174,21 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
       <div
         v-show="rightPanelOpen"
         id="player-learning-panel"
-        class="pane flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0"
+        ref="panel"
+        class="relative pane flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0"
       >
+        <button
+          type="button"
+          class="learning-panel-resizer max-lg:hidden"
+          role="separator"
+          aria-label="调整笔记面板宽度"
+          aria-orientation="vertical"
+          :aria-valuenow="panelWidth.width.value"
+          :aria-valuemin="320"
+          :aria-valuemax="900"
+          @pointerdown="panelWidth.start"
+          @keydown="panelWidth.keydown"
+        />
         <div class="flex shrink-0 items-center gap-1 border-b border-linen px-3 pt-3 pb-2">
           <div
             v-if="video"
@@ -191,13 +199,13 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
             <button
               type="button"
               role="tab"
-              :aria-selected="rightTab === 'notes'"
+              :aria-selected="rightTab === 'notion'"
               class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors duration-100 ease-soft"
-              :class="rightTab === 'notes' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
-              @click="rightTab = 'notes'"
+              :class="rightTab === 'notion' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
+              @click="rightTab = 'notion'"
             >
               <AppIcon name="note" :size="15" />
-              笔记
+              Notion
             </button>
             <button
               type="button"
@@ -272,43 +280,14 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           :key="`assistant:${course.id}:${video.path}`"
         />
         <LessonKnowledgePanel v-if="video" v-show="rightTab === 'knowledge'" />
-        <LazyNoteEditor
+        <NotionPanel
           v-if="video"
-          v-show="rightTab === 'notes'"
-          :active="rightPanelOpen && rightTab === 'notes'"
-          :ref="bindNoteEditor"
-          :key="`${course.id}:${video.path}:${noteRevision}`"
-          :video="video"
+          v-show="rightTab === 'notion'"
           :course-id="course.id"
-          class="flex-1 border-0"
-          @seek="seekTo"
-        >
-          <template #actions>
-            <UiButton variant="ghost" size="sm" title="整理选中文字或当前字幕" @click="assistant.open('notes')"
-              >AI 整理</UiButton
-            >
-            <UiButton
-              variant="dark"
-              size="sm"
-              title="截取当前画面到笔记（⌥S）"
-              :disabled="!player.state.ready"
-              @click="screenshot"
-            >
-              <AppIcon name="camera" :size="16" />
-              截图
-            </UiButton>
-            <UiButton
-              variant="primary"
-              size="sm"
-              title="插入当前时间戳（⌥T）"
-              :disabled="!player.state.ready"
-              @click="insertTimestamp"
-            >
-              <AppIcon name="clock" :size="16" />
-              插入时间戳
-            </UiButton>
-          </template>
-        </LazyNoteEditor>
+          :path="video.path"
+          :active="rightPanelOpen && rightTab === 'notion'"
+          :blocked="player.state.fullscreen || treeOpen || panelWidth.dragging.value"
+        />
 
         <TranscriptPanel
           v-if="video"
@@ -319,7 +298,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           :active="rightPanelOpen && rightTab === 'transcript'"
           :ai-settings="guide.state.settings"
           :ai-configured="guide.configured.value"
-          @quote="quoteToNote"
           @toast="showToast"
         />
       </div>
@@ -422,6 +400,20 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
 .sidebar-edge-right .sidebar-edge-icon {
   border-right: 0;
   border-radius: 7px 0 0 7px;
+}
+.learning-panel-resizer {
+  position: absolute;
+  left: -12px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+.learning-panel-resizer:hover,
+.learning-panel-resizer:focus-visible {
+  background: var(--color-linen);
 }
 @media (min-width: 1024px) {
   .player-layout {

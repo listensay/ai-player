@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { checkPerformanceBudgets, performanceBudgets } from '../scripts/performance-budgets.mjs'
 const report = () => ({
   results: performanceBudgets.map((r) => ({ ...r, medianMs: r.medianMs / 2, p95Ms: r.p95Ms / 2 })),
-  typingBurst: { serializations: 1 },
   repeatedViewChanges: { writes: { records: 1, snapshot: 1 } },
   learningRefresh: { dashboard: 1, sources: 1, scopedDashboard: 1, scopedSources: 1 },
 })

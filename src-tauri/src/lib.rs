@@ -8,6 +8,9 @@ mod files;
 mod learning_integrations;
 mod mac_reminders;
 mod media_duration;
+mod notion;
+#[cfg(target_os = "macos")]
+mod notion_popup_macos;
 mod programming;
 mod programming_process;
 mod reminder_links;
@@ -162,6 +165,7 @@ pub fn run() {
         .manage(reminder_links::ReminderLinks::default())
         .manage(learning_integrations::CalendarServer::default())
         .manage(companion::CompanionHitState::default())
+        .manage(notion::NotionState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
@@ -200,6 +204,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_report,
+            #[cfg(feature = "desktop-smoke")]
+            desktop_smoke::desktop_smoke_notion,
+            #[cfg(feature = "desktop-smoke")]
+            desktop_smoke::desktop_smoke_notion_popup,
             backups::backup_status,
             backups::set_backup_enabled,
             backups::create_backup,
@@ -219,6 +227,9 @@ pub fn run() {
             programming::cancel_programming,
             frontend_ready,
             finish_close,
+            notion::notion_prepare,
+            notion::notion_layout,
+            notion::notion_action,
             companion::open_companion,
             companion::close_companion,
             companion::companion_is_open,

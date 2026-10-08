@@ -16,7 +16,7 @@ desktop-smoke = []
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "2.11.6", features = ["protocol-asset", "macos-private-api"] }
+tauri = { version = "2.11.6", features = ["protocol-asset", "macos-private-api", "unstable"] }
 tauri-plugin-dialog = "2"
 # 允许原生 API 请求通过空 Origin 显式省略 WebView 来源；TLS 校验与 URL 权限仍由插件执行。
 tauri-plugin-http = { version = "~2.6", features = ["unsafe-headers"] }
@@ -36,4 +36,5 @@ libc = "0.2"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSCalendar", "NSTimeZone"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView", "WKUIDelegate"] }
 objc2-event-kit = { version = "0.3", default-features = false, features = ["std", "EKAlarm", "EKCalendar", "EKCalendarItem", "EKEventStore", "EKObject", "EKRecurrenceDayOfWeek", "EKRecurrenceEnd", "EKRecurrenceRule", "EKReminder", "EKSource", "EKTypes", "block2"] }

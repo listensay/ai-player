@@ -119,7 +119,7 @@ pub fn opened(app: &tauri::AppHandle, urls: &[Url]) {
     }
     // Keep a pending request as well as emitting: macOS can open URLs before the webview has mounted.
     let _ = app.emit("study-reminder-open", ());
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();

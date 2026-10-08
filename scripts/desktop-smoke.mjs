@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -43,11 +44,27 @@ const executable = join(
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
 await prepareDesktopSmoke(data)
 const reports = []
+const fixtureHtml = await readFile(join(root, 'tests/fixtures/notion.html'))
+const fixtureServer = createServer((_request, response) => {
+  response.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Cache-Control': 'no-store',
+  })
+  response.end(fixtureHtml)
+})
+await new Promise((resolve) => fixtureServer.listen(0, '127.0.0.1', resolve))
+const fixtureUrl = `http://127.0.0.1:${fixtureServer.address().port}`
 try {
   for (const phase of ['first', 'second']) {
     try {
       await run(executable, [], {
-        env: { ...process.env, AI_PLAYER_SMOKE_DATA: data, AI_PLAYER_SMOKE_PHASE: phase },
+        env: {
+          ...process.env,
+          AI_PLAYER_SMOKE_DATA: data,
+          AI_PLAYER_SMOKE_PHASE: phase,
+          AI_PLAYER_NOTION_SMOKE_URL: fixtureUrl,
+        },
         timeout: 180000,
       })
     } finally {
@@ -66,7 +83,6 @@ try {
     'home-load': 8000,
     'course-open': 10000,
     'video-ready': 10000,
-    'note-ready': 12000,
     'programming-ready': 15000,
   }
   for (const report of reports) {
@@ -82,9 +98,10 @@ try {
     }
   }
   console.log(
-    'Native desktop regression passed: note switching/restart, programming execution/cancel, timer pause, backup restore.',
+    'Native desktop regression passed: Notion view switching/restart, programming execution/cancel, timer pause, backup restore.',
   )
 } finally {
+  fixtureServer.close()
   await mkdir(join(root, '.cache'), { recursive: true })
   await writeFile(
     join(root, '.cache/desktop-smoke-report.json'),

@@ -2,7 +2,6 @@ import { computed, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
 import type { GuideSettings, GuideMessage } from '~/types/guide'
-import type { NoteEditorHandle, NoteSelection } from '~/types/note'
 import type {
   AssistantMode,
   AssistantTurn,
@@ -35,7 +34,7 @@ import {
   transitionEnd,
 } from '~/utils/learningAssistant'
 import { localDayKey } from '~/utils/learningFeedback'
-import { timestampToken } from '~/utils/time'
+import { formatTime } from '~/utils/time'
 
 export function useLearningAssistant(options: {
   course: Ref<Course | null>
@@ -47,8 +46,6 @@ export function useLearningAssistant(options: {
   transcripts: ReturnType<typeof useTranscripts>
   knowledge: ReturnType<typeof useLessonKnowledge>
   learning: ReturnType<typeof provideLearningManagement>
-  noteEditor: Ref<NoteEditorHandle | null>
-  readyNote: (key: string) => Promise<NoteEditorHandle>
   reveal: () => void
   notify: (text: string) => void
 }) {
@@ -63,11 +60,9 @@ export function useLearningAssistant(options: {
     error = ref(''),
     notice = ref('')
   const question = ref(''),
-    turns = ref<AssistantTurn[]>([]),
-    includeNote = ref(false)
+    turns = ref<AssistantTurn[]>([])
   const noteInput = ref(''),
-    noteResult = shallowRef<AssistantAnswer | null>(null),
-    selection = shallowRef<NoteSelection | null>(null)
+    noteResult = shallowRef<AssistantAnswer | null>(null)
   const graph = ref<LearningMapNode[]>([]),
     cards = ref<GeneratedFlashcard[]>([]),
     cardContext = shallowRef<LearningContext | null>(null)
@@ -87,12 +82,10 @@ export function useLearningAssistant(options: {
     skipTransitions = ref(false),
     lastSkip = ref<number | null>(null)
   const contextPreview = shallowRef<LearningContext | null>(null)
-  let inserting = false
   let controller: AbortController | undefined,
     taskId = 0,
     frameId = 0
-  let noteContext: LearningContext | null = null,
-    feynmanContext: LearningContext | null = null
+  let feynmanContext: LearningContext | null = null
   function cancel() {
     taskId++
     controller?.abort()
@@ -120,14 +113,11 @@ export function useLearningAssistant(options: {
     question.value = ''
     noteInput.value = ''
     noteResult.value = null
-    selection.value = null
-    noteContext = null
     feynmanContext = null
     feynman.question = null
     feynman.answer = ''
     feynman.feedback = null
     feynman.rounds = []
-    includeNote.value = false
     contextPreview.value = null
     error.value = ''
     notice.value = ''
@@ -163,12 +153,7 @@ export function useLearningAssistant(options: {
       duration: options.player.state.duration,
       segments: options.transcripts.get(course.id, video.path).segments,
       points: options.knowledge.get(course.id, video.path).summary?.points ?? [],
-      note:
-        mode.value === 'notes'
-          ? noteInput.value
-          : includeNote.value && !['vision', 'highlights'].includes(mode.value)
-            ? options.noteEditor.value?.getMarkdown()
-            : '',
+      note: mode.value === 'notes' ? noteInput.value : '',
       whole,
     })
     contextPreview.value = result
@@ -190,14 +175,12 @@ export function useLearningAssistant(options: {
     anchor.value = options.player.state.currentTime
     mode.value = target
     if (target === 'notes') {
-      selection.value = options.noteEditor.value?.getSelection() ?? null
-      noteInput.value = selection.value?.text ?? ''
       noteResult.value = null
     }
     contextPreview.value = context(['map', 'cards', 'feynman', 'highlights'].includes(target))
     options.reveal()
   }
-  watch([includeNote, noteInput], () => {
+  watch(noteInput, () => {
     if (!key.value || !options.active.value) return
     const preview = context(['map', 'cards', 'feynman', 'highlights'].includes(mode.value))
     if (mode.value === 'notes') preview.note = noteInput.value.slice(0, 12000)
@@ -241,7 +224,7 @@ export function useLearningAssistant(options: {
       apply(parse(raw))
       notice.value = ctx.truncated
         ? '材料较长，本次仅处理预览中的内容，未覆盖完整课程。'
-        : '已生成。请核对来源，重要内容可加入笔记或复习队列。'
+        : '已生成。请核对来源，重要内容可复制到 Notion 或加入复习队列。'
     } catch (reason) {
       if (token === taskId && expected === key.value) error.value = (reason as Error).message
     } finally {
@@ -279,36 +262,19 @@ export function useLearningAssistant(options: {
       `对用户主动提供的 note 执行 ${action}；若 note 为空，整理当前字幕。保留技术准确性，补充内容标明“补充说明”。返回 {"markdown":"结构化 Markdown", "sources":["来源 id"]}。`,
       (raw) => parseAssistantAnswer(raw, ctx),
       (result) => {
-        noteContext = ctx
         noteResult.value = result
       },
     )
   }
-  async function insertNote(markdown: string, seconds = anchor.value, replace = false) {
-    if (inserting) return
-    inserting = true
-    const expected = key.value
+  async function copyResult(markdown: string, seconds?: number) {
     error.value = ''
     try {
-      const editor = await options.readyNote(expected)
-      if (key.value !== expected) throw Error('课节已切换，请重新操作。')
-      if (replace) {
-        if (!selection.value) throw Error('没有可替换的选区，请重新选择笔记文字。')
-        editor.replaceSelection(selection.value, markdown)
-        selection.value = null
-      } else editor.insertMarkdown(`\n${timestampToken(seconds)}\n\n${markdown}\n`)
-      await editor.save()
-      if (editor.hasUnsavedChanges()) throw Error('内容已插入，但保存未完成，请在笔记中重试保存。')
-      options.notify('已写入当前课节笔记')
-    } catch (reason) {
-      error.value = (reason as Error).message
-      options.notify(error.value)
-    } finally {
-      inserting = false
+      await navigator.clipboard.writeText(seconds === undefined ? markdown : `${formatTime(seconds)}\n\n${markdown}`)
+      options.notify('已复制，可粘贴到 Notion')
+    } catch {
+      error.value = '复制失败，请重试。'
     }
   }
-  const saveNoteResult = (replace = false) =>
-    noteResult.value && insertNote(noteResult.value.markdown, noteContext?.seconds ?? anchor.value, replace)
   async function generateMap() {
     const ctx = context(true)
     await run(
@@ -506,10 +472,8 @@ export function useLearningAssistant(options: {
     notice,
     question,
     turns,
-    includeNote,
     noteInput,
     noteResult,
-    selection,
     graph,
     cards,
     feynman,
@@ -526,8 +490,7 @@ export function useLearningAssistant(options: {
     ask,
     cancel,
     improveNote,
-    insertNote,
-    saveNoteResult,
+    copyResult,
     generateMap,
     generateCards,
     addCards,

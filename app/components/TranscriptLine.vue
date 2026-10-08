@@ -42,10 +42,10 @@ const emit = defineEmits<{ seek: [seconds: number]; quote: [segment: TranscriptS
     <button
       type="button"
       class="mt-0.5 h-6 shrink-0 rounded-full px-2 text-caption font-medium text-stone opacity-0 transition-opacity hover:bg-linen hover:text-charcoal-ink focus-visible:opacity-100 group-hover:opacity-100"
-      title="将本句与时间戳插入笔记"
+      title="复制本句与时间戳"
       @click="emit('quote', seg)"
     >
-      引用
+      复制
     </button>
   </component>
 </template>

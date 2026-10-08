@@ -19,7 +19,7 @@ const particles = Array.from({ length: 56 }, (_, i) => ({
 
 <template>
   <Teleport to="body">
-    <div v-if="milestones.celebration.value.length" class="milestone-celebration">
+    <div v-if="milestones.celebration.value.length" class="milestone-celebration" data-native-webview-overlay>
       <div
         :key="milestones.celebration.value.map((badge) => badge.id).join(',')"
         class="confetti-field"

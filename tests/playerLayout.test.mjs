@@ -6,7 +6,7 @@ import { createRenderer, ref, reactive, computed, nextTick, h } from 'vue'
 import { test } from 'node:test'
 
 // Render actual page templates; replace native video and editor internals only.
-test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部不再重复目录入口', async (t) => {
+test('播放器侧栏独立展开、Notion 实例保留、页签恢复且顶部不再重复目录入口', async (t) => {
   const videos = [{ path: 'a.mp4', title: '课程一' }]
   const nil = () => {}
   globalThis.sidebarWorkspace = {
@@ -17,7 +17,7 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
     treeOpen: ref(false),
     desktopTreeOpen: ref(true),
     rightPanelOpen: ref(true),
-    rightTab: ref('notes'),
+    rightTab: ref('notion'),
     course: ref({ id: 'test' }),
     video: ref(videos[0]),
     guide: { state: { today: { items: [] } }, configured: ref(false) },
@@ -47,12 +47,12 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
   w.toggleTree = () => {
     w.desktopTreeOpen.value = !w.desktopTreeOpen.value
   }
-  let noteMounts = 0
+  let notionMounts = 0
   const stub = (name) => ({
     name,
     props: ['active'],
     setup(props, { slots }) {
-      if (name === 'LazyNoteEditor') noteMounts++
+      if (name === 'NotionPanel') notionMounts++
       return () =>
         h('section', { 'data-stub': name, 'data-active': props.active }, [
           slots.default?.(),
@@ -65,7 +65,7 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
     [
       'AppIcon',
       'CourseTree',
-      'LazyNoteEditor',
+      'NotionPanel',
       'TranscriptPanel',
       'LessonKnowledgePanel',
       'DailyPracticeCard',
@@ -85,6 +85,10 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
       .content.replace(
         /import \{ useCourseWorkspace \} from [^\n]+/,
         'const useCourseWorkspace = () => globalThis.sidebarWorkspace',
+      )
+      .replace(
+        /from ['"]~\/composables\/useLearningPanelWidth['"]/g,
+        `from '${new URL('../app/composables/useLearningPanelWidth.ts', import.meta.url).href}'`,
       )
       .replace(/import \{ usePageTitle \} from [^\n]+/, 'const usePageTitle = () => {}')
       .replace(/import \{ formatTime \} from [^\n]+/, 'const formatTime = String')
@@ -156,25 +160,25 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
   assert.match(walk(root).find((n) => n.props.class?.includes('player-layout')).props.class, /directory-collapsed/)
   results.push('左侧独立收起与布局切换')
   const panel = find('id', 'player-learning-panel'),
-    editor = find('data-stub', 'LazyNoteEditor')
+    editor = find('data-stub', 'NotionPanel')
   await click('收起右侧面板')
   assert.equal(panel.style.display, 'none')
   assert.match(walk(root).find((n) => n.props.class?.includes('player-layout')).props.class, /right-panel-collapsed/)
-  assert.equal(find('data-stub', 'LazyNoteEditor'), editor)
+  assert.equal(find('data-stub', 'NotionPanel'), editor)
   assert.equal(find('aria-label', '展开左侧目录').parent, root.children[0])
   assert.equal(find('aria-label', '展开右侧面板').parent, root.children[0])
   assert.match(find('aria-label', '展开左侧目录').props.class, /sidebar-edge-left/)
   assert.match(find('aria-label', '展开右侧面板').props.class, /sidebar-edge-right/)
-  results.push('两侧完全隐藏、展开按钮独立位于页面边缘，笔记实例保留')
+  results.push('两侧完全隐藏、展开按钮独立位于页面边缘，Notion 实例保留')
   await click('展开左侧目录')
   assert.equal(w.desktopTreeOpen.value, true)
   assert.equal(w.rightPanelOpen.value, false)
   results.push('展开左侧不影响右侧')
   await click('展开右侧面板')
   assert.notEqual(panel.style.display, 'none')
-  assert.equal(noteMounts, 1)
-  assert.equal(find('data-stub', 'LazyNoteEditor'), editor)
-  results.push('重新展开不重建笔记')
+  assert.equal(notionMounts, 1)
+  assert.equal(find('data-stub', 'NotionPanel'), editor)
+  results.push('重新展开不重建 Notion')
   w.rightTab.value = 'transcript'
   await nextTick()
   await click('收起右侧面板')

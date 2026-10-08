@@ -13,7 +13,6 @@ export function checkPerformanceBudgets(report) {
       if (!Number.isFinite(actual?.[key]) || actual[key] < 0 || actual[key] > budget[key])
         errors.push(`${budget.name} ${key}: ${actual?.[key] ?? 'missing'} (limit ${budget[key]} ms)`)
   }
-  if (report.typingBurst?.serializations !== 1) errors.push('A typing burst must serialize once')
   if (report.repeatedViewChanges?.writes?.records !== 1 || report.repeatedViewChanges?.writes?.snapshot !== 1)
     errors.push('View changes repeated record/snapshot writes')
   const reads = report.learningRefresh

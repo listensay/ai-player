@@ -2,12 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { shallowRef } from 'vue'
-import { createMemoryHistory, createRouter, isNavigationFailure } from 'vue-router'
 
 // Only the native IPC boundary is replaced. Use real SQLite files, filesystem copies,
 // Vue state, the production dbClient and actual router guards for the whole operation.
@@ -26,13 +23,8 @@ registerHooks({
     return next(specifier, context)
   },
 })
-const { useNoteSession } = await import('../app/composables/useNoteSession.ts')
-const { dbFetchNote, dbSaveNote } = await import('../app/utils/dbClient.ts')
-const { protectNoteNavigation } = await import('../app/composables/useWorkspaceLifecycle.ts')
 const { runAiBatches } = await import('../app/utils/aiBatchTask.ts')
 const { createProgressStore } = await import('../app/composables/useProgress.ts')
-const { createNoteImages } = await import('../app/utils/noteImages.ts')
-const tick = () => new Promise((resolve) => setImmediate(resolve))
 function deferred() {
   let resolve
   const promise = new Promise((r) => {
@@ -47,8 +39,7 @@ function fixture(t) {
   let db = new DatabaseSync(file)
   db.exec(readFileSync(new URL('../src-tauri/src/schema.sql', import.meta.url), 'utf8'))
   const faults = { read: false, write: false, copy: false, beforeWrite: null }
-  const writes = [],
-    sessions = []
+  const writes = []
   globalThis.flowIO = async (command, options) => {
     assert.equal(command, 'database_request')
     const { endpoint, method, query, body } = options
@@ -125,34 +116,15 @@ function fixture(t) {
     )
     return { success: true }
   }
-  function note(path = 'a.mp4') {
-    const copy = join(directory, `${path}.md`)
-    const session = useNoteSession({
-      read: () => dbFetchNote('course', path),
-      readCopy: () => (existsSync(copy) ? readFile(copy, 'utf8') : Promise.resolve(null)),
-      write: (content) => dbSaveNote('course', path, content),
-      writeCopy: async (content) => {
-        if (faults.copy) throw Error('read-only directory')
-        await writeFile(copy, content)
-      },
-    })
-    sessions.push(session)
-    return session
-  }
   t.after(async () => {
     faults.read = false
     faults.write = false
     faults.copy = false
     faults.beforeWrite = null
-    for (const s of sessions) {
-      await s.save().catch(() => {})
-      s.dispose()
-    }
     db.close()
     rmSync(directory, { recursive: true, force: true })
   })
   return {
-    note,
     faults,
     writes,
     directory,
@@ -176,159 +148,6 @@ function fixture(t) {
     },
   }
 }
-async function navigation(note) {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/courses/:id/player', component: {} },
-      { path: '/', component: {} },
-    ],
-  })
-  await router.push('/courses/course/player?lesson=a.mp4')
-  const notices = []
-  protectNoteNavigation(router, shallowRef({ save: note.save, hasUnsavedChanges: () => note.state.dirty }), (message) =>
-    notices.push(message),
-  )
-  return { router, notices }
-}
-
-test('笔记读取失败不导入旧副本、不开放编辑；重试恢复数据库中的最新内容', async (t) => {
-  const f = fixture(t)
-  f.seed('数据库中的新内容')
-  await writeFile(join(f.directory, 'a.mp4.md'), '较旧副本')
-  f.faults.read = true
-  const note = f.note()
-  await assert.rejects(note.load())
-  note.edit('错误空白')
-  await note.save()
-  assert.equal(note.state.ready, false)
-  assert.equal(f.stored(), '数据库中的新内容')
-  assert.deepEqual(f.writes, [])
-  f.faults.read = false
-  await note.load()
-  assert.equal(note.state.content, '数据库中的新内容')
-})
-
-test('清空过的笔记保持为空；只有不存在的记录才导入课程副本', async (t) => {
-  const f = fixture(t)
-  f.seed('')
-  await writeFile(join(f.directory, 'a.mp4.md'), '不应复活的旧笔记')
-  const empty = f.note()
-  await empty.load()
-  assert.equal(empty.state.content, '')
-  assert.deepEqual(f.writes, [])
-  await writeFile(join(f.directory, 'b.mp4.md'), '首次导入')
-  const imported = f.note('b.mp4')
-  await imported.load()
-  assert.equal(imported.state.content, '首次导入')
-  assert.deepEqual(f.writes, ['首次导入'])
-})
-
-test('编辑后立即切课等待在途保存和新修改，重开 SQLite 后恢复最后内容', async (t) => {
-  const f = fixture(t),
-    note = f.note()
-  await note.load()
-  const { router } = await navigation(note)
-  const entered = deferred(),
-    release = deferred()
-  f.faults.beforeWrite = async () => {
-    entered.resolve()
-    await release.promise
-  }
-  note.edit('第一版')
-  const firstSave = note.save()
-  await entered.promise
-  note.edit('最后一版')
-  const move = router.push('/courses/course/player?lesson=b.mp4')
-  await tick()
-  assert.equal(router.currentRoute.value.query.lesson, 'a.mp4')
-  release.resolve()
-  await firstSave
-  await move
-  assert.deepEqual(f.writes, ['第一版', '最后一版'])
-  assert.equal(await readFile(join(f.directory, 'a.mp4.md'), 'utf8'), '最后一版')
-  assert.equal(router.currentRoute.value.query.lesson, 'b.mp4')
-  f.restart()
-  const reopened = f.note()
-  await reopened.load()
-  assert.equal(reopened.state.content, '最后一版')
-})
-
-test('保存失败阻止切课和返回首页，保留草稿；修复后同一操作成功', async (t) => {
-  const f = fixture(t),
-    note = f.note()
-  await note.load()
-  const { router, notices } = await navigation(note)
-  note.edit('不能丢失')
-  f.faults.write = true
-  assert.equal(isNavigationFailure(await router.push('/')), true)
-  assert.equal(note.state.content, '不能丢失')
-  assert.equal(note.state.dirty, true)
-  assert.equal(router.currentRoute.value.query.lesson, 'a.mp4')
-  assert.match(notices[0], /无法离开/)
-  f.faults.write = false
-  await router.push('/')
-  assert.equal(f.stored(), '不能丢失')
-  assert.equal(note.state.dirty, false)
-  assert.equal(router.currentRoute.value.path, '/')
-})
-
-test('课程副本不可写时主笔记仍保存，重试只补副本，不重复写数据库', async (t) => {
-  const f = fixture(t),
-    note = f.note()
-  await note.load()
-  note.edit('安全保存')
-  f.faults.copy = true
-  await note.save()
-  assert.equal(f.stored(), '安全保存')
-  assert.equal(note.state.dirty, false)
-  assert.match(note.state.copyError, /副本/)
-  f.faults.copy = false
-  await note.save()
-  assert.equal(await readFile(join(f.directory, 'a.mp4.md'), 'utf8'), '安全保存')
-  assert.deepEqual(f.writes, ['安全保存'])
-  assert.equal(note.state.copyError, '')
-})
-
-test('编辑器规范化与未修改的关闭不回写，随后仍能保存真实编辑', async (t) => {
-  const f = fixture(t)
-  f.seed('原始笔记')
-  const note = f.note()
-  await note.load()
-  note.acceptEditorContent('原始笔记\n')
-  await note.save()
-  assert.deepEqual(f.writes, [])
-  note.edit('真实修改')
-  await note.save()
-  assert.equal(f.stored(), '真实修改')
-})
-
-test('副本写入失败也会排空后续编辑，切课后数据库保留最后内容', async (t) => {
-  const f = fixture(t),
-    note = f.note()
-  await note.load()
-  const { router } = await navigation(note)
-  const entered = deferred(),
-    release = deferred()
-  f.faults.beforeWrite = async () => {
-    entered.resolve()
-    await release.promise
-  }
-  f.faults.copy = true
-  note.edit('第一版')
-  const saving = note.save()
-  await entered.promise
-  note.edit('最后一版')
-  const move = router.push('/courses/course/player?lesson=b.mp4')
-  release.resolve()
-  await saving
-  await move
-  assert.equal(note.state.dirty, false)
-  assert.equal(f.stored(), '最后一版')
-  assert.equal(router.currentRoute.value.query.lesson, 'b.mp4')
-  assert.match(note.state.copyError, /副本/)
-})
-
 function task(identity, request, extra = {}) {
   return {
     identity,
@@ -558,65 +377,6 @@ test('无需再次编辑也会自动重试播放进度保存', async (t) => {
   assert.equal(calls, 2)
   assert.equal(progress.state.pendingCount, 0)
   assert.equal(progress.state.error, '')
-})
-
-function directoryHandle(root) {
-  return {
-    getDirectoryHandle: async (name, options) => {
-      const path = join(root, name)
-      if (options?.create) await mkdir(path, { recursive: true })
-      return directoryHandle(path)
-    },
-    getFileHandle: async (name, options) => {
-      const path = join(root, name)
-      if (!options?.create) await stat(path)
-      return {
-        getFile: async () => new File([await readFile(path)], name),
-        createWritable: async () => {
-          let data
-          return {
-            write: async (value) => {
-              data = value instanceof Blob ? Buffer.from(await value.arrayBuffer()) : value
-            },
-            close: () => writeFile(path, data),
-          }
-        },
-      }
-    },
-  }
-}
-
-test('新截图保存为短引用，重开后从图片表读取，旧 Base64 仍可显示', async (t) => {
-  const f = fixture(t),
-    target = { courseId: 'course', path: 'a.mp4', title: '含 空格的课节', parent: directoryHandle(f.directory) }
-  const images = createNoteImages(target)
-  t.after(images.dispose)
-  const blob = new Blob([new Uint8Array(200_000).fill(13)], { type: 'image/png' })
-  const reference = await images.save(blob, '00-01')
-  assert.ok(reference.length < 200)
-  assert.equal(reference.includes('data:'), false)
-  assert.equal((await readFile(join(f.directory, decodeURIComponent(reference)))).length, 200_000)
-  const second = await images.save(blob, '00-01')
-  assert.notEqual(reference, second)
-  f.restart()
-  const reopened = createNoteImages(target)
-  t.after(reopened.dispose)
-  const rendered = await reopened.resolve(reference)
-  assert.match(rendered, /^data:image\/png;base64,/)
-  assert.equal(await reopened.resolve(rendered), rendered)
-})
-
-test('图片数据库写入失败不返回可插入的引用', async (t) => {
-  const f = fixture(t),
-    images = createNoteImages({
-      courseId: 'course',
-      path: 'a.mp4',
-      title: '课节',
-      parent: directoryHandle(f.directory),
-    })
-  t.after(images.dispose)
-  f.faults.write = true
-  await assert.rejects(images.save(new Blob(['image']), '00-01'), /图片保存失败/)
 })
 
 test('旧校验器保存的残缺 AI 批次重新校验后仅续跑无效部分', async (t) => {

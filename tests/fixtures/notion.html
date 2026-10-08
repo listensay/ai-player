@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Notion test fixture</title>
+  </head>
+  <body>
+    <label>Native note <textarea aria-label="Native note" style="width: 90%; height: 200px"></textarea></label>
+    <script>
+      const field = document.querySelector('textarea')
+      field.value = localStorage.getItem(location.pathname) || ''
+      const hadCookie = document.cookie.includes('notion_test_session=persistent')
+      document.cookie = 'notion_test_session=persistent; max-age=3600; path=/; SameSite=Lax'
+      let ipcBlocked = false
+      let popup = null
+      let popupBlocked = false
+      const logins = []
+      function report() {
+        document.title =
+          'notion-probe:' +
+          JSON.stringify({
+            path: location.pathname,
+            text: field.value,
+            cookie: document.cookie.includes('notion_test_session=persistent'),
+            ipcBlocked,
+            hadCookie,
+            popupBlocked,
+            popupClosed: !popup || popup.closed,
+            logins,
+          })
+      }
+      field.addEventListener('input', () => {
+        localStorage.setItem(location.pathname, field.value)
+        report()
+      })
+      window.startPopupLogin = (blank, hold) => {
+        const url = new URL('/popup-auth', location.origin)
+        if (hold) url.searchParams.set('hold', '1')
+        popup = window.open(blank ? 'about:blank' : url.href, '_blank', 'width=560,height=720')
+        popupBlocked = !popup
+        if (popup && blank)
+          setTimeout(() => {
+            popup.location.href = url.href
+          }, 30)
+        report()
+      }
+      window.addEventListener('message', (event) => {
+        if (event.origin !== location.origin || event.source !== popup || event.data.kind !== 'popup-auth') return
+        logins.push({ ...event.data, callbackCookie: document.cookie.includes('notion_popup_session=ok') })
+        report()
+      })
+      setInterval(() => {
+        if (popup?.closed) report()
+      }, 100)
+      setTimeout(async () => {
+        try {
+          await window.__TAURI_INTERNALS__.invoke('database_request', {
+            endpoint: 'library',
+            method: 'GET',
+            query: {},
+            body: null,
+          })
+        } catch {
+          ipcBlocked = true
+        }
+        if (location.pathname === '/popup-auth' && !location.search.includes('hold')) {
+          document.cookie = 'notion_popup_session=ok; max-age=3600; path=/; SameSite=Lax'
+          window.opener?.postMessage(
+            { kind: 'popup-auth', hasOpener: !!window.opener, sharedSession: hadCookie, ipcBlocked },
+            location.origin,
+          )
+          window.close()
+          return
+        }
+        report()
+      }, 200)
+    </script>
+  </body>
+</html>

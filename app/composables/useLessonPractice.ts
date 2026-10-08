@@ -32,7 +32,7 @@ import {
   PRACTICE_ATTEMPT_LIMIT,
   PROGRAMMING_HISTORY_LIMIT,
 } from '~/utils/practice'
-import { dbFetchPractice, dbSavePractice, dbFetchNote } from '~/utils/dbClient'
+import { dbFetchPractice, dbSavePractice } from '~/utils/dbClient'
 import { createPracticeAttachmentStore, readPracticeFile, validateAttachments } from '~/utils/practiceAttachments'
 import { assignmentReviewPrompt, programmingReviewPrompt } from '~/utils/practiceGrading'
 import { CODE_LIMIT, programmingQuestion } from '~/utils/programming'
@@ -319,7 +319,7 @@ export function useLessonPractice(
     return attachmentStore.load(activeId, recordId, file)
   }
 
-  async function open(video: VideoEntry, scope: PracticeScope | null, noteSnapshot?: string) {
+  async function open(video: VideoEntry, scope: PracticeScope | null) {
     if (!activeId) return
     cancel()
     persist()
@@ -345,38 +345,10 @@ export function useLessonPractice(
       if (!state.historyReady) await (historyLoad = loadHistory())
       if (controller.signal.aborted || !state.historyReady) return
       state.selectedId = history.value.find((r) => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
-      const [cues, note] = await Promise.all([
-        loadLessonSubtitles(video),
-        noteSnapshot !== undefined
-          ? Promise.resolve(noteSnapshot)
-          : (async () => {
-              try {
-                const saved = await dbFetchNote(activeId, video.path)
-                if (saved.updatedAt !== null) {
-                  if (saved.content.length > 1_000_000) {
-                    state.materialNotice = '笔记超过 1 MB，请粘贴本次需要的内容。'
-                    return ''
-                  }
-                  return saved.content
-                }
-                const handle = await video.parent.getFileHandle(`${video.title}.md`)
-                const file = await handle.getFile()
-                if (controller.signal.aborted) return ''
-                if (file.size > 1_000_000) {
-                  state.materialNotice = '笔记超过 1 MB，请在下方粘贴本次需要的内容。'
-                  return ''
-                }
-                return await file.text()
-              } catch (err) {
-                if (!controller.signal.aborted && (err as Error).name !== 'NotFoundError')
-                  state.materialNotice = '笔记读取失败，可在下方补充本次学习内容。'
-                return ''
-              }
-            })(),
-      ])
+      const cues = await loadLessonSubtitles(video)
       if (controller.signal.aborted) return
       state.cues = cues
-      state.note = note
+      state.note = ''
       if (options.sources) {
         const summary = await options.sources(video, scope)
         if (controller.signal.aborted) return

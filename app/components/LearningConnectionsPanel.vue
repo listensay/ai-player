@@ -1,15 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useLearningManagement } from '~/composables/useLearningManagement'
-import { useKnowledgeSync } from '~/composables/useKnowledgeSync'
 import { learningCalendar } from '~/utils/learningOutcomes'
 import { desktopInvoke } from '~/utils/platform'
 import ReminderTimePicker from './ReminderTimePicker.vue'
 import UiButton from './UiButton.vue'
-const learning = useLearningManagement(),
-  sync = useKnowledgeSync()
+const learning = useLearningManagement()
 const preferences = reactive({ ...learning.state.data.preferences }),
-  courseId = ref(''),
   error = ref(''),
   busy = ref(false),
   notice = ref('')
@@ -20,15 +17,6 @@ watch(
   },
   { immediate: true },
 )
-const options = computed(() => learning.courses.value.map((c) => ({ title: c.course.name, value: c.course.id })))
-watch(
-  options,
-  (choices) => {
-    if (!choices.some((c) => c.value === courseId.value)) courseId.value = choices[0]?.value ?? ''
-  },
-  { immediate: true },
-)
-onMounted(() => void sync.load())
 async function save() {
   if (
     await learning.mutate((data) => {
@@ -85,7 +73,7 @@ async function copyLink() {
 }
 </script>
 <template>
-  <section class="space-y-6" aria-label="知识库与日历">
+  <section class="space-y-6" aria-label="学习日历">
     <p
       v-if="error || learning.state.error || learning.calendarError.value"
       role="alert"
@@ -119,67 +107,6 @@ async function copyLink() {
           >复制链接</UiButton
         ></template
       >
-    </article>
-    <article class="pane space-y-5 p-6">
-      <h2 class="text-heading-sm">知识库同步</h2>
-      <VSelect v-model="courseId" label="同步课程" :items="options" :disabled="sync.state.busy" />
-      <p v-if="sync.state.error" role="alert" class="text-body-sm text-error">{{ sync.state.error }}</p>
-      <p v-if="sync.state.notice" role="status" class="text-body-sm text-deep-indigo">{{ sync.state.notice }}</p>
-      <UiButton v-if="!sync.state.ready" @click="sync.load">重新读取</UiButton>
-      <h3 class="text-subheading">Obsidian / Markdown</h3>
-      <VTextField :model-value="sync.state.vault" label="知识库目录" readonly />
-      <div class="flex flex-wrap gap-3">
-        <UiButton :disabled="sync.state.busy" @click="sync.chooseVault">选择知识库</UiButton
-        ><UiButton :disabled="sync.state.busy || !sync.state.vault || !courseId" @click="sync.sync(courseId, 'vault')"
-          >双向同步</UiButton
-        >
-      </div>
-      <h3 class="pt-4 text-subheading">Notion</h3>
-      <VTextField
-        v-model="sync.state.notionToken"
-        type="password"
-        autocomplete="off"
-        label="集成密钥"
-        :disabled="sync.state.busy"
-      /><VTextField v-model="sync.state.notionPage" label="父页面 ID" :disabled="sync.state.busy" />
-      <p class="text-caption text-stone">将父页面连接到集成，课程笔记以 Markdown 文档块同步。</p>
-      <div class="flex flex-wrap gap-3">
-        <UiButton :disabled="sync.state.busy || !sync.state.ready" @click="sync.saveNotion">保存连接</UiButton
-        ><UiButton
-          :disabled="sync.state.busy || !courseId || !sync.state.notionToken || !sync.state.notionPage"
-          @click="sync.sync(courseId, 'notion')"
-          >双向同步</UiButton
-        ><UiButton v-if="sync.state.busy" variant="text" @click="sync.cancel">停止同步</UiButton>
-      </div>
-      <article
-        v-for="conflict in sync.state.conflicts"
-        :key="`${conflict.target}:${conflict.courseId}:${conflict.path}`"
-        class="rounded-2xl border border-linen p-4"
-      >
-        <h4 class="break-words text-body font-bold">{{ conflict.path }} · 两边都有修改</h4>
-        <div class="mt-3 grid gap-3 sm:grid-cols-2">
-          <VTextarea :model-value="conflict.local" label="软件中的版本" readonly rows="5" /><VTextarea
-            :model-value="conflict.remote ?? '外部文档已删除'"
-            label="知识库中的版本"
-            readonly
-            rows="5"
-          />
-        </div>
-        <div class="mt-3 flex flex-wrap gap-2">
-          <UiButton
-            size="sm"
-            :disabled="sync.state.busy"
-            @click="sync.sync(conflict.courseId, conflict.target, conflict.path, 'local')"
-            >保留软件版本</UiButton
-          ><UiButton
-            v-if="conflict.remote !== null"
-            size="sm"
-            :disabled="sync.state.busy"
-            @click="sync.sync(conflict.courseId, conflict.target, conflict.path, 'remote')"
-            >保留知识库版本</UiButton
-          >
-        </div>
-      </article>
     </article>
     <article class="pane space-y-4 p-6">
       <h2 class="text-heading-sm">专注伴学</h2>

@@ -4,7 +4,6 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
 import { reactive } from 'vue'
 import { buildTodayPlan } from '../app/utils/learningFeedback.ts'
-import { useNoteSession } from '../app/composables/useNoteSession.ts'
 import * as dailyPlan from '../app/utils/dailyPlan.ts'
 import { performanceContext } from '../tests/fixtures/performance.mjs'
 
@@ -86,21 +85,6 @@ measure(
   () => buildTodayPlan(large.plan.lessons, shortDurations, {}, {}, [], 600, date, completedDay),
   20,
 )
-let serializations = 0
-const note = useNoteSession({
-  read: async () => ({ content: '', updatedAt: 1 }),
-  readCopy: async () => null,
-  write: async () => ({ success: true }),
-  writeCopy: async () => {},
-})
-await note.load()
-for (let i = 0; i < 100; i++)
-  note.editFrom(() => {
-    serializations++
-    return `synthetic note ${i}`
-  })
-await note.save()
-note.dispose()
 const context = performanceContext(2000)
 let view = 'all'
 const persistence = useGuidePersistence({
@@ -149,7 +133,6 @@ const report = {
   date,
   results,
   learningRefresh,
-  typingBurst: { updates: 100, serializations },
   repeatedViewChanges: { changes: 50, writes },
   note: 'Synthetic Vue-reactive CPU benchmark and write counts. Not startup time, UI latency, or real database I/O.',
 }

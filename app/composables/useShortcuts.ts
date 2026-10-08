@@ -1,10 +1,4 @@
 import { onBeforeUnmount, onMounted } from 'vue'
-/**
- * 全局快捷键。
- * 规则：
- *  - ⌥T / ⌥S / ⌘S 在任何地方都生效（包括编辑器内），因为它们本来就是“边记边用”的操作
- *  - 其余单键（空格、方向键等）只在焦点不在输入框/编辑器里时生效
- */
 export interface ShortcutHandlers {
   askAssistant?: () => void
   togglePlay: () => void
@@ -13,9 +7,6 @@ export interface ShortcutHandlers {
   toggleMute: () => void
   toggleFullscreen: () => void
   rateStep: (direction: 1 | -1) => void
-  insertTimestamp: () => void
-  screenshot: () => void
-  saveNote: () => void
   prevEpisode: () => void
   nextEpisode: () => void
   toggleHelp: () => void
@@ -37,14 +28,8 @@ export const SHORTCUT_GROUPS = [
     ],
   },
   {
-    title: '笔记',
-    items: [
-      { keys: ['⌥', 'A'], label: '暂停并询问随堂助教' },
-      { keys: ['⌥', 'T'], label: '插入当前时间戳' },
-      { keys: ['⌥', 'S'], label: '截图并插入笔记' },
-      { keys: ['⌘', 'S'], label: '立即保存笔记', alt: 'Windows：Ctrl S' },
-      { keys: ['/'], label: '打开编辑器插入菜单' },
-    ],
+    title: '助教',
+    items: [{ keys: ['⌥', 'A'], label: '暂停并询问随堂助教' }],
   },
   {
     title: '其他',
@@ -65,27 +50,9 @@ export function useShortcuts(handlers: ShortcutHandlers) {
     if (document.querySelector('dialog[open], .v-dialog.v-overlay--active')) return
     const mod = e.metaKey || e.ctrlKey
 
-    // —— 处处生效的组合键（用 code 而不是 key：macOS 上 ⌥T 会输出 †）——
-    if (e.altKey && !mod && !e.shiftKey) {
-      if (e.code === 'KeyA') {
-        e.preventDefault()
-        handlers.askAssistant?.()
-        return
-      }
-      if (e.code === 'KeyT') {
-        e.preventDefault()
-        handlers.insertTimestamp()
-        return
-      }
-      if (e.code === 'KeyS') {
-        e.preventDefault()
-        handlers.screenshot()
-        return
-      }
-    }
-    if (mod && !e.altKey && !e.shiftKey && e.code === 'KeyS') {
+    if (e.altKey && !mod && !e.shiftKey && e.code === 'KeyA') {
       e.preventDefault()
-      handlers.saveNote()
+      handlers.askAssistant?.()
       return
     }
 

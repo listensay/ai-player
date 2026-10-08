@@ -2,7 +2,7 @@
 import { onBeforeUnmount, computed, ref, watch, nextTick } from 'vue'
 import { usePlayer } from '~/composables/usePlayer'
 import { useTranscripts } from '~/composables/useTranscripts'
-import { formatTime, timestampToken } from '~/utils/time'
+import { formatTime } from '~/utils/time'
 import { activeSegmentIndex, searchTranscript } from '~/utils/transcript'
 import type { VirtualListHandle } from '~/types/virtualList'
 import VirtualList from '~/components/VirtualList.vue'
@@ -28,7 +28,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  quote: [text: string]
   toast: [message: string]
 }>()
 
@@ -114,8 +113,13 @@ function cancelRefine() {
   transcripts.cancelRefine(props.courseId, props.video.path)
 }
 
-function quote(seg: { start: number; text: string }) {
-  emit('quote', `${timestampToken(seg.start)} ${seg.text}`)
+async function quote(seg: { start: number; text: string }) {
+  try {
+    await navigator.clipboard.writeText(`${formatTime(seg.start)} ${seg.text}`)
+    emit('toast', '已复制，可粘贴到 Notion')
+  } catch {
+    emit('toast', '复制失败，请重试。')
+  }
 }
 
 function scrollToIndex(index: number, smooth = true) {

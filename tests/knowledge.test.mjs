@@ -6,7 +6,7 @@ import { createRenderer, reactive, ref } from 'vue'
 const boundaries = {
   '~/utils/guideAi': ['requestGuideJson'],
   '~/utils/guideMedia': ['loadLessonSubtitles'],
-  '~/utils/dbClient': ['dbFetchPractice', 'dbSavePractice', 'dbFetchNote'],
+  '~/utils/dbClient': ['dbFetchPractice', 'dbSavePractice'],
   '~/utils/database': ['databaseRequest'],
   '~/composables/useTranscripts': ['useTranscripts'],
 }
@@ -143,7 +143,6 @@ function harness(t, overrides = {}, cacheLimits) {
       }
       return structuredClone(database.get(options.query.key) ?? null)
     },
-    dbFetchNote: async () => ({ content: '', updatedAt: null }),
     dbFetchPractice: async () => ({}),
     dbSavePractice: async () => true,
     loadLessonSubtitles: async () => [],
@@ -751,7 +750,7 @@ test('旧版仅有文字反馈的综合作业，可不改答案直接补评功�
 
 test('练习一组多题原子保存，任一题无效都保留已有记录', async (t) => {
   const h = harness(t)
-  await h.practice.open(videos[0], null, '')
+  await h.practice.open(videos[0], null)
   await h.practice.generate(3)
   assert.equal(h.practice.history.value.length, 3)
   const selected = h.practice.current.value.id

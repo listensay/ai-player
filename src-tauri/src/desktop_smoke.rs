@@ -1,9 +1,137 @@
 //! Compiled only into the separately identified desktop regression executable.
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::Mutex};
 use tauri::{
     plugin::{Builder, TauriPlugin},
-    Wry,
+    Manager, Url, Wry,
 };
+
+#[derive(Default)]
+pub struct NotionProbe(pub Mutex<serde_json::Value>);
+
+fn fixture_origin() -> Option<Url> {
+    let url = Url::parse(&std::env::var("AI_PLAYER_NOTION_SMOKE_URL").ok()?).ok()?;
+    (url.scheme() == "http" && url.host_str() == Some("127.0.0.1")).then_some(url)
+}
+pub fn is_notion_fixture(url: &Url) -> bool {
+    fixture_origin().is_some_and(|base| base.origin() == url.origin())
+}
+pub fn notion_fixture_url(url: &Url) -> Url {
+    if let Some(mut fixture) = fixture_origin() {
+        fixture.set_path(url.path());
+        fixture
+    } else {
+        url.clone()
+    }
+}
+pub fn notion_public_url(url: Url) -> Url {
+    if is_notion_fixture(&url) {
+        let mut public = Url::parse("https://app.notion.com/").unwrap();
+        public.set_path(url.path());
+        public
+    } else {
+        url
+    }
+}
+
+#[tauri::command]
+pub async fn desktop_smoke_notion(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    text: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if webview.label() != "main" {
+        return Err("Only the test host may inspect the fixture".into());
+    }
+    let Some(view) = app.get_webview(crate::notion::LABEL) else {
+        return Ok(serde_json::json!({ "exists": false }));
+    };
+    if let Some(text) = text {
+        if !is_notion_fixture(&view.url().map_err(|e| e.to_string())?) {
+            return Err("Not a fixture".into());
+        }
+        view.eval(format!("document.querySelector('textarea').value={};document.querySelector('textarea').dispatchEvent(new Event('input'))", serde_json::json!(text))).map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let hidden = false;
+    #[cfg(target_os = "macos")]
+    let hidden = {
+        let (tx, rx) = std::sync::mpsc::channel();
+        view.with_webview(move |view| {
+            let value: bool = unsafe {
+                objc2::msg_send![
+                    &*(view.inner() as *const objc2::runtime::AnyObject),
+                    isHidden
+                ]
+            };
+            let _ = tx.send(value);
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| e.to_string())?
+    };
+    let probe = app
+        .state::<NotionProbe>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    let scale = webview.window().scale_factor().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "exists": true, "hidden": hidden,
+        "windowGeometry": {
+            "innerPosition": webview.window().inner_position().map_err(|e| e.to_string())?,
+            "outerPosition": webview.window().outer_position().map_err(|e| e.to_string())?,
+            "innerSize": webview.window().inner_size().map_err(|e| e.to_string())?,
+            "outerSize": webview.window().outer_size().map_err(|e| e.to_string())?,
+            "hostSize": webview.size().map_err(|e| e.to_string())?, "scale": scale
+        },
+        "position": view.position().map_err(|e| e.to_string())?.to_logical::<f64>(scale),
+        "hostPosition": webview.position().map_err(|e| e.to_string())?.to_logical::<f64>(scale),
+        "size": view.size().map_err(|e| e.to_string())?.to_logical::<f64>(scale), "probe": probe
+    }))
+}
+
+#[tauri::command]
+pub async fn desktop_smoke_notion_popup(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    action: String,
+) -> Result<usize, String> {
+    if webview.label() != "main" {
+        return Err("Only the test host may operate the fixture".into());
+    }
+    let view = app
+        .get_webview(crate::notion::LABEL)
+        .ok_or("Missing Notion fixture")?;
+    if !is_notion_fixture(&view.url().map_err(|e| e.to_string())?) {
+        return Err("Not a fixture".into());
+    }
+    match action.as_str() {
+        "blank" => view
+            .eval("window.startPopupLogin(true, false)")
+            .map_err(|e| e.to_string())?,
+        "direct" => view
+            .eval("window.startPopupLogin(false, false)")
+            .map_err(|e| e.to_string())?,
+        "hold" => view
+            .eval("window.startPopupLogin(true, true)")
+            .map_err(|e| e.to_string())?,
+        "close" => {
+            for (label, popup) in app.webview_windows() {
+                if label.starts_with(crate::notion::POPUP_PREFIX) {
+                    popup.close().map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        "count" => {}
+        _ => return Err("Unknown popup fixture action".into()),
+    }
+    Ok(app
+        .webview_windows()
+        .keys()
+        .filter(|label| label.starts_with(crate::notion::POPUP_PREFIX))
+        .count())
+}
 
 pub fn directory() -> Result<PathBuf, String> {
     let path = PathBuf::from(
@@ -45,6 +173,7 @@ pub fn init() -> TauriPlugin<Wry> {
                 return Err("Smoke tests require a separate app identifier".into());
             }
             directory().map_err(std::io::Error::other)?;
+            app.manage(NotionProbe::default());
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -52,6 +181,9 @@ pub fn init() -> TauriPlugin<Wry> {
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
             {
                 let phase = std::env::var("AI_PLAYER_SMOKE_PHASE").unwrap_or_default();
+                if !["first", "second"].contains(&phase.as_str()) {
+                    return;
+                }
                 let script = format!(
                     "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {};\n{}",
                     serde_json::json!(phase),
