@@ -11,6 +11,7 @@ test('播放器侧栏独立展开、笔记实例保留、页签恢复且顶部�
   const nil = () => {}
   globalThis.sidebarWorkspace = {
     player: { state: { ready: true } },
+    assistant: { highlights: ref([]), open: nil },
     noteEditor: ref(null),
     stage: ref(null),
     treeOpen: ref(false),

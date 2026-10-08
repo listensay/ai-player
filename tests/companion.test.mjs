@@ -230,7 +230,7 @@ test('18:50 / 19:43 不提前完成计划或触发桌宠庆祝，播放结束后
   await nextTick()
   assert.equal(h.options.today.value.items[0].done, true)
   assert.equal(h.options.today.value.items[1].done, false)
-  assert.equal(h.companion.snapshot.value.celebration, '课节完成')
+  assert.match(h.companion.snapshot.value.celebration, /学完了「.*」，试着讲给我听吧/)
 })
 
 test('切日期或切巩固计划不会误庆祝；提交当前巩固会庆祝', async (t) => {

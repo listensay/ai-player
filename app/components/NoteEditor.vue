@@ -140,16 +140,26 @@ function getSelection(): NoteSelection | null {
   return crepe.editor.action((ctx) => {
     const { doc, selection } = ctx.get(editorViewCtx).state
     if (selection.empty) return null
-    return { from: selection.from, to: selection.to, text: doc.textBetween(selection.from, selection.to, '\n'), document: JSON.stringify(doc.toJSON()) }
+    return {
+      from: selection.from,
+      to: selection.to,
+      text: doc.textBetween(selection.from, selection.to, '\n'),
+      document: JSON.stringify(doc.toJSON()),
+    }
   })
 }
 function replaceSelection(selection: NoteSelection, markdown: string) {
   if (!crepe || destroyed) throw Error('编辑器尚未就绪。')
   crepe.editor.action((ctx) => {
     const view = ctx.get(editorViewCtx)
-    if (JSON.stringify(view.state.doc.toJSON()) !== selection.document) throw Error('原笔记已修改，请重新选中文字后生成，避免覆盖新内容。')
+    if (JSON.stringify(view.state.doc.toJSON()) !== selection.document)
+      throw Error('原笔记已修改，请重新选中文字后生成，避免覆盖新内容。')
     const parsed = ctx.get(parserCtx)(markdown)
     if (!parsed) throw Error('无法解析生成的 Markdown。')
+    parsed.descendants((node) => {
+      if (node.type.name.toLowerCase().includes('image'))
+        throw Error('生成内容包含图片，请先移除图片引用，避免加载未确认的外部资源。')
+    })
     view.dispatch(view.state.tr.replaceRange(selection.from, selection.to, parsed.slice(0)).scrollIntoView())
     view.focus()
   })
@@ -157,8 +167,13 @@ function replaceSelection(selection: NoteSelection, markdown: string) {
 function insertMarkdown(markdown: string) {
   if (!crepe || destroyed) throw Error('编辑器尚未就绪。')
   crepe.editor.action((ctx) => {
-    const view = ctx.get(editorViewCtx), parsed = ctx.get(parserCtx)(markdown)
+    const view = ctx.get(editorViewCtx),
+      parsed = ctx.get(parserCtx)(markdown)
     if (!parsed) throw Error('无法解析生成的 Markdown。')
+    parsed.descendants((node) => {
+      if (node.type.name.toLowerCase().includes('image'))
+        throw Error('生成内容包含图片，请先移除图片引用，避免加载未确认的外部资源。')
+    })
     view.dispatch(view.state.tr.insert(view.state.doc.content.size, parsed.content).scrollIntoView())
     view.focus()
   })

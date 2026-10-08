@@ -5,7 +5,8 @@ import UiButton from '~/components/UiButton.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import PracticeText from '~/components/PracticeText.vue'
 
-const { course, video, knowledge, transcripts, guide, openGuide, openPractice, rightTab } = useCourseWorkspace()
+const { course, video, knowledge, transcripts, guide, openGuide, openPractice, rightTab, assistant, seekTo } =
+  useCourseWorkspace()
 const state = computed(() => (course.value && video.value ? knowledge.get(course.value.id, video.value.path) : null))
 const transcript = computed(() =>
   course.value && video.value ? transcripts.get(course.value.id, video.value.path) : null,
@@ -72,12 +73,21 @@ function cancel() {
               class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sunbeam-yellow text-caption font-bold"
               >{{ index + 1 }}</span
             >
-            <h3 class="text-body-sm font-bold">{{ point.title }}</h3>
+            <button
+              type="button"
+              class="text-left text-body-sm font-bold underline decoration-linen underline-offset-4"
+              @click="seekTo(point.start)"
+            >
+              {{ point.title }}
+            </button>
           </div>
           <PracticeText :text="point.text" class="text-body-sm text-graphite" />
         </li>
       </ol>
     </article>
+    <UiButton v-if="state?.summary" variant="ghost" class="mt-5 w-full" @click="assistant.open('map')"
+      >查看知识脑图</UiButton
+    >
     <UiButton v-if="state?.summary" class="mt-5 w-full" :disabled="busy" @click="openPractice()"
       >练习本课知识点</UiButton
     >

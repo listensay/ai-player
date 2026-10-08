@@ -2,7 +2,7 @@
 import { useCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { usePetPosition } from '~/composables/usePetPosition'
 import CompanionPet from './CompanionPet.vue'
-const { companion, player } = useCourseWorkspace()
+const { companion, player, assistant } = useCourseWorkspace()
 const { position, move, save, nudge, side, below } = usePetPosition()
 </script>
 
@@ -22,6 +22,7 @@ const { position, move, save, nudge, side, below } = usePetPosition()
       @move="move"
       @drop="save"
       @nudge="nudge"
+      @ask="assistant.open('ask')"
       @toggle="companion.toggle"
       @rest="companion.rest"
       @snooze="companion.snooze"

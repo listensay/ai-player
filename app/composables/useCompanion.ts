@@ -27,6 +27,7 @@ import type { CompanionAction, CompanionSnapshot } from '~/utils/companion'
 import type { provideLearningManagement } from './useLearningManagement'
 
 export function useCompanion(options: {
+  ask?: () => void
   learning?: ReturnType<typeof provideLearningManagement>
   pomodoro?: ReturnType<typeof createPomodoro>
   desktopSettings: ReturnType<typeof provideDesktopSettings>
@@ -134,7 +135,9 @@ export function useCompanion(options: {
       key: `${course.value?.id}:${options.today.value?.date}`,
       ready: options.todayReady.value,
       items:
-        options.today.value?.items.filter((i) => i.kind !== 'question').map((i) => ({ id: i.id, done: i.done })) ?? [],
+        options.today.value?.items
+          .filter((i) => i.kind !== 'question')
+          .map((i) => ({ id: i.id, path: i.path, done: i.done })) ?? [],
     }),
     (next, old) => {
       if (!old || !old.ready || !next.ready || old.key !== next.key) return
@@ -145,7 +148,12 @@ export function useCompanion(options: {
           !celebrated.has(`${next.key}:${item.id}`),
       )
       if (completed.length) {
-        celebrate(next.items.every((i) => i.done) ? '今日计划课节完成' : '课节完成', `${next.key}:${completed[0]!.id}`)
+        celebrate(
+          next.items.every((i) => i.done)
+            ? '今日计划课节完成'
+            : `学完了「${course.value?.videos?.find((v) => v.path === completed[0]!.path)?.title ?? '本课'}」，试着讲给我听吧！`,
+          `${next.key}:${completed[0]!.id}`,
+        )
         completed.forEach((item) => celebrated.add(`${next.key}:${item.id}`))
       }
     },
@@ -288,6 +296,7 @@ export function useCompanion(options: {
           void publish()
           return
         }
+        if (payload.type === 'ask' && !options.blocked.value) options.ask?.()
         if (payload.type === 'toggle') toggle()
         if (payload.type === 'rest') rest()
         if (payload.type === 'snooze') snooze()

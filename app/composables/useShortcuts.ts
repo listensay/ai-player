@@ -6,6 +6,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
  *  - 其余单键（空格、方向键等）只在焦点不在输入框/编辑器里时生效
  */
 export interface ShortcutHandlers {
+  askAssistant?: () => void
   togglePlay: () => void
   seekBy: (seconds: number) => void
   volumeBy: (delta: number) => void
@@ -38,6 +39,7 @@ export const SHORTCUT_GROUPS = [
   {
     title: '笔记',
     items: [
+      { keys: ['⌥', 'A'], label: '暂停并询问随堂助教' },
       { keys: ['⌥', 'T'], label: '插入当前时间戳' },
       { keys: ['⌥', 'S'], label: '截图并插入笔记' },
       { keys: ['⌘', 'S'], label: '立即保存笔记', alt: 'Windows：Ctrl S' },
@@ -65,6 +67,11 @@ export function useShortcuts(handlers: ShortcutHandlers) {
 
     // —— 处处生效的组合键（用 code 而不是 key：macOS 上 ⌥T 会输出 †）——
     if (e.altKey && !mod && !e.shiftKey) {
+      if (e.code === 'KeyA') {
+        e.preventDefault()
+        handlers.askAssistant?.()
+        return
+      }
       if (e.code === 'KeyT') {
         e.preventDefault()
         handlers.insertTimestamp()

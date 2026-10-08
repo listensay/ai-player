@@ -1,4 +1,9 @@
-export interface NoteSelection { from: number; to: number; text: string; document: string }
+export interface NoteSelection {
+  from: number
+  to: number
+  text: string
+  document: string
+}
 export interface NoteEditorHandle {
   whenReady: () => Promise<void>
   hasUnsavedChanges: () => boolean

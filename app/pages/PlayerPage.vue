@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import { useCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { usePageTitle } from '~/composables/usePageTitle'
 import { formatTime } from '~/utils/time'
@@ -11,7 +12,9 @@ import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import UiButton from '~/components/UiButton.vue'
 import VideoStage from '~/components/VideoStage.vue'
 import { formatStudyClock, formatStudyHours } from '~/utils/checkIn'
+const LearningAssistantPanel = defineAsyncComponent(() => import('~/components/LearningAssistantPanel.vue'))
 const {
+  assistant,
   player,
   noteEditor,
   noteRevision,
@@ -143,6 +146,7 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           :key="`${course.id}:${video.path}`"
           :video="video"
           :course-id="course.id"
+          :highlights="assistant.highlights.value"
           :has-prev="hasPrev"
           :has-next="hasNext"
           @prev="navigateEpisode(-1)"
@@ -236,6 +240,19 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
                 aria-hidden="true"
               />
             </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="rightTab === 'assistant'"
+              class="inline-flex h-8 items-center rounded-full px-3 text-body-sm font-bold"
+              :class="
+                rightTab === 'assistant' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'
+              "
+              title="暂停并问助教（⌥A）"
+              @click="assistant.open('ask')"
+            >
+              助教
+            </button>
           </div>
           <button
             type="button"
@@ -250,6 +267,10 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           </button>
         </div>
 
+        <LearningAssistantPanel
+          v-if="video && rightTab === 'assistant'"
+          :key="`assistant:${course.id}:${video.path}`"
+        />
         <LessonKnowledgePanel v-if="video" v-show="rightTab === 'knowledge'" />
         <LazyNoteEditor
           v-if="video"
@@ -263,6 +284,9 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           @seek="seekTo"
         >
           <template #actions>
+            <UiButton variant="ghost" size="sm" title="整理选中文字或当前字幕" @click="assistant.open('notes')"
+              >AI 整理</UiButton
+            >
             <UiButton
               variant="dark"
               size="sm"

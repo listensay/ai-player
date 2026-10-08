@@ -18,6 +18,7 @@ const props = withDefaults(
   { connected: true, bubbleSide: 'left' },
 )
 const emit = defineEmits<{
+  ask: []
   toggle: []
   rest: []
   snooze: []
@@ -64,7 +65,7 @@ async function openMenu() {
   await nextTick()
   menu.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
 }
-function action(type: 'toggle' | 'rest' | 'snooze' | 'reveal' | 'close') {
+function action(type: 'toggle' | 'rest' | 'snooze' | 'reveal' | 'close' | 'ask') {
   menuOpen.value = false
   if (type === 'toggle' && !canPlay.value) return
   if (
@@ -72,7 +73,11 @@ function action(type: 'toggle' | 'rest' | 'snooze' | 'reveal' | 'close') {
     (!props.connected || !props.state.ready || props.busy || props.state.blocked)
   )
     return
+  if (type === 'ask' && (!props.connected || !props.state.ready || props.busy || props.state.blocked)) return
   switch (type) {
+    case 'ask':
+      emit('ask')
+      break
     case 'toggle':
       emit('toggle')
       break
@@ -270,6 +275,9 @@ defineExpose({ collapse })
         20 分钟后提醒
       </button>
       <button type="button" @click="toggleQuiet">{{ quiet ? '显示日常提示' : '隐藏日常提示' }}</button>
+      <button type="button" :disabled="!connected || !state.ready || busy || state.blocked" @click="action('ask')">
+        问问 Playbo
+      </button>
       <button v-if="desktop" type="button" @click="action('reveal')">回到课程</button>
       <button v-if="desktop" type="button" @click="action('close')">关闭挂件</button>
     </div>

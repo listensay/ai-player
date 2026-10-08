@@ -114,6 +114,7 @@ export async function requestGuideJson(
   settings: GuideSettings,
   messages: GuideMessage[],
   signal: AbortSignal,
+  options: { imagePurpose?: 'learning' } = {},
 ): Promise<unknown> {
   const provider = settings.provider ?? 'openai'
   const endpoint = completionUrl(settings.baseUrl, provider)
@@ -135,7 +136,7 @@ export async function requestGuideJson(
         content: [
           { type: 'text', text: message.content },
           ...images.flatMap((image) => [
-            { type: 'text', text: `作业图片：${image.name}` },
+            { type: 'text', text: `${options.imagePurpose === 'learning' ? '课程截图' : '作业图片'}：${image.name}` },
             provider === 'anthropic'
               ? { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } }
               : { type: 'image_url', image_url: { url: `data:${image.mediaType};base64,${image.data}` } },
@@ -179,7 +180,9 @@ export async function requestGuideJson(
     if (!response.ok) {
       if (hasImages && [400, 415, 422].includes(response.status))
         throw new Error(
-          `HTTP ${response.status}：图片评阅请求未被接受，请检查所选模型和接口是否支持图片，或缩小图片后重试。作业已保留，本次未评分。`,
+          options.imagePurpose === 'learning'
+            ? `HTTP ${response.status}：截图识别请求未被接受，请检查所选模型和接口是否支持图片，或缩小图片后重试。原有内容已保留。`
+            : `HTTP ${response.status}：图片评阅请求未被接受，请检查所选模型和接口是否支持图片，或缩小图片后重试。作业已保留，本次未评分。`,
         )
       throw aiHttpError(response.status)
     }

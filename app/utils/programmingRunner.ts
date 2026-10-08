@@ -11,6 +11,13 @@ export function runProgramming(input: ProgrammingExecution, signal: AbortSignal)
   // 运行器可能执行恢复出的旧题（历史上最少 2 个用例），结构下限取 2；新出题下限由校验层保证。
   const exercise = validateProgrammingExercise(input.exercise, 2)
   if (isDesktop()) return runLocalProgramming({ ...input, exercise }, signal)
+  return runProgrammingSandbox({ ...input, exercise }, signal)
+}
+
+/** Explicit scratch execution always stays in QuickJS, including on desktop. */
+export function runProgrammingSandbox(input: ProgrammingExecution, signal: AbortSignal): Promise<ProgrammingRun> {
+  signal.throwIfAborted()
+  const exercise = validateProgrammingExercise(input.exercise, 2)
   if (exercise.language !== 'javascript') throw new Error('请在桌面应用中使用本机编程环境。')
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./programming.worker.ts', import.meta.url), { type: 'module' })

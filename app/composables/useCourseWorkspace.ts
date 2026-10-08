@@ -9,6 +9,7 @@ import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
 import { useCompanion } from '~/composables/useCompanion'
 import { providePomodoro } from '~/composables/usePomodoro'
+import { useLearningAssistant } from '~/composables/useLearningAssistant'
 import { usePlayer } from '~/composables/usePlayer'
 import { usePlayerDirectory } from '~/composables/usePlayerDirectory'
 import { useProgress } from '~/composables/useProgress'
@@ -61,7 +62,7 @@ export function provideCourseWorkspace() {
   const rightPanelOpen = ref(true)
   const noteRevision = ref(0)
   /** 笔记优先展示；切页签不打断转写与笔记编辑。 */
-  const rightTab = ref<'knowledge' | 'notes' | 'transcript'>('notes')
+  const rightTab = ref<'knowledge' | 'notes' | 'transcript' | 'assistant'>('notes')
   const transcripts = useTranscripts()
 
   const currentView = computed(() => (route.path.endsWith('/player') ? ('player' as const) : ('dashboard' as const)))
@@ -115,7 +116,7 @@ export function provideCourseWorkspace() {
     },
     { immediate: true, flush: 'sync' },
   )
-  const { noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote } = useNoteWorkspace(
+  const { readyNote, noteEditor, quoteToNote, noteAt, insertTimestamp, screenshot, saveNote } = useNoteWorkspace(
     computed(() => (course.value && video.value ? JSON.stringify([course.value.id, video.value.path]) : '')),
     rightTab,
     player,
@@ -129,6 +130,24 @@ export function provideCourseWorkspace() {
     computed(() => !store.state.library.some((c) => c.id === course.value?.id && c.status !== 'active')),
   )
   const knowledge = useLessonKnowledge(course, guide.state.settings, guide.configured)
+  const assistant = useLearningAssistant({
+    course,
+    video,
+    active: computed(() => currentView.value === 'player'),
+    settings: guide.state.settings,
+    configured: guide.configured,
+    player,
+    transcripts,
+    knowledge,
+    learning,
+    noteEditor,
+    readyNote,
+    reveal: () => {
+      rightPanelOpen.value = true
+      rightTab.value = 'assistant'
+    },
+    notify: showToast,
+  })
   const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
     sources: (target, scope) => knowledge.sourcesFor(course.value!.id, target, scope ? [scope] : undefined),
   })
@@ -233,6 +252,7 @@ export function provideCourseWorkspace() {
     { flush: 'sync' },
   )
   const companion = useCompanion({
+    ask: () => assistant.open('ask'),
     learning,
     pomodoro,
     desktopSettings,
@@ -518,6 +538,7 @@ export function provideCourseWorkspace() {
   }
 
   useShortcuts({
+    askAssistant: () => assistant.open('ask'),
     togglePlay: () => player.toggle(),
     seekBy: (s) => player.seekBy(s),
     volumeBy: (d) => player.setVolume(player.state.volume + d),
@@ -726,6 +747,7 @@ export function provideCourseWorkspace() {
     toggleTree,
     rightPanelOpen,
     rightTab,
+    assistant,
     transcripts,
     currentView,
     toast,

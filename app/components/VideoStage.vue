@@ -9,11 +9,13 @@ import PlaybackRateMenu from '~/components/PlaybackRateMenu.vue'
 import UiButton from '~/components/UiButton.vue'
 import { mediaSource } from '~/utils/desktopFiles'
 import type { VideoEntry } from '~/types/course'
+import type { VideoHighlight } from '~/types/learningAssistant'
 import type { PlaybackSample } from '~/types/practice'
 
 const props = defineProps<{
   video: VideoEntry
   courseId: string
+  highlights?: VideoHighlight[]
   hasPrev: boolean
   hasNext: boolean
 }>()
@@ -333,6 +335,21 @@ defineExpose({ toggleFullscreen })
 
     <!-- 控制条：白色纸面 -->
     <div class="pane shrink-0 px-4 py-3" :class="state.fullscreen ? 'border-transparent' : ''">
+      <div v-if="highlights?.length && state.duration > 0" class="highlight-track" aria-label="AI 课程片段标记">
+        <button
+          v-for="(segment, index) in highlights"
+          :key="index"
+          type="button"
+          :class="['highlight-segment', segment.kind]"
+          :style="{
+            left: `${Math.min(100, (segment.start / state.duration) * 100)}%`,
+            width: `${Math.min(100 - (segment.start / state.duration) * 100, ((segment.end - segment.start) / state.duration) * 100)}%`,
+          }"
+          :title="`${formatTime(segment.start)}–${formatTime(segment.end)} ${segment.kind === 'core' ? '核心讲解' : segment.kind === 'practice' ? '演示练习' : '过渡闲聊'}：${segment.reason}`"
+          :aria-label="`跳至 ${formatTime(segment.start)}：${segment.reason}`"
+          @click="player.seek(segment.start)"
+        />
+      </div>
       <div class="mb-2 flex items-center gap-2">
         <span class="tabular w-14 shrink-0 text-right text-body-sm font-medium text-charcoal-ink">
           {{ formatTime(seekValue) }}
@@ -447,3 +464,33 @@ defineExpose({ toggleFullscreen })
     </div>
   </div>
 </template>
+
+<style scoped>
+.highlight-track {
+  position: relative;
+  height: 10px;
+  margin: 0 64px 8px;
+  border-radius: 4px;
+  background: #f0eeea;
+}
+.highlight-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+}
+.highlight-segment.core {
+  background: #8975d6;
+}
+.highlight-segment.practice {
+  background: #ffce00;
+}
+.highlight-segment.transition {
+  background: #aaa49d;
+}
+.highlight-segment:focus-visible {
+  outline: 2px solid #252320;
+  outline-offset: 2px;
+}
+</style>

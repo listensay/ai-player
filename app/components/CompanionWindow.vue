@@ -35,6 +35,10 @@ async function send(type: CompanionAction['type']) {
     sending.value = false
   }
 }
+async function ask() {
+  await send('ask')
+  await reveal()
+}
 async function nativeDrag() {
   try {
     await getCurrentWindow().startDragging()
@@ -91,6 +95,7 @@ onBeforeUnmount(() => {
       :connected="connected"
       :busy="sending"
       :error="error"
+      @ask="ask"
       @toggle="send('toggle')"
       @rest="send('rest')"
       @snooze="send('snooze')"

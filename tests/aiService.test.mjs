@@ -707,3 +707,18 @@ test('模型列表请求保留 HTTP 错误，空列表、取消和超时不视�
   t.mock.timers.tick(30000)
   await timeout
 })
+
+test('随堂截图识别复用两种图像协议，同时保留原有作业提示', async () => {
+  for (const provider of ['openai', 'anthropic']) {
+    const calls = transport(provider === 'anthropic' ? nativeReply() : openaiReply())
+    await requestGuideJson(
+      { ...settings, provider },
+      [{ role: 'user', content: '识别画面', images: [{ name: '课节.png', mediaType: 'image/png', data: 'AQID' }] }],
+      new AbortController().signal,
+      { imagePurpose: 'learning' },
+    )
+    const message = calls[0].body.messages.at(-1)
+    assert.equal(message.content[1].text, '课程截图：课节.png')
+    assert.equal(message.content[2].type, provider === 'anthropic' ? 'image' : 'image_url')
+  }
+})

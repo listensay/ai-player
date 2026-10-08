@@ -74,7 +74,7 @@ export interface CompanionSnapshot {
 export const COMPANION_STATE_EVENT = 'playbo-state'
 export const COMPANION_ACTION_EVENT = 'playbo-action'
 export type CompanionAction = {
-  type: 'sync' | 'toggle' | 'rest' | 'snooze'
+  type: 'sync' | 'toggle' | 'rest' | 'snooze' | 'ask'
   lessonKey?: string
 }
 
