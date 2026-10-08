@@ -9,6 +9,7 @@ import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
 import { useCompanion } from '~/composables/useCompanion'
 import { providePomodoro } from '~/composables/usePomodoro'
+import { useFocusFlowPrompt } from '~/composables/useFocusFlowPrompt'
 import { useLearningAssistant } from '~/composables/useLearningAssistant'
 import { usePlayer } from '~/composables/usePlayer'
 import { usePlayerDirectory } from '~/composables/usePlayerDirectory'
@@ -71,33 +72,10 @@ export function provideCourseWorkspace() {
 
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
-  let focusContext: { startedAt: number; courseId: string; path: string } | null = null
-  watch(
-    () => pomodoro.state.focusHistory.at(-1)?.startedAt,
-    (startedAt) => {
-      if (startedAt) focusContext = { startedAt, courseId: course.value?.id ?? '', path: video.value?.path ?? '' }
-    },
-    { flush: 'sync' },
-  )
-  watch(
-    () => pomodoro.state.focusHistory.at(-1)?.outcome,
-    (outcome) => {
-      const session = pomodoro.state.focusHistory.at(-1)
-      if (
-        outcome === 'completed' &&
-        session?.endedAt &&
-        focusContext?.startedAt === session.startedAt &&
-        learning.state.data.preferences.flowPrompt
-      ) {
-        learning.pendingFlow.value = {
-          ...focusContext,
-          id: `focus:${session.startedAt}`,
-          endedAt: session.endedAt,
-          hour: session.startHour,
-        }
-      }
-    },
-  )
+  useFocusFlowPrompt(pomodoro, learning, () => ({
+    courseId: course.value?.id ?? '',
+    path: video.value?.path ?? '',
+  }))
   watch(
     () => pomodoro.state.timer.status,
     (status, previous) => {
