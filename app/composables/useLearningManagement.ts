@@ -182,7 +182,7 @@ export function provideLearningManagement() {
     })
     if (saved && earned) {
       reward.value = day
-      store.state.notice = '今日复习完成，Playbo 亲密度 +5'
+      store.state.notice = '今日复习完成，Karen 亲密度 +5'
     }
     return saved
   }
@@ -205,16 +205,9 @@ export function provideLearningManagement() {
   const unsubscribe = subscribeDatabaseChanges((collection, options) => {
     const key = (options.body as { key?: string } | undefined)?.key ?? ''
     if (
-      [
-        'notes',
-        'practice',
-        'library',
-        'recent-courses',
-        'learning-plan',
-        'guide',
-        'check-in',
-        'day-snapshots',
-      ].includes(collection) ||
+      ['practice', 'library', 'recent-courses', 'learning-plan', 'guide', 'check-in', 'day-snapshots'].includes(
+        collection,
+      ) ||
       (collection === 'progress' && (options.body as { done?: boolean })?.done) ||
       (collection === 'settings' && /^(lesson-knowledge:|daily-practice:|study-records:)/u.test(key))
     )

@@ -5,9 +5,18 @@
     <title>Notion test fixture</title>
   </head>
   <body>
+    <p>输入法检查：请分别在两个区域用拼音输入“你好世界”，用候选词提交（不要粘贴）。</p>
     <label>Native note <textarea aria-label="Native note" style="width: 90%; height: 200px"></textarea></label>
+    <div
+      role="textbox"
+      aria-label="Rich note"
+      contenteditable="true"
+      spellcheck="false"
+      style="border: 1px solid #888; min-height: 120px; margin-top: 20px; white-space: pre-wrap"
+    ></div>
     <script>
       const field = document.querySelector('textarea')
+      const rich = document.querySelector('[contenteditable]')
       field.value = localStorage.getItem(location.pathname) || ''
       const hadCookie = document.cookie.includes('notion_test_session=persistent')
       document.cookie = 'notion_test_session=persistent; max-age=3600; path=/; SameSite=Lax'
@@ -15,24 +24,55 @@
       let popup = null
       let popupBlocked = false
       const logins = []
-      function report() {
-        document.title =
-          'notion-probe:' +
-          JSON.stringify({
-            path: location.pathname,
-            text: field.value,
-            cookie: document.cookie.includes('notion_test_session=persistent'),
-            ipcBlocked,
-            hadCookie,
-            popupBlocked,
-            popupClosed: !popup || popup.closed,
-            logins,
+      const composition = []
+      const compositionState = { plain: { started: false, ended: false }, rich: { started: false, ended: false } }
+      for (const name of [
+        'compositionstart',
+        'compositionupdate',
+        'compositionend',
+        'keydown',
+        'beforeinput',
+        'input',
+      ]) {
+        for (const editor of [field, rich])
+          editor.addEventListener(name, (event) => {
+            const state = compositionState[editor === rich ? 'rich' : 'plain']
+            if (event.type === 'compositionstart') state.started = true
+            if (event.type === 'compositionend') state.ended = true
+            composition.push({
+              editor: editor === rich ? 'rich' : 'plain',
+              type: event.type,
+              data: event.data,
+              key: event.key,
+              composing: event.isComposing,
+              inputType: event.inputType,
+              text: editor === rich ? rich.textContent : field.value,
+            })
+            if (composition.length > 100) composition.shift()
+            if (event.type === 'compositionend') queueMicrotask(report)
           })
+      }
+      function report() {
+        window.__NOTION_FIXTURE_PROBE__ = {
+          userAgent: navigator.userAgent,
+          richText: rich.textContent,
+          compositionState,
+          composition,
+          path: location.pathname,
+          text: field.value,
+          cookie: document.cookie.includes('notion_test_session=persistent'),
+          ipcBlocked,
+          hadCookie,
+          popupBlocked,
+          popupClosed: !popup || popup.closed,
+          logins,
+        }
       }
       field.addEventListener('input', () => {
         localStorage.setItem(location.pathname, field.value)
         report()
       })
+      rich.addEventListener('input', report)
       window.startPopupLogin = (blank, hold) => {
         const url = new URL('/popup-auth', location.origin)
         if (hold) url.searchParams.set('hold', '1')
@@ -66,7 +106,13 @@
         if (location.pathname === '/popup-auth' && !location.search.includes('hold')) {
           document.cookie = 'notion_popup_session=ok; max-age=3600; path=/; SameSite=Lax'
           window.opener?.postMessage(
-            { kind: 'popup-auth', hasOpener: !!window.opener, sharedSession: hadCookie, ipcBlocked },
+            {
+              kind: 'popup-auth',
+              hasOpener: !!window.opener,
+              sharedSession: hadCookie,
+              ipcBlocked,
+              userAgent: navigator.userAgent,
+            },
             location.origin,
           )
           window.close()

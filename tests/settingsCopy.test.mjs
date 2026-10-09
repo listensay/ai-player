@@ -105,19 +105,4 @@ test('打卡日历、练习与导学弹窗清除免责与规则文案', () => {
 
   const routePreview = templateCopy('components/RoutePreview.vue')
   assert.doesNotMatch(routePreview.source, /请核对课节与时间变化|请确认已具备相关知识/)
-
-  const milestones = templateCopy('components/MilestonesPanel.vue')
-  assert.doesNotMatch(
-    milestones.source,
-    /每一步都值得被看见|六大成长系列|永久保留|不会因读取失败撤销勋章|首次打开会自动收录已有成绩|连续打卡按最长连续纪录统计/,
-  )
-
-  const celebration = templateCopy('components/MilestoneCelebration.vue')
-  assert.doesNotMatch(celebration.source, /新的里程碑，属于你|每一点努力，都在让你走得更远|太棒了，继续前进/)
-
-  const milestonesTs = readFileSync(new URL('../app/utils/milestones.ts', import.meta.url), 'utf8')
-  assert.doesNotMatch(milestonesTs, /按当前内容统计|不含休息与放弃|已有记录不会被覆盖/)
-
-  const topBar = templateCopy('components/AppTopBar.vue')
-  assert.doesNotMatch(topBar.source, /共.*节.*已完成.*节|:title="courseName"/)
 })

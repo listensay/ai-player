@@ -33,6 +33,7 @@ const {
   graduationReport,
   flowInsights,
   foldCalendarLine,
+  learningContractDraft,
 } = await import('../app/utils/learningOutcomes.ts')
 const { mergeKnowledgeDocument } = await import('../app/utils/knowledgeSync.ts')
 const { recordReview } = await import('../app/utils/learningManagement.ts')
@@ -119,6 +120,47 @@ function card() {
   }
 }
 const sources = () => ({ notes: [], summaries: [], practices: [] })
+test('学习契约不使用路线修改说明，切换无实践目标的阶段和整门课程时清空默认目标', () => {
+  const c = course()
+  c.context.plan.summary = '已移除数据结构与算法的学习计划，保留目录及课节；请确认后续前置关系。'
+  c.context.plan.modules.push({ id: 'empty', title: '无实践阶段', description: '' })
+  assert.equal(learningContractDraft(c, '', today).goal, '')
+  assert.equal(learningContractDraft(c, 'stage', today).goal, 'Todo')
+  assert.equal(learningContractDraft(c, 'empty', today).goal, '')
+  assert.equal(learningContractDraft(c, '', today).goal, '')
+  c.context.plan.modules[0].practice.project = '  '
+  assert.equal(learningContractDraft(c, 'stage', today).goal, '作品')
+})
+test('契约默认值跟随所选阶段，已有承诺可修改，缺少计划和过期计划都有可填写的日期', () => {
+  const c = course()
+  c.context.plan.modules[0].practice.budget = { video: 15, code: 10, project: 10, recap: 5 }
+  c.context.plan.modules[0].practice.endDay = 9
+  assert.deepEqual(learningContractDraft(c, 'stage', today), {
+    moduleId: 'stage',
+    goal: 'Todo',
+    deadline: '2026-10-06',
+    minutes: 40,
+  })
+  const saved = {
+    id: 'contract',
+    courseId: 'course',
+    moduleId: 'stage',
+    goal: '我自己的作品目标',
+    deadline: '2026-11-01',
+    minutes: 25,
+    signedAt: now,
+  }
+  assert.equal(learningContractDraft(c, 'stage', today, [{ ...saved, courseId: 'other' }]).goal, 'Todo')
+  assert.deepEqual(learningContractDraft(c, 'stage', today, [saved]), {
+    moduleId: 'stage',
+    goal: saved.goal,
+    deadline: saved.deadline,
+    minutes: 25,
+  })
+  assert.equal(learningContractDraft(c, '', '2027-01-01').deadline, '2027-01-01')
+  c.context.plan = null
+  assert.deepEqual(learningContractDraft(c, '', today), { moduleId: '', goal: '', deadline: '2026-11-04', minutes: 30 })
+})
 test('旧库首次启用使用默认值，未来版本、损坏记录不能覆盖；作品和契约往返保留', () => {
   const data = parseLearningManagement(null)
   assert.equal(data.preferences.flowPrompt, true)

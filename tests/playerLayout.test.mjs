@@ -287,15 +287,14 @@ test('播放器侧栏独立展开、Notion 实例保留、页签恢复且顶部�
   assert.deepEqual(actions.slice(-3), ['back', 'guide', 'close'])
   headerProps.courseName = ''
   await nextTick()
-  assert.deepEqual(toolbarLabels(), ['学习管理', '里程碑勋章', '设置', '打开桌面挂件', '快捷键（?）'])
+  assert.deepEqual(toolbarLabels(), ['学习管理', '设置', '打开桌面挂件', '快捷键（?）'])
   headerFind('桌面挂件').props.onClick()
   headerFind('快捷键').props.onClick()
   assert.deepEqual(actions.slice(-2), ['companion', 'help'])
   assert.equal(headerFind('返回上一页'), undefined)
   headerFind('设置').props.onClick()
   headerFind('学习管理').props.onClick()
-  headerFind('里程碑勋章').props.onClick()
-  assert.deepEqual(actions.slice(-3), ['settings-dialog', 'study-dialog', 'milestones-dialog'])
+  assert.deepEqual(actions.slice(-2), ['settings-dialog', 'study-dialog'])
   top.unmount()
   assert.equal(results.length, 6)
 
@@ -318,7 +317,7 @@ test('全屏工具弹窗保留底层路由，入口不切换页面', () => {
   assert.match(descriptor.template.content, /<AppUtilityDialog/)
   assert.match(descriptor.template.content, /<RouterView/)
   assert.match(descriptor.template.content, /:inert="appDialogs.isOpen.value/)
-  for (const kind of ['settings', 'study', 'milestones']) {
+  for (const kind of ['settings', 'study']) {
     assert.ok(descriptor.template.content.includes(`@${kind}="appDialogs.open('${kind}')"`))
   }
   assert.doesNotMatch(descriptor.template.content, /show-history-back|@history-back/)

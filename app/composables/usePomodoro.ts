@@ -230,7 +230,11 @@ export function watchPomodoroPlayback(pomodoro: ReturnType<typeof createPomodoro
   return watch(
     [isPlaying, () => pomodoro.state.ready, () => pomodoro.state.settings.enabled],
     ([playing, ready, enabled], [wasPlaying, wasReady, wasEnabled]) => {
-      if (!playing || !ready || !enabled) return
+      if (!ready || !enabled) return
+      if (!playing) {
+        if (wasPlaying && pomodoro.state.timer.phase === 'focus') pomodoro.pause()
+        return
+      }
       const userResumed = wasReady && wasEnabled && !wasPlaying
       // Loading/re-enabling during a break is not a request to skip it. A completion
       // notice on load also keeps an expired break waiting for a new play action.

@@ -193,7 +193,7 @@ async function undoPlan() {
     >
       {{ error || advice.error.value || learning.state.error || learning.sourceError.value }}
     </p>
-    <article v-if="health && course" class="pane space-y-4 p-5">
+    <article v-if="health && course" class="pane space-y-4 bg-pure-white p-5">
       <h3 class="text-subheading">计划健康度</h3>
       <p v-if="health.days.length" class="text-body-sm">
         近期平均每天学习 {{ health.average }} 分钟，计划为 {{ health.budget }} 分钟。
@@ -208,9 +208,13 @@ async function undoPlan() {
             { title: `每天约 ${health.recommended} 分钟，顺延结课`, value: 'lighter' },
             { title: '工作日减量，周末多学一些', value: 'weekend' },
           ]"
-        /><UiButton :disabled="busy || !course.context?.plan?.program" variant="dark" @click="propose(false)"
-          >预览减负方案</UiButton
-        ><UiButton :disabled="busy" @click="propose(true)">AI 减负建议</UiButton></template
+        />
+        <div class="flex flex-wrap items-center gap-3">
+          <UiButton :disabled="busy || !course.context?.plan?.program" variant="dark" @click="propose(false)"
+            >预览减负方案</UiButton
+          >
+          <UiButton :disabled="busy || !course.context?.plan?.program" @click="propose(true)">AI 减负建议</UiButton>
+        </div></template
       >
       <UiButton
         v-if="
@@ -223,7 +227,7 @@ async function undoPlan() {
         >撤销上次计划调整</UiButton
       >
     </article>
-    <article v-if="course" class="pane space-y-4 p-5">
+    <article v-if="course" class="pane space-y-4 bg-pure-white p-5">
       <h3 class="text-subheading">连续学习 {{ streak }} 天</h3>
       <p class="text-body-sm text-stone">本月防断卡能量 {{ Math.max(0, energy) }} / 2</p>
       <UiButton v-if="canFreeze" :disabled="!!learning.state.saving" @click="protect(yesterday, 'freeze')"
@@ -236,7 +240,7 @@ async function undoPlan() {
         >
       </div>
     </article>
-    <article class="pane space-y-4 p-5">
+    <article class="pane space-y-4 bg-pure-white p-5">
       <h3 class="text-subheading">心流时段</h3>
       <p v-if="flow.best" class="text-body-sm text-deep-indigo">
         {{ flow.best.hour }} 点的学习更顺畅，可以把较难的课程安排在这个时段。

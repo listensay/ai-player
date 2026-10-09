@@ -8,7 +8,6 @@ const dialogs = useAppDialogs()
 const panels = {
   settings: defineAsyncComponent(() => import('./SettingsPanel.vue')),
   study: defineAsyncComponent(() => import('./StudyManagementPanel.vue')),
-  milestones: defineAsyncComponent(() => import('./MilestonesPanel.vue')),
 }
 const title = computed(() => (dialogs.current.value ? APP_DIALOG_TITLES[dialogs.current.value.kind] : ''))
 const previousTitle = computed(() => {

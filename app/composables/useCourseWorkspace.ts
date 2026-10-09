@@ -22,7 +22,8 @@ import { provideStudyTools } from '~/composables/useStudyTools'
 import { provideLearningManagement } from '~/composables/useLearningManagement'
 import type { ReviewCard } from '~/types/learningManagement'
 import { useReminderLinks } from '~/composables/useReminderLinks'
-import { useTranscripts } from '~/composables/useTranscripts'
+import { generateAutomaticPractice } from '~/utils/automaticPractice'
+import { onTranscriptReady, useTranscripts } from '~/composables/useTranscripts'
 import { useWorkspaceLifecycle } from './useWorkspaceLifecycle'
 import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
 import type { ReminderLinkDestination } from '~/utils/reminderLinks'
@@ -115,6 +116,29 @@ export function provideCourseWorkspace() {
   const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
     sources: (target, scope) => knowledge.sourcesFor(course.value!.id, target, scope ? [scope] : undefined),
   })
+  function preparePractice(id: string, target: VideoEntry) {
+    if (practice.state.open && course.value?.id === id && practice.state.path === target.path) return
+    const transcript = transcripts.get(id, target.path)
+    if (transcript.status !== 'ready' || !guide.configured.value) return
+    void generateAutomaticPractice(id, target.path, target.title, transcript.segments, guide.state.settings).catch(
+      (error) => showToast(`课后练习未生成：${String(error)}`),
+    )
+  }
+  const stopTranscriptReady = onTranscriptReady(preparePractice)
+  onBeforeUnmount(stopTranscriptReady)
+  watch(
+    () =>
+      [
+        course.value?.id,
+        video.value?.path,
+        guide.configured.value,
+        practice.state.open,
+        course.value && video.value ? transcripts.get(course.value.id, video.value.path).status : '',
+      ] as const,
+    () => {
+      if (course.value && video.value) preparePractice(course.value.id, video.value)
+    },
+  )
   const daily = useDailyPractice(
     course,
     computed(() => guide.state.today),
@@ -332,8 +356,28 @@ export function provideCourseWorkspace() {
     daily.practice.close()
     player.pause()
     await leaveFullscreen()
-    if (video.value?.path === target.path && course.value?.id === courseId) void practice.open(target, scope)
+    if (video.value?.path === target.path && course.value?.id === courseId) await practice.open(target, scope)
   }
+
+  watch(
+    () =>
+      [route.query.practice, route.query.lesson, course.value?.id, video.value?.path, guide.guideReady.value] as const,
+    async () => {
+      if (
+        route.query.practice !== '1' ||
+        !guide.guideReady.value ||
+        !video.value ||
+        course.value?.id !== route.params.id ||
+        video.value.path !== route.query.lesson
+      )
+        return
+      const { practice: _practice, ...query } = route.query
+      await router.replace({ path: route.path, query })
+      await openPractice()
+      const pending = practice.history.value.find((r) => !r.attempts.length)
+      if (pending) practice.select(pending.id)
+    },
+  )
 
   async function openWeakPractice(card: ReviewCard) {
     const identity = { ...card }

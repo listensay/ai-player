@@ -1,4 +1,3 @@
-import { buildMilestones } from './milestones.ts'
 import type { FocusSession, StudyEvidence } from '../types/studyInsights'
 import type { HomeCourse } from './learningHome'
 import { isRecord } from './guide.ts'
@@ -74,7 +73,6 @@ export function buildStudyInsights(
   const checkHours = Array.from({ length: 24 }, () => 0)
   let totalSeconds = 0,
     seconds = 0,
-    completedCourses = 0,
     stageTasks = 0
   const courseRows: Array<{ name: string; minutes: number; watchCompleted: boolean }> = []
   const mastered: string[] = [],
@@ -108,7 +106,6 @@ export function buildStudyInsights(
     seconds += courseSeconds
     const done = Object.values(entry.context.progress).filter((p) => p.done).length
     const watchCompleted = entry.course.videoCount > 0 && done >= entry.course.videoCount
-    if (watchCompleted) completedCourses++
     if (courseSeconds > 0)
       courseRows.push({ name: entry.course.name, minutes: Math.round(courseSeconds / 60), watchCompleted })
     for (const m of Object.values(entry.context.mastery)) {
@@ -117,17 +114,8 @@ export function buildStudyInsights(
     }
   }
   const checked = [...checkDays].filter(within).length
-  let bestStreak = 0,
-    streak = 0,
-    prior = ''
-  for (const day of [...checkDays].sort()) {
-    streak = prior && addDays(prior, 1) === day ? streak + 1 : 1
-    bestStreak = Math.max(bestStreak, streak)
-    prior = day
-  }
   const knownCourses = new Set(courses.filter((c) => !c.error && c.context).map((c) => c.course.id))
   const notes = evidence.notes.filter((n) => knownCourses.has(n.courseId))
-  const noteCharacters = notes.reduce((sum, n) => sum + n.characters, 0)
   const updatedCharacters = notes.filter((n) => atPeriod(n.updatedAt)).reduce((sum, n) => sum + n.characters, 0)
   const solid = new Map(
     evidence.practices
@@ -158,18 +146,6 @@ export function buildStudyInsights(
             3,
       )
       .sort((a, b) => a.interrupted / a.samples - b.interrupted / b.samples || b.completed - a.completed)[0] ?? null
-  const badges = buildMilestones({
-    streak: bestStreak,
-    courses: completedCourses,
-    hours: totalSeconds / 3600,
-    notes: noteCharacters,
-    practice: solid.size,
-    focus: new Set(
-      history
-        .filter((s) => s.outcome === 'completed' && s.date <= today && s.endedAt !== null && s.endedAt <= Date.now())
-        .map((s) => s.startedAt),
-    ).size,
-  })
   const points =
     checkDays.size * 10 + stageTasks * 5 + new Set(reviewDays.filter((d) => validDate(d) && d <= today)).size * 5
   const level = points >= 300 ? 3 : points >= 70 ? 2 : 1
@@ -185,7 +161,6 @@ export function buildStudyInsights(
     focusCompleted: sessions.filter((s) => s.outcome === 'completed').length,
     hours,
     best,
-    badges,
     growth: {
       days: activeDays.size,
       totalSeconds,
@@ -199,5 +174,5 @@ export function buildStudyInsights(
 }
 export type StudyInsights = ReturnType<typeof buildStudyInsights>
 export function digestMarkdown(data: StudyInsights, reflection = '') {
-  return `# Playbo 学习${data.period.label.includes('周') ? '周报' : '月报'}\n\n> ${data.period.start} — ${data.period.end} · ${data.period.label}\n\n## 学习概况\n\n- 学习投入：${(data.seconds / 3600).toFixed(1)} 小时\n- 达标打卡：${data.checked} 天\n- 完成专注：${data.focusCompleted} 次\n- 标记已掌握：${data.mastered.length} 个知识点\n- 练习达标：${data.solved} 道题\n- 笔记累计字符：${data.updatedCharacters}\n\n## 课程学习记录\n\n${data.courseRows.map((c) => `- ${c.name.replace(/[\r\n]/g, ' ')}：${c.minutes} 分钟${c.watchCompleted ? '（已学完）' : ''}`).join('\n') || '本期暂无学习记录。'}\n\n## 复盘与建议\n\n${reflection || (data.needsReview.length ? `待强化知识点：${data.needsReview.join('、')}。` : '本期暂无待强化知识点。')}\n${data.incomplete ? '\n> 提示：部分课程读取失败，统计可能不完整。\n' : ''}`
+  return `# Karen 学习${data.period.label.includes('周') ? '周报' : '月报'}\n\n> ${data.period.start} — ${data.period.end} · ${data.period.label}\n\n## 学习概况\n\n- 学习投入：${(data.seconds / 3600).toFixed(1)} 小时\n- 达标打卡：${data.checked} 天\n- 完成专注：${data.focusCompleted} 次\n- 标记已掌握：${data.mastered.length} 个知识点\n- 练习达标：${data.solved} 道题\n\n## 课程学习记录\n\n${data.courseRows.map((c) => `- ${c.name.replace(/[\r\n]/g, ' ')}：${c.minutes} 分钟${c.watchCompleted ? '（已学完）' : ''}`).join('\n') || '本期暂无学习记录。'}\n\n## 复盘与建议\n\n${reflection || (data.needsReview.length ? `待强化知识点：${data.needsReview.join('、')}。` : '本期暂无待强化知识点。')}\n${data.incomplete ? '\n> 提示：部分课程读取失败，统计可能不完整。\n' : ''}`
 }

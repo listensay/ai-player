@@ -144,6 +144,8 @@ fn open_popup(
         let _ = window.set_title(&format!("{title} — Notion"));
     })
     .on_new_window(move |url, features| open_popup(&nested_app, url, features));
+    #[cfg(target_os = "macos")]
+    let builder = builder.user_agent(crate::notion_user_agent_macos::user_agent());
     match builder.build() {
         Ok(window) => {
             #[cfg(target_os = "macos")]
@@ -234,29 +236,8 @@ pub async fn notion_prepare(
     #[cfg(target_os = "macos")]
     {
         builder = builder
+            .user_agent(crate::notion_user_agent_macos::user_agent())
             .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
-    }
-    #[cfg(feature = "desktop-smoke")]
-    {
-        builder = builder.on_document_title_changed(|view, title| {
-            if view
-                .url()
-                .is_ok_and(|url| crate::desktop_smoke::is_notion_fixture(&url))
-            {
-                if let Some(json) = title.strip_prefix("notion-probe:") {
-                    if let Ok(value) = serde_json::from_str(json) {
-                        if let Ok(mut data) = view
-                            .app_handle()
-                            .state::<crate::desktop_smoke::NotionProbe>()
-                            .0
-                            .lock()
-                        {
-                            *data = value;
-                        }
-                    }
-                }
-            }
-        });
     }
     let view = webview
         .window()

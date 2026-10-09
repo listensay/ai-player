@@ -12,7 +12,7 @@ test('同一弹窗不重复叠加，指定设置分区可更新，返回保留�
   const dialogs = createAppDialogs()
   dialogs.open('study', 'insights')
   const study = dialogs.current.value
-  dialogs.open('milestones')
+  dialogs.open('settings')
   dialogs.back()
   assert.equal(dialogs.current.value, study)
   assert.equal(dialogs.isOpen.value, true)
@@ -28,7 +28,7 @@ test('同一弹窗不重复叠加，指定设置分区可更新，返回保留�
 test('关闭动画结束后清理内容，快速重开不会被旧动画回调清空', () => {
   const dialogs = createAppDialogs()
   dialogs.open('study')
-  dialogs.open('milestones')
+  dialogs.open('settings')
   dialogs.close()
   assert.equal(dialogs.isOpen.value, false)
   assert.equal(dialogs.stack.value.length, 2)
@@ -88,7 +88,7 @@ const renderer = createRenderer({
 })
 const walk = (n) => [n, ...n.children.flatMap(walk)]
 
-test('实际全屏容器切换勋章后保留报告输入和实例，关闭按钮与 Escape 关闭事件清理内容', async (t) => {
+test('实际全屏容器切换设置后保留报告输入和实例，关闭按钮与 Escape 关闭事件清理内容', async (t) => {
   const mounts = {},
     unmounts = {}
   const previousDocument = globalThis.document
@@ -168,7 +168,7 @@ test('实际全屏容器切换勋章后保留报告输入和实例，关闭按�
   await tick()
   const original = find('study')
   original.props.onInput({ target: { value: '保留复盘报告' } })
-  dialogs.open('milestones')
+  dialogs.open('settings')
   await tick()
   assert.equal(find('study'), original)
   assert.equal(original.parent.style.display, 'none')
@@ -197,6 +197,6 @@ test('实际全屏容器切换勋章后保留报告输入和实例，关闭按�
   await nextTick()
   await shell.props.onAfterLeave()
   assert.equal(dialogs.stack.value.length, 0)
-  assert.equal(unmounts.settings, 1)
+  assert.equal(unmounts.settings, 2)
   assert.equal(returnedFocus, 1)
 })

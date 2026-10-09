@@ -276,7 +276,7 @@ defineExpose({ collapse })
       </button>
       <button type="button" @click="toggleQuiet">{{ quiet ? '显示日常提示' : '隐藏日常提示' }}</button>
       <button type="button" :disabled="!connected || !state.ready || busy || state.blocked" @click="action('ask')">
-        问问 Playbo
+        问问 Karen
       </button>
       <button v-if="desktop" type="button" @click="action('reveal')">回到课程</button>
       <button v-if="desktop" type="button" @click="action('close')">关闭挂件</button>
@@ -287,7 +287,7 @@ defineExpose({ collapse })
         type="button"
         class="pet-character"
         data-pet-hit="0.4"
-        :aria-label="desktop ? 'Playbo 桌宠，点击查看，拖动移动' : 'Playbo 桌宠，点击展开，拖动或用方向键移动'"
+        :aria-label="desktop ? 'Karen 桌宠，点击查看，拖动移动' : 'Karen 桌宠，点击展开，拖动或用方向键移动'"
         :aria-expanded="bubbleVisible"
         :aria-controls="bubbleVisible ? panelId : undefined"
         title="单击摸摸 · 双击播放/暂停 · 右键更多"

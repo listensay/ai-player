@@ -1,3 +1,4 @@
+import { automaticPracticeRevision, waitForAutomaticPractice } from '~/utils/automaticPractice'
 import { onBeforeUnmount, computed, reactive, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
@@ -89,6 +90,8 @@ export function useLessonPractice(
   }
   // Keep recursive JSON test inputs out of Vue's recursive UnwrapRef type expansion.
   const state: typeof initialState = reactive(initialState) as typeof initialState
+  const loadedAutomaticRevisions = new Map<string, number>()
+  const savedSnapshots = new Map<string, string>()
   let activeId = ''
   let request: AbortController | null = null
   let historyLoad: Promise<void> = Promise.resolve()
@@ -133,17 +136,22 @@ export function useLessonPractice(
       (isChoiceQuestion(current.value.question) || configured.value),
   )
 
-  function persist() {
+  function persist(force = false) {
     if (!activeId || !state.path || !state.historyReady) return
     const id = activeId,
       path = state.path,
       revision = ++saveRevision,
       courseVersion = courseRevision
     const recordsForPath: PracticeRecord[] = JSON.parse(JSON.stringify(state.records.filter((r) => r.path === path)))
+    if ((loadedAutomaticRevisions.get(path) ?? 0) !== automaticPracticeRevision(id, path)) return saveQueue
+    const snapshotKey = JSON.stringify([id, path])
+    const snapshot = JSON.stringify(recordsForPath)
+    if (!force && savedSnapshots.get(snapshotKey) === snapshot) return saveQueue
     saveQueue = saveQueue
       .catch(() => {})
       .then(() => saveRecords(id, path, recordsForPath))
       .then((saved) => {
+        if (saved) savedSnapshots.set(snapshotKey, snapshot)
         if (courseVersion === courseRevision && state.path === path && revision === saveRevision)
           state.storageError = saved ? '' : '练习记录保存失败，请重试保存。'
         return saved
@@ -156,7 +164,7 @@ export function useLessonPractice(
     return saveQueue
   }
   async function flush() {
-    await persist()
+    await persist(true)
     await saveQueue
     if (state.storageError) throw new Error(state.storageError)
   }
@@ -341,6 +349,10 @@ export function useLessonPractice(
     state.busy = 'loading'
     try {
       await historyLoad
+      await waitForAutomaticPractice(activeId, video.path)?.catch(() => {})
+      if (controller.signal.aborted) return
+      if ((loadedAutomaticRevisions.get(video.path) ?? 0) !== automaticPracticeRevision(activeId, video.path))
+        await (historyLoad = loadHistory())
       if (controller.signal.aborted) return
       if (!state.historyReady) await (historyLoad = loadHistory())
       if (controller.signal.aborted || !state.historyReady) return
@@ -674,6 +686,13 @@ export function useLessonPractice(
         historyLimit,
         videoPaths,
       )
+      for (const video of course.value?.videos ?? []) {
+        loadedAutomaticRevisions.set(video.path, automaticPracticeRevision(id, video.path))
+        savedSnapshots.set(
+          JSON.stringify([id, video.path]),
+          JSON.stringify(state.records.filter((r) => r.path === video.path)),
+        )
+      }
       state.historyReady = true
       state.storageError = ''
     } catch {

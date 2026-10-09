@@ -60,7 +60,7 @@ export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>)
       await flushDatabaseWrites()
       const raw = await databaseRequest('study-evidence')
       if (!disposed) {
-        evidence.value = restoreStudyEvidence(raw)
+        evidence.value = { ...restoreStudyEvidence(raw), notes: [] }
         ready.value = true
       }
     } catch {
@@ -110,7 +110,7 @@ export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>)
     error.value = ''
     notice.value = ''
     try {
-      const saved = await exportStudyDigest(markdown.value, `Playbo-${period.value.start}-${period.value.end}`, format)
+      const saved = await exportStudyDigest(markdown.value, `Karen-${period.value.start}-${period.value.end}`, format)
       if (!disposed) notice.value = saved ? '报告已导出。' : '已取消导出。'
     } catch {
       if (!disposed) error.value = '报告导出失败，请检查目标位置并重试。'

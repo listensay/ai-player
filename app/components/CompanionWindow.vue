@@ -88,7 +88,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main ref="root" class="desktop-pet-root" aria-label="Playbo 桌宠">
+  <main ref="root" class="desktop-pet-root" aria-label="Karen 桌宠">
     <CompanionPet
       :state="state"
       desktop

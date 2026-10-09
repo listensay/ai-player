@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { toRef } from 'vue'
-import { useAppDialogs } from '~/composables/useAppDialogs'
 import type { HomeCourse } from '~/utils/learningHome'
 import { useStudyInsights } from '~/composables/useStudyInsights'
 import UiButton from './UiButton.vue'
@@ -8,7 +7,6 @@ import PlayboMascot from './PlayboMascot.vue'
 import PracticeText from './PracticeText.vue'
 const props = defineProps<{ courses: HomeCourse[]; today: string; loading: boolean; error: string }>()
 const emit = defineEmits<{ reminder: [time: string]; refresh: [] }>()
-const appDialogs = useAppDialogs()
 const insights = useStudyInsights(toRef(props, 'courses'), toRef(props, 'today'))
 const { data, kind, offset, ready, busy, exporting, markdown } = insights
 function refresh() {
@@ -19,27 +17,41 @@ function refresh() {
 
 <template>
   <section aria-label="学习成长与复盘" class="space-y-5">
-    <div class="pane overflow-hidden bg-pure-white p-5 md:p-7">
-      <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p class="text-caption font-bold tracking-widest text-deep-indigo">PLAYBO · 学习数据</p>
-          <h2 class="mt-2 text-heading">学习成长与复盘</h2>
+    <header class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex min-w-0 flex-1 items-center gap-4">
+        <PlayboMascot :size="88" :bond-level="data.growth.level" class="shrink-0" />
+        <div class="min-w-0">
+          <p class="text-caption font-bold text-deep-indigo">
+            Karen<template v-if="ready && !loading && !error">
+              · Lv.{{ data.growth.level }} {{ data.growth.label }}</template
+            >
+          </p>
+          <h2 class="mt-1 text-heading">学习成长与复盘</h2>
+          <template v-if="ready && !loading && !error">
+            <p class="mt-2 text-caption text-stone">
+              累计学习 {{ data.growth.days }} 天 · 累计投入 {{ (data.growth.totalSeconds / 3600).toFixed(1) }} 小时
+            </p>
+            <p class="mt-1 text-caption text-stone">
+              亲密度 {{ data.growth.points }}{{ data.growth.next ? ` / ${data.growth.next}` : ' · 当前最高等级' }}
+            </p>
+          </template>
         </div>
-        <UiButton size="sm" variant="ghost" :disabled="loading || insights.loading.value || busy" @click="refresh"
-          >刷新记录</UiButton
-        >
       </div>
-      <p v-if="loading || insights.loading.value" role="status" class="mt-4 text-body-sm text-stone">
-        正在汇总本地记录…
-      </p>
-      <p v-if="error || insights.error.value" role="alert" class="mt-4 text-body-sm text-error">
-        {{ error || insights.error.value }}
-      </p>
-      <p v-if="data.incomplete" role="alert" class="mt-3 text-caption text-error">
-        部分课程读取失败，统计不完整；请先刷新记录。
-      </p>
+      <UiButton size="sm" variant="ghost" :disabled="loading || insights.loading.value || busy" @click="refresh"
+        >刷新记录</UiButton
+      >
+    </header>
+    <p v-if="loading || insights.loading.value" role="status" class="text-body-sm text-stone">正在汇总本地记录…</p>
+    <p v-if="error || insights.error.value" role="alert" class="text-body-sm text-error">
+      {{ error || insights.error.value }}
+    </p>
+    <p v-if="data.incomplete" role="alert" class="text-caption text-error">
+      部分课程读取失败，统计不完整；请先刷新记录。
+    </p>
+    <slot name="plan-health" />
+    <div class="pane bg-pure-white p-5 md:p-7">
       <template v-if="ready && !loading && !error">
-        <div class="mt-6 flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
           <VSelect
             v-model="kind"
             label="报告周期"
@@ -71,7 +83,7 @@ function refresh() {
               { label: '标记已掌握 / 个', value: data.mastered.length },
             ]"
             :key="metric.label"
-            class="rounded-2xl bg-page-cream p-4"
+            class="min-w-0 py-2"
           >
             <p class="text-heading tabular">{{ metric.value }}</p>
             <p class="mt-1 text-caption text-stone">{{ metric.label }}</p>
@@ -104,7 +116,7 @@ function refresh() {
             {{ insights.notice.value }}
           </p>
           <VExpansionPanels class="mt-4">
-            <VExpansionPanel value="report-preview">
+            <VExpansionPanel value="report-preview" :elevation="0">
               <VExpansionPanelTitle>预览报告</VExpansionPanelTitle>
               <VExpansionPanelText>
                 <PracticeText :text="markdown" class="text-body-sm" aria-label="学习报告预览" />
@@ -140,7 +152,7 @@ function refresh() {
           <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
         </div>
         <p v-if="!data.best" class="mt-5 text-body-sm text-stone">暂无时段建议</p>
-        <div v-else class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-page-cream p-4">
+        <div v-else class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-linen pt-4">
           <p class="text-body-sm">
             {{ String(data.best.hour).padStart(2, '0') }}:00 · 中断率
             {{ Math.round((data.best.interrupted / data.best.samples) * 100) }}% · {{ data.best.samples }} 次记录
@@ -174,26 +186,6 @@ function refresh() {
             </table>
           </div>
         </details>
-      </div>
-      <button
-        type="button"
-        class="pane flex w-full items-center justify-between gap-4 bg-pure-white p-5 text-left text-body-sm font-bold text-deep-indigo"
-        @click="appDialogs.open('milestones')"
-      >
-        <span>里程碑勋章</span><span>前往勋章馆 →</span>
-      </button>
-      <div class="pane flex flex-wrap items-center gap-5 bg-pure-white p-5 md:p-7">
-        <PlayboMascot :size="110" :bond-level="data.growth.level" />
-        <div class="min-w-0 flex-1">
-          <p class="text-caption font-bold text-deep-indigo">
-            PLAYBO · Lv.{{ data.growth.level }} {{ data.growth.label }}
-          </p>
-          <h3 class="mt-2 text-subheading">累计学习 {{ data.growth.days }} 天</h3>
-          <p class="mt-2 text-body-sm text-stone">
-            累计投入 {{ (data.growth.totalSeconds / 3600).toFixed(1) }} 小时 · 亲密度 {{ data.growth.points
-            }}{{ data.growth.next ? ` / ${data.growth.next}` : ' · 当前最高等级' }}
-          </p>
-        </div>
       </div>
     </template>
   </section>

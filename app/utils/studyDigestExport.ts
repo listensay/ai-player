@@ -38,7 +38,7 @@ export async function exportStudyDigest(markdown: string, name: string, format: 
     context.fillStyle = '#fc8846'
     context.fillRect(0, 0, canvas.width, 14)
     context.font = 'bold 24px -apple-system, sans-serif'
-    context.fillText('PLAYBO / STUDY DIGEST', 80, 75)
+    context.fillText('Karen / STUDY DIGEST', 80, 75)
     context.font = font
     context.fillStyle = '#302b28'
     lines.forEach((line, i) => context.fillText(line, 80, 140 + i * 40))

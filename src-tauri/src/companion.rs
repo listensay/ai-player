@@ -195,7 +195,7 @@ pub async fn open_companion(app: tauri::AppHandle, webview: Webview) -> Result<(
         .map_err(|e| e.to_string())?
         .clear();
     let companion = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("index.html".into()))
-        .title("Playbo · 桌宠")
+        .title("Karen · 桌宠")
         // Space for the centered bubble/menu; transparent surroundings pass clicks through.
         .inner_size(WIDTH, HEIGHT)
         .resizable(false)

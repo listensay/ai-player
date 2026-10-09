@@ -31,6 +31,14 @@ interface Job {
   fileName: string
 }
 
+const completionListeners = new Set<(courseId: string, video: VideoEntry) => void>()
+export function onTranscriptReady(listener: (courseId: string, video: VideoEntry) => void) {
+  completionListeners.add(listener)
+  return () => {
+    completionListeners.delete(listener)
+  }
+}
+
 const states = reactive(new Map<string, TranscriptState>())
 const jobs = new Map<string, Job>()
 const refineJobs = new Map<string, AbortController>()
@@ -175,6 +183,7 @@ export function useTranscripts() {
       s.language = result.language
       s.progress = 1
       s.status = 'ready'
+      for (const listener of completionListeners) listener(courseId, video)
     } catch (err) {
       if (controller.signal.aborted) {
         s.status = 'none'

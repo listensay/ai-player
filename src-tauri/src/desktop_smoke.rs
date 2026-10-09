@@ -1,12 +1,13 @@
 //! Compiled only into the separately identified desktop regression executable.
-use std::{fs, path::PathBuf, sync::Mutex};
+use std::{fs, path::PathBuf};
 use tauri::{
     plugin::{Builder, TauriPlugin},
     Manager, Url, Wry,
 };
 
-#[derive(Default)]
-pub struct NotionProbe(pub Mutex<serde_json::Value>);
+fn interactive_ime() -> bool {
+    std::env::var("AI_PLAYER_SMOKE_IME").as_deref() == Ok("1")
+}
 
 fn fixture_origin() -> Option<Url> {
     let url = Url::parse(&std::env::var("AI_PLAYER_NOTION_SMOKE_URL").ok()?).ok()?;
@@ -45,39 +46,75 @@ pub async fn desktop_smoke_notion(
     let Some(view) = app.get_webview(crate::notion::LABEL) else {
         return Ok(serde_json::json!({ "exists": false }));
     };
+    let url = view.url().map_err(|e| e.to_string())?;
+    if !is_notion_fixture(&url) {
+        return Err("Not a fixture".into());
+    }
     if let Some(text) = text {
-        if !is_notion_fixture(&view.url().map_err(|e| e.to_string())?) {
-            return Err("Not a fixture".into());
-        }
         view.eval(format!("document.querySelector('textarea').value={};document.querySelector('textarea').dispatchEvent(new Event('input'))", serde_json::json!(text))).map_err(|e| e.to_string())?;
     }
     #[cfg(not(target_os = "macos"))]
-    let hidden = false;
+    let (hidden, native_input) = (false, serde_json::Value::Null);
     #[cfg(target_os = "macos")]
-    let hidden = {
+    let (hidden, native_input) = {
         let (tx, rx) = std::sync::mpsc::channel();
         view.with_webview(move |view| {
-            let value: bool = unsafe {
-                objc2::msg_send![
-                    &*(view.inner() as *const objc2::runtime::AnyObject),
-                    isHidden
-                ]
+            use objc2::{msg_send, rc::Retained, runtime::AnyObject};
+            use objc2_foundation::NSString;
+            // Read-only diagnostics in the isolated fixture, never real Notion content.
+            let (hidden, input) = unsafe {
+                let native = &*(view.inner() as *const AnyObject);
+                let hidden: bool = msg_send![native, isHidden];
+                let mut input = serde_json::Value::Null;
+                if interactive_ime() {
+                    let window: Retained<AnyObject> = msg_send![native, window];
+                    let responder: Option<Retained<AnyObject>> = msg_send![&window, firstResponder];
+                    if let Some(responder) = responder {
+                        let context: Option<Retained<AnyObject>> =
+                            msg_send![&responder, inputContext];
+                        let source: Option<Retained<NSString>> = context
+                            .as_ref()
+                            .and_then(|context| msg_send![context, selectedKeyboardInputSource]);
+                        input = serde_json::json!({
+                            "notionFocused": std::ptr::eq(&*responder, native),
+                            "hasInputContext": context.is_some(),
+                            "keyboardInputSource": source.map(|source| source.to_string()),
+                        });
+                    }
+                }
+                (hidden, input)
             };
-            let _ = tx.send(value);
+            let _ = tx.send((hidden, input));
         })
         .map_err(|e| e.to_string())?;
         rx.recv_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| e.to_string())?
     };
-    let probe = app
-        .state::<NotionProbe>()
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    // Title-change notifications truncate long input traces on WebKit. Read the
+    // fixture snapshot directly instead, with an in-page origin check in case it
+    // navigated between the native URL check and this evaluation.
+    let (tx, rx) = std::sync::mpsc::channel();
+    view.eval_with_callback(
+        format!(
+            "location.origin === {} ? (window.__NOTION_FIXTURE_PROBE__ ?? null) : null",
+            serde_json::json!(url.origin().ascii_serialization())
+        ),
+        move |json| {
+            let _ = tx.send(json);
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let probe: serde_json::Value = match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(json) if !json.is_empty() => serde_json::from_str(&json).map_err(|e| e.to_string())?,
+        // Wry queues scripts but drops their callbacks before the first page
+        // finishes loading. A navigation can also invalidate an evaluation.
+        // Report "not ready" and let the bounded JS poll retry, never stale data.
+        Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => serde_json::Value::Null,
+        Err(error) => return Err(error.to_string()),
+    };
     let scale = webview.window().scale_factor().map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
-        "exists": true, "hidden": hidden,
+        "exists": true, "hidden": hidden, "nativeInput": native_input,
         "windowGeometry": {
             "innerPosition": webview.window().inner_position().map_err(|e| e.to_string())?,
             "outerPosition": webview.window().outer_position().map_err(|e| e.to_string())?,
@@ -173,7 +210,6 @@ pub fn init() -> TauriPlugin<Wry> {
                 return Err("Smoke tests require a separate app identifier".into());
             }
             directory().map_err(std::io::Error::other)?;
-            app.manage(NotionProbe::default());
             Ok(())
         })
         .on_page_load(|webview, payload| {
@@ -185,8 +221,9 @@ pub fn init() -> TauriPlugin<Wry> {
                     return;
                 }
                 let script = format!(
-                    "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {};\n{}",
+                    "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {}; globalThis.__AI_PLAYER_SMOKE_IME__ = {};\n{}",
                     serde_json::json!(phase),
+                    interactive_ime(),
                     include_str!("../../tests/desktop/smoke.js")
                 );
                 if let Err(error) = webview.eval(&script) {

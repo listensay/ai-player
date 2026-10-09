@@ -167,7 +167,7 @@ test('桌宠移除番茄钟控件后，无视频、隐藏日常提示或主窗�
   assert.equal(pet.pomodoro.value, undefined)
 })
 
-test('问问 Playbo 只发送问答事件，离线或遮罩期间不可用', (t) => {
+test('问问 Karen 只发送问答事件，离线或遮罩期间不可用', (t) => {
   const { pet, props, events } = mount(t)
   pet.action('ask')
   assert.deepEqual(

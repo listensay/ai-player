@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { provideMilestones } from '~/composables/useMilestones'
-import MilestoneCelebration from '~/components/MilestoneCelebration.vue'
 import FlowCheckInPrompt from '~/components/FlowCheckInPrompt.vue'
 import AppUtilityDialog from '~/components/AppUtilityDialog.vue'
 import { isAppDialogKind } from '~/composables/useAppDialogs'
@@ -42,7 +40,6 @@ const {
   startSegment,
   selectGuideVideo,
 } = provideCourseWorkspace()
-provideMilestones()
 // Preserve old saved links while all in-app entries open overlays without navigation.
 watch(
   () => route.query.dialog,
@@ -76,7 +73,6 @@ watch(
         @pomodoro-settings="appDialogs.open('settings', 'pomodoro')"
         @settings="appDialogs.open('settings')"
         @study="appDialogs.open('study')"
-        @milestones="appDialogs.open('milestones')"
         @back="router.push(course ? `/courses/${course.id}` : '/')"
         @help="helpOpen = true"
         @close="router.push('/')"
@@ -156,7 +152,6 @@ watch(
       @seek="selectGuideVideo"
     />
     <AppUtilityDialog />
-    <MilestoneCelebration />
     <FlowCheckInPrompt />
   </VApp>
 </template>

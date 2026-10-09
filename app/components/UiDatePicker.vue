@@ -28,6 +28,10 @@ function confirm() {
 <template>
   <VMenu
     v-model="open"
+    :width="330"
+    :min-width="0"
+    :max-width="330"
+    location="bottom start"
     :close-on-content-click="false"
     :content-props="{ role: 'dialog', 'aria-label': `选择${label}` }"
   >
@@ -46,9 +50,18 @@ function confirm() {
         @keydown.down.prevent="open = true"
       />
     </template>
-    <VCard>
-      <VDatePicker v-if="open" v-model="draft" :min="min" :title="`选择${label}`" color="secondary" />
-      <div class="flex justify-end gap-2 p-3">
+    <VCard class="w-full">
+      <VDatePicker
+        v-if="open"
+        v-model="draft"
+        :min="min"
+        :aria-label="`选择${label}`"
+        width="100%"
+        hide-header
+        weeks-in-month="dynamic"
+        color="secondary"
+      />
+      <div class="flex justify-end gap-2 border-t border-linen p-3">
         <UiButton size="sm" variant="text" @click="open = false">取消</UiButton>
         <UiButton size="sm" variant="dark" :disabled="!canConfirm" @click="confirm">确定</UiButton>
       </div>

@@ -101,7 +101,14 @@ onBeforeUnmount(() => {
         <UiButton icon size="sm" title="重新加载 Notion" @click="action('reload')"
           ><AppIcon name="reset" :size="16"
         /></UiButton>
-        <UiButton size="sm" :disabled="binding.state.saving" @click="action('bind')">绑定当前页</UiButton>
+        <UiButton
+          size="sm"
+          :variant="binding.state.url ? 'dark' : 'ghost'"
+          :aria-pressed="!!binding.state.url"
+          :disabled="binding.state.saving"
+          @click="action('bind')"
+          >{{ binding.state.saving ? '绑定中…' : binding.state.url ? '已绑定' : '绑定当前页' }}</UiButton
+        >
         <UiButton size="sm" variant="text" @click="editing = !editing">页面链接</UiButton>
         <UiButton icon size="sm" title="在浏览器打开 Notion" class="ml-auto" @click="action('external')"
           ><AppIcon name="expand" :size="16"

@@ -46,6 +46,7 @@ export function createLearningData(request: typeof databaseRequest) {
       const raw = await request('learning-sources', { query: id ? { courseId: id } : {} })
       return {
         ...parseLearningSources(raw),
+        notes: [] as LearningSources['notes'],
         courseId: isRecord(raw) && typeof raw.courseId === 'string' ? raw.courseId : id,
       }
     },
@@ -74,8 +75,7 @@ export function createLearningData(request: typeof databaseRequest) {
     const id = courseId(collection, options)
     const key = isRecord(options.body) && typeof options.body.key === 'string' ? options.body.key : ''
     const material =
-      ['notes', 'practice'].includes(collection) ||
-      (collection === 'settings' && /^(lesson-knowledge:|daily-practice:)/u.test(key))
+      collection === 'practice' || (collection === 'settings' && /^(lesson-knowledge:|daily-practice:)/u.test(key))
     const planning =
       ['recent-courses', 'library', 'learning-plan', 'guide', 'progress', 'check-in', 'day-snapshots'].includes(
         collection,

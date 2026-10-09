@@ -11,7 +11,7 @@ const { position, move, save, nudge, side, below } = usePetPosition()
     v-if="!player.state.fullscreen"
     class="companion-pet-host"
     :style="{ left: `${position.x}px`, top: `${position.y}px` }"
-    aria-label="Playbo 软件内桌宠"
+    aria-label="Karen 软件内桌宠"
   >
     <CompanionPet
       :state="companion.snapshot.value"

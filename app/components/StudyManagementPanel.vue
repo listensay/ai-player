@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PracticeManagementPanel from '~/components/PracticeManagementPanel.vue'
 import PageSectionNav from '~/components/PageSectionNav.vue'
 import StudyInsightsPanel from '~/components/StudyInsightsPanel.vue'
 import ReminderTimePicker from '~/components/ReminderTimePicker.vue'
@@ -20,13 +21,16 @@ const activeSection = ref('insights')
 watch(
   () => props.initialSection,
   (section) => {
-    activeSection.value = ['insights', 'reminders', 'review', 'outcomes', 'connections'].includes(section ?? '')
+    activeSection.value = ['practice', 'insights', 'reminders', 'review', 'outcomes', 'connections'].includes(
+      section ?? '',
+    )
       ? section!
       : 'insights'
   },
   { immediate: true },
 )
 const sections = [
+  { id: 'practice', title: '练习管理', icon: 'graduation' },
   { id: 'insights', title: '成长与复盘', icon: 'dashboard' },
   { id: 'review', title: '抗遗忘复习', icon: 'reset' },
   { id: 'outcomes', title: '实践作品', icon: 'graduation' },
@@ -145,7 +149,7 @@ const coursePaused = (id: string) =>
           <ReviewQueuePanel v-if="activeSection === 'review'" id="study-review" />
           <LearningOutcomesPanel v-if="activeSection === 'outcomes'" id="study-outcomes" />
           <LearningConnectionsPanel v-if="activeSection === 'connections'" id="study-connections" />
-          <LearningHealthPanel v-if="activeSection === 'insights'" class="mb-8" />
+          <PracticeManagementPanel v-if="activeSection === 'practice'" />
           <StudyInsightsPanel
             v-show="activeSection === 'insights'"
             id="study-insights"
@@ -160,7 +164,11 @@ const coursePaused = (id: string) =>
                 reminder.time = time
               }
             "
-          />
+          >
+            <template #plan-health>
+              <LearningHealthPanel v-if="activeSection === 'insights'" />
+            </template>
+          </StudyInsightsPanel>
           <section
             v-show="activeSection === 'reminders'"
             id="study-reminders"

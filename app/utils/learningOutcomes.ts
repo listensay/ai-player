@@ -1,4 +1,9 @@
-import type { LearningManagementData, LearningSources, FlowCheckIn } from '../types/learningManagement'
+import type {
+  LearningManagementData,
+  LearningSources,
+  FlowCheckIn,
+  LearningContract,
+} from '../types/learningManagement'
 import type { LearningPlan, StudyBudget } from '../types/guide'
 import type { HomeCourse } from './learningHome'
 import {
@@ -13,6 +18,28 @@ import {
 import { calculateDayBudget, calculateDay } from './dailyPlan.ts'
 import { estimateDuration } from './guide.ts'
 import { localDayKey } from './learningFeedback.ts'
+
+/** A plan summary can describe edits or warnings; only practice goals belong in a contract. */
+export function learningContractDraft(
+  course: HomeCourse,
+  moduleId: string,
+  today: string,
+  contracts: LearningContract[] = [],
+) {
+  const saved = contracts.find((c) => c.courseId === course.course.id && c.moduleId === moduleId)
+  const plan = course.context?.plan
+  const practice = moduleId ? plan?.modules.find((m) => m.id === moduleId)?.practice : undefined
+  const program = plan?.program
+  const end = program ? programDate(program, practice?.endDay ?? program.days) : addDays(today, 30)
+  return {
+    moduleId,
+    goal: saved?.goal ?? (practice?.project.trim() || practice?.goal.trim() || ''),
+    deadline: saved?.deadline ?? (end < today ? today : end),
+    minutes:
+      saved?.minutes ??
+      Math.max(5, budgetTotal(practice?.budget ?? program?.budget ?? { video: 30, code: 0, project: 0, recap: 0 })),
+  }
+}
 
 export function planHealth(course: HomeCourse, today: string) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 7)).flatMap((date) => {
@@ -265,7 +292,7 @@ export function learningCalendar(courses: HomeCourse[], today: string, time: str
     'VERSION:2.0',
     'PRODID:-//AI Player//Learning//ZH',
     'CALSCALE:GREGORIAN',
-    'X-WR-CALNAME:Playbo 学习计划',
+    'X-WR-CALNAME:Karen 学习计划',
     'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
   ]
   // Simulate progress in a copy so tomorrow advances instead of repeating today's lessons.

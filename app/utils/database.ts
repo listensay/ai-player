@@ -5,8 +5,6 @@ export type DatabaseCollection =
   | 'recent-courses'
   | 'progress'
   | 'check-in'
-  | 'notes'
-  | 'note-images'
   | 'guide'
   | 'practice'
   | 'settings'

@@ -32,7 +32,7 @@ function course(id) {
     data: { guide: null, progress: {}, days: {}, snapshots: {}, records: null },
   }
 }
-test('首页与学习管理共享读取；笔记变化仅读取该课程的材料，焦点切换零重复读取', async () => {
+test('首页与学习管理共享读取；练习变化仅读取该课程的材料，焦点切换零重复读取', async () => {
   const calls = []
   const store = createLearningData(async (name, options) => {
     calls.push([name, options.query])
@@ -48,7 +48,7 @@ test('首页与学习管理共享读取；笔记变化仅读取该课程的材�
     await store.sources()
   }
   assert.equal(calls.length, 2)
-  store.invalidate('notes', { method: 'POST', body: { courseId: 'a' } })
+  store.invalidate('practice', { method: 'POST', body: { courseId: 'a' } })
   await store.sources()
   assert.deepEqual(calls.at(-1), ['learning-sources', { courseId: 'a' }])
   store.invalidate('progress', { method: 'POST', body: { courseId: 'a', done: false } })
@@ -145,7 +145,7 @@ test('旧课程别名的增量结果替换原记录，不重复课程或保留�
   await store.courses('2026-10-07')
   await store.sources()
   changed = true
-  store.invalidate('notes', { body: { courseId: 'old-alias' } })
+  store.invalidate('practice', { body: { courseId: 'old-alias' } })
   store.invalidate('progress', { body: { courseId: 'old-alias' } })
   assert.equal((await store.courses('2026-10-07')).length, 1)
   assert.equal((await store.sources()).notes.length, 0)

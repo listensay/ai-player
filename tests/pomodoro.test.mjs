@@ -365,7 +365,7 @@ function watchPlayback(t, timer, initial = false) {
   return playing
 }
 
-test('真实播放状态驱动专注：暂停视频不暂停计时，连续播放不会自动跳过到点后的休息', async (t) => {
+test('真实播放状态驱动专注：暂停视频同步暂停计时，连续播放不会自动跳过到点后的休息', async (t) => {
   const h = fixture()
   const playing = watchPlayback(t, h.timer)
   await h.timer.load()
@@ -377,11 +377,12 @@ test('真实播放状态驱动专注：暂停视频不暂停计时，连续播�
   playing.value = false
   await nextTick()
   h.advance(60_000)
-  assert.equal(h.timer.snapshot.value.status, 'running')
+  assert.equal(h.timer.snapshot.value.status, 'paused')
+  assert.equal(h.timer.snapshot.value.remainingSeconds, 1500)
   playing.value = true
   await nextTick()
-  assert.equal(h.timer.state.timer.endsAt, endsAt)
-  h.advance(1440_000)
+  assert.equal(h.timer.state.timer.endsAt, endsAt + 60_000)
+  h.advance(1500_000)
   await nextTick()
   assert.equal(h.timer.snapshot.value.phase, 'short-break')
   assert.equal(h.timer.snapshot.value.status, 'running')

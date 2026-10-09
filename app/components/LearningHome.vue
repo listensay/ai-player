@@ -24,6 +24,7 @@ import { useLearningManagement } from '~/composables/useLearningManagement'
 import { useAppDialogs } from '~/composables/useAppDialogs'
 const learning = useLearningManagement(),
   dialogs = useAppDialogs()
+const weakCount = computed(() => learning.state.data.cards.filter((card) => card.weak).length)
 
 const store = useCourseStore(),
   router = useRouter(),
@@ -171,17 +172,15 @@ function taskTitle(path: string) {
     <section
       v-if="learning.state.ready"
       class="pane flex flex-wrap items-center justify-between gap-4 p-5"
-      aria-label="今日待复习"
+      aria-label="错题与薄弱项"
     >
       <div>
-        <h2 class="text-subheading">今日待复习 · {{ learning.due.value.length }}</h2>
+        <h2 class="text-subheading">待加强 · {{ weakCount }} 项</h2>
         <p class="mt-1 text-body-sm text-stone">
-          {{ learning.due.value.length ? '花几分钟，把学过的知识记牢。' : '今天的复习已完成。' }}
+          {{ weakCount ? '回看知识点，针对薄弱项补练。' : '暂无待加强项，继续保持。' }}
         </p>
       </div>
-      <UiButton @click="dialogs.open('study', 'review')">{{
-        learning.due.value.length ? '开始复习' : '查看复习卡'
-      }}</UiButton>
+      <UiButton @click="dialogs.open('study', 'review')">查看错题与薄弱项</UiButton>
     </section>
     <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div class="min-w-0 space-y-6">

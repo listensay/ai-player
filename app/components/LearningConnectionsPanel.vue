@@ -39,7 +39,7 @@ async function exportCalendar() {
       Number(preferences.calendarDays),
     )
     await desktopInvoke('export_study_digest', {
-      name: 'Playbo-学习日程.ics',
+      name: 'Karen-学习日程.ics',
       format: 'ics',
       bytes: Array.from(new TextEncoder().encode(content)),
     })
@@ -56,7 +56,7 @@ async function subscribe() {
     preferences.calendarEnabled = true
     await save()
     if (!learning.calendarUrl.value) throw Error(learning.calendarError.value || '日历订阅未就绪。')
-    await desktopInvoke('open_learning_resource', { location: learning.calendarUrl.value })
+    await desktopInvoke('subscribe_learning_calendar')
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -112,7 +112,7 @@ async function copyLink() {
       <h2 class="text-heading-sm">专注伴学</h2>
       <VCheckbox v-model="preferences.flowPrompt" label="专注结束后，记录心流状态" /><VCheckbox
         v-model="preferences.quietFocus"
-        label="全屏专注时，让 Playbo 安静陪读"
+        label="全屏专注时，让 Karen 安静陪读"
       /><VTextField
         v-model="preferences.shortcut"
         label="macOS 专注快捷指令"

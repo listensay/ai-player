@@ -1,16 +1,18 @@
 mod asr;
-mod backups;
 mod companion;
 mod db;
 #[cfg(feature = "desktop-smoke")]
 mod desktop_smoke;
 mod files;
 mod learning_integrations;
+mod legacy_data;
 mod mac_reminders;
 mod media_duration;
 mod notion;
 #[cfg(target_os = "macos")]
 mod notion_popup_macos;
+#[cfg(target_os = "macos")]
+mod notion_user_agent_macos;
 mod programming;
 mod programming_process;
 mod reminder_links;
@@ -31,7 +33,6 @@ pub struct AppState {
     db: Mutex<Connection>,
     roots: Mutex<HashSet<PathBuf>>,
     frontend_ready: AtomicBool,
-    restore_pending: AtomicBool,
 }
 
 #[tauri::command]
@@ -43,11 +44,11 @@ async fn database_request(
     body: Value,
 ) -> db::Result<Value> {
     tauri::async_runtime::spawn_blocking(move || {
+        if endpoint == "notes" || endpoint == "note-images" {
+            return Err("本地笔记已停用，请使用 Notion。".into());
+        }
         let state = app.state::<AppState>();
         let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-        if method != "GET" && state.restore_pending.load(Ordering::SeqCst) {
-            return Err("恢复已准备完成，请重新启动应用".into());
-        }
         db::request(&mut conn, &endpoint, &method, query, body)
     })
     .await
@@ -102,7 +103,7 @@ async fn export_study_digest(
         let safe_name = PathBuf::from(name)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("Playbo-report.{format}"));
+            .unwrap_or_else(|| format!("Karen-report.{format}"));
         let Some(path) = app
             .dialog()
             .file()
@@ -184,10 +185,9 @@ pub fn run() {
             #[cfg(feature = "desktop-smoke")]
             let directory = desktop_smoke::directory().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&directory)?;
-            let backups = backups::initialize(&directory, &app.package_info().version.to_string())
-                .map_err(std::io::Error::other)?;
-            app.manage(backups);
-            let conn = db::open(&directory.join("ai-player.db")).map_err(std::io::Error::other)?;
+            let mut conn =
+                db::open(&directory.join("ai-player.db")).map_err(std::io::Error::other)?;
+            legacy_data::clear(&directory, &mut conn).map_err(std::io::Error::other)?;
             let roots = files::saved_roots(&conn).map_err(std::io::Error::other)?;
             for root in &roots {
                 app.asset_protocol_scope().allow_directory(root, true)?;
@@ -196,9 +196,7 @@ pub fn run() {
                 db: Mutex::new(conn),
                 roots: Mutex::new(roots),
                 frontend_ready: AtomicBool::new(false),
-                restore_pending: AtomicBool::new(false),
             });
-            backups::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -208,13 +206,6 @@ pub fn run() {
             desktop_smoke::desktop_smoke_notion,
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_notion_popup,
-            backups::backup_status,
-            backups::set_backup_enabled,
-            backups::create_backup,
-            backups::import_backup,
-            backups::export_backup,
-            backups::restore_backup,
-            backups::restart_after_restore,
             asr::confirm_asr_quit,
             asr::asr_start,
             asr::asr_stop,
@@ -240,6 +231,7 @@ pub fn run() {
             export_learning_plan,
             export_study_digest,
             learning_integrations::publish_learning_calendar,
+            learning_integrations::subscribe_learning_calendar,
             learning_integrations::choose_knowledge_vault,
             learning_integrations::knowledge_vault_document,
             learning_integrations::open_learning_resource,

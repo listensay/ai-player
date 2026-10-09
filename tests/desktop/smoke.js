@@ -5,6 +5,7 @@ void (async () => {
   const invoke = (...args) => globalThis.__TAURI_INTERNALS__.invoke(...args)
   const read = (endpoint, query = {}) => invoke('database_request', { endpoint, method: 'GET', query, body: null })
   const steps = []
+  let ime = null
   const phase = globalThis.__AI_PLAYER_SMOKE_PHASE__
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   async function until(work, label, timeout = 25000) {
@@ -41,7 +42,6 @@ void (async () => {
   const route = (lesson) => {
     location.hash = `/courses/smoke-course/player?lesson=${lesson}`
   }
-  const storedNote = () => read('notes', { courseId: 'smoke-course', videoPath: 'lesson-0.mp4' })
   const codeRecord = async () => (await read('practice', { courseId: 'smoke-course' }))['lesson-0.mp4'][0]
   const code = 'function sumPositive(numbers) { return numbers.filter(n => n > 0).reduce((sum, n) => sum + n, 0); }'
   async function editor() {
@@ -68,6 +68,66 @@ void (async () => {
       expect((await read('library')).length === 1, 'Isolated library must have one course')
     })
     if (phase === 'first') {
+      await step('learning-contract-edit-review-and-growth', async () => {
+        location.hash = '/?dialog=study&section=outcomes'
+        await click('签订学习契约')
+        const goal = await until(
+          () => document.querySelector('[aria-labelledby="learning-contract-title"] textarea'),
+          'contract goal',
+        )
+        expect(goal.value === '', 'Whole-course contract must start with an empty goal')
+        goal.value = '桌面回归实践目标'
+        goal.dispatchEvent(new Event('input', { bubbles: true }))
+        await click('签订契约')
+        const stored = async () => read('settings', { key: 'learning-management:v1' })
+        await until(async () => (await stored()).contracts[0]?.goal === '桌面回归实践目标', 'contract persisted')
+        const original = (await stored()).contracts[0]
+        await click('修改契约')
+        const edit = await until(
+          () => document.querySelector('[aria-labelledby="learning-contract-title"] textarea'),
+          'edit contract',
+        )
+        expect(edit.value === original.goal, 'Edit must restore the saved goal')
+        edit.value = '更新后的桌面回归实践目标'
+        edit.dispatchEvent(new Event('input', { bubbles: true }))
+        await click('保存修改')
+        await until(async () => (await stored()).contracts[0]?.goal === edit.value, 'edited contract persisted')
+        const contracts = (await stored()).contracts
+        expect(
+          contracts.length === 1 && contracts[0].id === original.id && contracts[0].signedAt === original.signedAt,
+          'Editing must preserve contract identity without adding duplicates',
+        )
+        await click('抗遗忘复习')
+        const review = await until(() => document.querySelector('[aria-label="抗遗忘复习"]'), 'weakness review')
+        expect(review.textContent.includes('错题与薄弱项'), 'Weakness review remains available')
+        expect(!/复习闪卡|显示答案|已牢记/.test(review.textContent), 'Flashcard queue controls must be removed')
+        await click('成长与复盘')
+        const growth = await until(() => document.querySelector('[aria-label="学习成长与复盘"]'), 'growth panel')
+        expect(
+          growth.firstElementChild.tagName === 'HEADER' && growth.firstElementChild.textContent.includes('Karen'),
+          'Karen must appear at the top',
+        )
+        const health = await until(
+          () => [...growth.querySelectorAll('h3')].find((node) => node.textContent === '计划健康度'),
+          'plan health',
+        )
+        expect(
+          getComputedStyle(health.closest('article')).backgroundColor === 'rgb(255, 255, 255)',
+          'Plan health must retain its white card',
+        )
+        expect(
+          getComputedStyle(growth.firstElementChild).backgroundColor === 'rgba(0, 0, 0, 0)',
+          'Only the Karen header must be transparent',
+        )
+        expect(
+          growth.querySelectorAll('.pane').length === 5 &&
+            [...growth.querySelectorAll('.pane')].every(
+              (card) => getComputedStyle(card).backgroundColor === 'rgb(255, 255, 255)',
+            ),
+          'The other growth sections must retain white cards',
+        )
+        await click('关闭学习管理')
+      })
       await step('notion-native-edit-switch-hide-restore', async () => {
         route('lesson-0.mp4')
         const probe = () => invoke('desktop_smoke_notion', { text: null })
@@ -81,6 +141,17 @@ void (async () => {
         await bindPage('smoke-a')
         await until(async () => (await probe()).probe?.ipcBlocked, 'remote page denied native database access')
         expect(!document.querySelector('.milkdown'), 'Removed local editor must not load')
+        const nativeUserAgent = (await probe()).probe?.userAgent ?? ''
+        if (/Macintosh/u.test(nativeUserAgent) && /AppleWebKit/u.test(nativeUserAgent)) {
+          expect(
+            /Version\/\d+(?:\.\d+)* Safari\/605\.1\.15/u.test(nativeUserAgent),
+            'Notion recognizes macOS WebKit as Safari',
+          )
+          expect(
+            !/Chrome|Chromium|Electron/u.test(nativeUserAgent),
+            'Notion must not use Chromium input handling on WebKit',
+          )
+        }
         await until(async () => {
           const state = await probe(),
             rect = document.querySelector('.notion-webview-slot').getBoundingClientRect()
@@ -100,6 +171,27 @@ void (async () => {
         overlay.remove()
         await until(async () => !(await probe()).hidden, 'custom celebration dismissal restores native view')
 
+        if (globalThis.__AI_PLAYER_SMOKE_IME__) {
+          await step('notion-chinese-ime', async () => {
+            await until(
+              async () => {
+                const state = await probe()
+                ime = { nativeInput: state.nativeInput, probe: state.probe }
+                const result = state.probe
+                return (
+                  result?.text === '你好世界' &&
+                  result.richText === '你好世界' &&
+                  ['plain', 'rich'].every(
+                    (editor) => result.compositionState?.[editor]?.started && result.compositionState?.[editor]?.ended,
+                  )
+                )
+              },
+              'Chinese IME composition/commit in both fixture editors (not paste)',
+              600000,
+            )
+          })
+        }
+
         await invoke('desktop_smoke_notion', { text: 'Native Notion draft' })
         await until(async () => (await probe()).probe?.text === 'Native Notion draft', 'native editable page saves')
         const popup = (action) => invoke('desktop_smoke_notion_popup', { action })
@@ -111,6 +203,7 @@ void (async () => {
           )
           const state = (await probe()).probe
           const result = state.logins[index]
+          expect(result.userAgent === nativeUserAgent, 'Login popup must keep the note panel browser profile')
           expect(
             !state.popupBlocked &&
               result.hasOpener &&
@@ -203,6 +296,16 @@ void (async () => {
         video.muted = true
         await video.play()
         await until(() => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'), 'focus running')
+        video.pause()
+        await until(
+          () => document.querySelector('.pomodoro-heading')?.textContent.includes('已暂停'),
+          'video pause pauses focus',
+        )
+        await video.play()
+        await until(
+          () => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'),
+          'video resume resumes focus',
+        )
         const originalNow = Date.now
         Date.now = () => originalNow() + 61000
         try {
@@ -214,48 +317,21 @@ void (async () => {
           Date.now = originalNow
         }
       })
-      await step('backup-ui-and-staged-restore', async () => {
-        location.hash = '/?dialog=settings&section=backups'
-        await until(() => document.querySelector('[data-testid="backup-settings"]'), 'backup panel')
-        await click('立即备份')
-        const backup = await until(
-          async () => (await invoke('backup_status')).entries.find((e) => e.kind === 'manual'),
-          'manual backup',
-        )
-        await click('恢复…')
-        await until(() => document.body.textContent.includes('当前数据会先备份'), 'restore confirmation')
-        await click('取消')
-        await invoke('database_request', {
-          endpoint: 'notes',
-          method: 'POST',
-          query: {},
-          body: { courseId: 'smoke-course', videoPath: 'lesson-0.mp4', content: 'Newer note before restore' },
-        })
-        await invoke('restore_backup', { id: backup.id })
-        expect((await storedNote()).content === 'Newer note before restore', 'Restore must wait for restart')
-        expect(
-          (await invoke('backup_status')).entries.some((e) => e.kind === 'before-restore'),
-          'Safety backup missing',
-        )
+      await step('legacy-note-features-removed', async () => {
+        location.hash = '/?dialog=settings'
+        await until(() => document.body.textContent.includes('桌宠设置'), 'settings panel')
+        expect(!document.body.textContent.includes('备份与恢复'), 'Backup settings must be removed')
+        expect(!document.querySelector('[aria-label="里程碑勋章"]'), 'Medals entry must be removed')
         let blocked = false
         try {
-          await invoke('database_request', {
-            endpoint: 'notes',
-            method: 'POST',
-            query: {},
-            body: { courseId: 'smoke-course', videoPath: 'lesson-0.mp4', content: 'late write' },
-          })
+          await read('notes', { courseId: 'smoke-course', videoPath: 'lesson-0.mp4' })
         } catch {
           blocked = true
         }
-        expect(blocked, 'Late writes must be blocked after staging restore')
+        expect(blocked, 'Legacy local notes API must be disabled')
       })
     } else {
       await step('restart-restores-notion-binding-and-code-results', async () => {
-        expect(
-          (await storedNote()).content.includes('Original fixture'),
-          'Legacy backup record did not survive restart',
-        )
         route('lesson-0.mp4')
         await until(() => document.querySelector('[aria-label="Notion 笔记"]'), 'Notion panel after restart')
         await until(async () => {
@@ -269,15 +345,15 @@ void (async () => {
           record.codeRun.code === code && record.codeRun.cases.every((c) => c.status === 'passed'),
           'Stored results do not match restored code',
         )
-        expect(!(await invoke('backup_status')).restorePending, 'Restore marker was not consumed')
       })
     }
-    await invoke('desktop_smoke_report', { result: { success: true, steps, metrics: metrics() } })
+    await invoke('desktop_smoke_report', { result: { success: true, steps, ime, metrics: metrics() } })
   } catch (error) {
     await invoke('desktop_smoke_report', {
       result: {
         success: false,
         steps,
+        ime,
         error: String(error),
         metrics: metrics(),
         visibleText: document.body.innerText.slice(-8000),

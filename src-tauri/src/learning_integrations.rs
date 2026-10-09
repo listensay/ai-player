@@ -71,7 +71,7 @@ pub async fn publish_learning_calendar(
             json!({}),
             json!({"key":"learning-calendar-server","value":{"port":port,"token":token}}),
         )?;
-        let link = format!("webcal://127.0.0.1:{port}/{token}/learning.ics");
+        let link = format!("http://127.0.0.1:{port}/{token}/learning.ics");
         let content = Arc::clone(&server.content);
         std::thread::spawn(move || {
             for mut stream in listener.incoming().flatten() {
@@ -94,6 +94,40 @@ pub async fn publish_learning_calendar(
         });
         *url = Some(link.clone());
         Ok(link)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn calendar_subscription_command(location: &str) -> db::Result<Command> {
+    #[cfg(target_os = "macos")]
+    {
+        // Calendar upgrades webcal to HTTPS; this loopback feed only serves HTTP.
+        let mut command = Command::new("/usr/bin/open");
+        command.args(["-b", "com.apple.iCal", location]);
+        Ok(command)
+    }
+    #[cfg(not(target_os = "macos"))]
+    resource_command(&location.replacen("http://", "webcal://", 1))
+}
+
+#[tauri::command]
+pub async fn subscribe_learning_calendar(app: tauri::AppHandle) -> db::Result<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let location = app
+            .state::<CalendarServer>()
+            .url
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone()
+            .ok_or("日历订阅未就绪。")?;
+        let status = calendar_subscription_command(&location)?
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("无法打开日历，请复制订阅链接到日历应用中添加。".into());
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -287,6 +321,20 @@ pub async fn run_focus_shortcut(name: String) -> db::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn calendar_subscription_opens_http_in_apple_calendar() {
+        let location = "http://127.0.0.1:63388/secret/learning.ics";
+        let command = calendar_subscription_command(location).unwrap();
+        assert_eq!(command.get_program(), "/usr/bin/open");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["-b", "com.apple.iCal", location]
+        );
+        let resource = resource_command("https://example.com/demo").unwrap();
+        assert_eq!(resource.get_args().count(), 1);
+    }
+
     #[test]
     fn calendar_requires_private_route_and_correct_method() {
         assert!(

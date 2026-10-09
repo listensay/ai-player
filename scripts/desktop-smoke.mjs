@@ -6,6 +6,8 @@ import { join, resolve } from 'node:path'
 import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+const interactiveIme = process.env.AI_PLAYER_SMOKE_IME === '1'
+const bundleForIme = interactiveIme && process.platform === 'darwin'
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
   const timeout = setTimeout(() => child.kill('SIGKILL'), options.timeout ?? 600000)
@@ -24,7 +26,7 @@ await run(process.execPath, [
   'node_modules/@tauri-apps/cli/tauri.js',
   'build',
   '--debug',
-  '--no-bundle',
+  ...(bundleForIme ? ['--bundles', 'app'] : ['--no-bundle']),
   '--features',
   'desktop-smoke',
   '--config',
@@ -36,11 +38,9 @@ const metadata = JSON.parse(
     cwd: root,
   }),
 )
-const executable = join(
-  metadata.target_directory,
-  'debug',
-  process.platform === 'win32' ? 'ai-player.exe' : 'ai-player',
-)
+const executable = bundleForIme
+  ? join(metadata.target_directory, 'debug/bundle/macos/AI Player Smoke.app/Contents/MacOS/ai-player')
+  : join(metadata.target_directory, 'debug', process.platform === 'win32' ? 'ai-player.exe' : 'ai-player')
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
 await prepareDesktopSmoke(data)
 const reports = []
@@ -65,7 +65,7 @@ try {
           AI_PLAYER_SMOKE_PHASE: phase,
           AI_PLAYER_NOTION_SMOKE_URL: fixtureUrl,
         },
-        timeout: 180000,
+        timeout: interactiveIme ? 660000 : 180000,
       })
     } finally {
       const report = JSON.parse(
@@ -98,7 +98,7 @@ try {
     }
   }
   console.log(
-    'Native desktop regression passed: Notion view switching/restart, programming execution/cancel, timer pause, backup restore.',
+    'Native desktop regression passed: Notion view switching/restart, programming execution/cancel, timer pause/resume, removed local note features.',
   )
 } finally {
   fixtureServer.close()

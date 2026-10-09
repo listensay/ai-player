@@ -27,7 +27,6 @@ const emit = defineEmits<{
   back: []
   settings: []
   study: []
-  milestones: []
   guide: []
 }>()
 </script>
@@ -85,16 +84,7 @@ const emit = defineEmits<{
         >
           <AppIcon name="bell" :size="18" /><span class="hidden 2xl:inline">学习管理</span>
         </UiButton>
-        <UiButton
-          variant="text"
-          size="sm"
-          @click="emit('milestones')"
-          class="flex items-center gap-1.5 rounded-full px-3 py-2 text-caption font-bold hover:bg-page-cream"
-          aria-label="里程碑勋章"
-          title="里程碑勋章"
-        >
-          <AppIcon name="trophy" :size="18" /><span class="hidden 2xl:inline">勋章</span>
-        </UiButton>
+
         <UiButton
           variant="text"
           size="sm"

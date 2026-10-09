@@ -1661,3 +1661,27 @@ test('打开练习只载入字幕，笔记材料由用户主动粘贴', async (t
   await h.practice.generate()
   assert.equal(h.calls.length, 1)
 })
+
+test('后台练习生成后，旧弹窗状态不覆盖题目，重新打开载入待完成记录', async (t) => {
+  const { generateAutomaticPractice } = await import('../app/utils/automaticPractice.ts')
+  const stored = new Map()
+  const h = harness(t, {
+    dbFetchPractice: async (id) => structuredClone(stored.get(id) ?? {}),
+    dbSavePractice: async (id, path, records) => {
+      stored.set(id, { ...stored.get(id), [path]: structuredClone(records) })
+      return true
+    },
+  })
+  await h.practice.open(video('a.mp4'), null)
+  h.practice.close()
+  await generateAutomaticPractice('one', 'a.mp4', '列表', [{ start: 0, end: 30, text: note }], h.settings)
+  await h.practice.flush()
+  assert.equal(stored.get('one')['a.mp4'].length, 1)
+  await h.practice.open(video('a.mp4'), null)
+  assert.equal(h.practice.history.value.length, 1)
+  assert.deepEqual(h.practice.current.value.attempts, [])
+  h.practice.updateDraft('["A"]')
+  await h.practice.review()
+  await h.practice.flush()
+  assert.equal(stored.get('one')['a.mp4'][0].attempts.length, 1)
+})

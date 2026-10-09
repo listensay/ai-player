@@ -78,7 +78,7 @@ function saveCode(code: string, language: string) {
   <section class="assistant-panel scroll-soft min-h-0 flex-1 overflow-y-auto p-4" aria-label="AI 随堂助教">
     <div class="assistant-toolbar">
       <header class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="font-bold">Playbo 随堂助教</h2>
+        <h2 class="font-bold">Karen 随堂助教</h2>
         <UiButton variant="text" size="sm" @click="workspace.openGuide('settings')">AI 设置</UiButton>
       </header>
       <nav class="mb-4 flex flex-wrap gap-1.5" aria-label="学习工具">
@@ -247,7 +247,12 @@ function saveCode(code: string, language: string) {
           回看 {{ formatTime(source.start) }}
         </button>
       </article>
-      <UiButton v-if="a.cards.length" :disabled="!!a.busy" @click="a.addCards">确认加入抗遗忘复习队列</UiButton>
+      <UiButton
+        v-if="a.cards.length"
+        :disabled="!!a.busy"
+        @click="a.copyResult(a.cards.map((card) => `${card.front}\n\n${card.back}`).join('\n\n---\n\n'))"
+        >复制卡片内容</UiButton
+      >
     </div>
 
     <div v-else-if="a.mode === 'feynman'" class="space-y-3">

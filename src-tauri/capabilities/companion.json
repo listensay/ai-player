@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "companion",
-  "description": "Local Playbo desktop pet: receive playback state, send controls, drag and close its own transparent window.",
+  "description": "Local Karen desktop pet: receive playback state, send controls, drag and close its own transparent window.",
   "windows": ["companion"],
   "permissions": ["core:event:default", "core:window:allow-start-dragging", "core:window:allow-close"]
 }

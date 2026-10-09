@@ -2,8 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useLearningManagement } from '~/composables/useLearningManagement'
 import { canAcceptWork } from '~/utils/learningManagement'
-import { graduationReport } from '~/utils/learningOutcomes'
-import { programDate, budgetTotal, addDays } from '~/utils/studyProgram'
+import { graduationReport, learningContractDraft } from '~/utils/learningOutcomes'
+import { validDate } from '~/utils/studyProgram'
 import { exportStudyDigest } from '~/utils/studyDigestExport'
 import { desktopInvoke } from '~/utils/platform'
 import type { PortfolioWork } from '~/types/learningManagement'
@@ -48,41 +48,37 @@ const report = computed(() =>
     ? graduationReport(course.value, learning.state.data, learning.sources.value, learning.date.value)
     : null,
 )
-function openContract() {
-  const p = course.value?.context?.plan?.program
-  Object.assign(contract, {
-    moduleId: '',
-    goal: course.value?.context?.plan?.summary ?? '',
-    deadline: p ? programDate(p, p.days) : addDays(learning.date.value, 30),
-    minutes: p ? budgetTotal(p.budget) : 30,
-  })
+const savedContract = computed(() => contracts.value.find((c) => c.moduleId === contract.moduleId))
+function selectContractStage(moduleId: string) {
+  if (!course.value) return
+  Object.assign(contract, learningContractDraft(course.value, moduleId, learning.date.value, contracts.value))
   error.value = ''
+}
+function openContract(moduleId = '') {
+  selectContractStage(moduleId)
   contractOpen.value = true
 }
-watch(
-  () => contract.moduleId,
-  (id) => {
-    const stage = course.value?.context?.plan?.modules.find((m) => m.id === id)?.practice
-    if (stage) {
-      contract.goal = stage.project || stage.goal
-      const p = course.value?.context?.plan?.program
-      if (p) contract.deadline = programDate(p, stage.endDay)
-    }
-  },
-)
 async function sign() {
   const id = courseId.value
   if (!id || !contract.goal.trim()) {
     error.value = '请填写交付目标。'
     return
   }
+  if (!validDate(contract.deadline) || contract.deadline < learning.date.value) {
+    error.value = '请选择今天或之后的目标完成日期。'
+    return
+  }
+  if (!Number.isInteger(Number(contract.minutes)) || Number(contract.minutes) < 5 || Number(contract.minutes) > 1440) {
+    error.value = '每日承诺投入应为 5–1440 分钟的整数。'
+    return
+  }
   const value = {
     ...contract,
     minutes: Number(contract.minutes),
     goal: contract.goal.trim(),
-    id: crypto.randomUUID(),
+    id: savedContract.value?.id ?? crypto.randomUUID(),
     courseId: id,
-    signedAt: Date.now(),
+    signedAt: savedContract.value?.signedAt ?? Date.now(),
   }
   if (
     await learning.mutate((data) => {
@@ -193,14 +189,15 @@ async function exportReport(format: 'md' | 'png') {
     <template v-if="course">
       <div class="flex flex-wrap gap-3">
         <UiButton variant="dark" @click="editWork()">添加作品</UiButton
-        ><UiButton @click="openContract">签订学习契约</UiButton>
+        ><UiButton @click="openContract()">签订学习契约</UiButton>
       </div>
-      <article v-for="c in contracts" :key="c.id" class="rounded-3xl border border-linen bg-page-cream p-6">
+      <article v-for="c in contracts" :key="c.id" class="rounded-3xl border border-linen bg-pure-white p-6">
         <p class="text-caption font-bold text-deep-indigo">
           学习契约 · {{ stages.find((s) => s.value === c.moduleId)?.title }}
         </p>
         <h3 class="mt-3 text-subheading">{{ c.goal }}</h3>
         <p class="mt-3 text-body-sm text-stone">每日 {{ c.minutes }} 分钟 · {{ c.deadline }} 前完成</p>
+        <UiButton class="mt-3" size="sm" variant="text" @click="openContract(c.moduleId)">修改契约</UiButton>
       </article>
       <div class="grid gap-5 lg:grid-cols-2">
         <article v-for="w in works" :key="w.id" class="pane overflow-hidden">
@@ -244,13 +241,18 @@ async function exportReport(format: 'md' | 'png') {
       v-model:open="contractOpen"
       title="学习契约"
       title-id="learning-contract-title"
-      submit-label="签订契约"
+      :submit-label="savedContract ? '保存修改' : '签订契约'"
       :busy="!!learning.state.saving"
       :error="error"
       @submit="sign"
-      ><VSelect v-model="contract.moduleId" label="学习阶段" :items="stages" /><VTextarea
+      ><VSelect
+        :model-value="contract.moduleId"
+        label="学习阶段"
+        :items="stages"
+        @update:model-value="selectContractStage" /><VTextarea
         v-model="contract.goal"
         label="交付目标"
+        placeholder="例如：完成一个可运行的项目，并说明实现方法和验收结果"
         maxlength="1000"
         rows="3" /><UiDatePicker
         v-model="contract.deadline"

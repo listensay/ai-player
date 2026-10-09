@@ -1,6 +1,5 @@
 /** Local diagnostic samples only. Labels never include file paths, course names or content. */
-export type PerformanceMetric =
-  'webview-ready' | 'home-load' | 'course-open' | 'video-ready' | 'note-ready' | 'programming-ready'
+export type PerformanceMetric = 'webview-ready' | 'home-load' | 'course-open' | 'video-ready' | 'programming-ready'
 const samples: Array<{ metric: PerformanceMetric; milliseconds: number }> = []
 const LIMIT = 200
 
