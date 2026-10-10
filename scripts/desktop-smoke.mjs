@@ -7,6 +7,7 @@ import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const interactiveIme = process.env.AI_PLAYER_SMOKE_IME === '1'
+const lessonOnly = process.env.AI_PLAYER_SMOKE_LESSON_ONLY === '1'
 const bundleForIme = interactiveIme && process.platform === 'darwin'
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
@@ -56,7 +57,7 @@ const fixtureServer = createServer((_request, response) => {
 await new Promise((resolve) => fixtureServer.listen(0, '127.0.0.1', resolve))
 const fixtureUrl = `http://127.0.0.1:${fixtureServer.address().port}`
 try {
-  for (const phase of ['first', 'second']) {
+  for (const phase of lessonOnly ? ['lessons', 'lesson-restart'] : ['first', 'second']) {
     try {
       await run(executable, [], {
         env: {

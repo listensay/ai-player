@@ -52,6 +52,68 @@ void (async () => {
     instance.executeEdits('desktop-smoke', [{ range: instance.getModel().getFullModelRange(), text: value }])
     await until(async () => (await codeRecord()).draft === value, 'persist code')
   }
+  async function checkLessonEndFlow() {
+    await step('pomodoro-pauses-playing-video', async () => {
+      const video = await until(() => document.querySelector('video'), 'video')
+      await click('重置番茄钟')
+      video.muted = true
+      await video.play()
+      await until(() => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'), 'focus running')
+      video.pause()
+      await until(
+        () => document.querySelector('.pomodoro-heading')?.textContent.includes('已暂停'),
+        'video pause pauses focus',
+      )
+      await video.play()
+      await until(
+        () => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'),
+        'video resume resumes focus',
+      )
+      const originalNow = Date.now
+      Date.now = () => originalNow() + 61000
+      try {
+        await until(
+          () => video.paused && document.querySelector('.pomodoro-heading')?.textContent.includes('短休息'),
+          'timer pauses video',
+        )
+      } finally {
+        Date.now = originalNow
+      }
+      expect(
+        !visible(document.getElementById('flow-check-title')),
+        'Pomodoro completion must not prompt lesson feedback',
+      )
+    })
+    await step('lesson-end-practice-and-single-feedback', async () => {
+      const video = document.querySelector('video')
+      await click('重置番茄钟')
+      video.currentTime = video.duration - 0.5
+      await video.play()
+      await until(() => video.ended, 'actual media ended event')
+      await editor()
+      expect(!visible(document.getElementById('flow-check-title')), 'Practice must precede feedback')
+      await click('关闭练习')
+      await until(() => visible(document.getElementById('flow-check-title')), 'lesson feedback after practice')
+      await click('😊 轻松跟上')
+      const savedFlows = async () => (await read('settings', { key: 'learning-management:v1' })).flows
+      await until(
+        async () => (await savedFlows()).some((flow) => flow.path === 'lesson-0.mp4' && flow.mood === 'steady'),
+        'lesson feedback saved',
+      )
+      await until(() => !visible(document.getElementById('flow-check-title')), 'feedback dismissed')
+      video.currentTime = video.duration - 0.5
+      await video.play()
+      await until(() => video.ended, 'replayed lesson ends')
+      await editor()
+      await click('关闭练习')
+      await until(() => !globalThis.__AI_PLAYER_SMOKE_EDITOR__, 'practice closed after replay')
+      expect(!visible(document.getElementById('flow-check-title')), 'Replay must not ask for a second lesson state')
+      expect(
+        (await savedFlows()).filter((flow) => flow.path === 'lesson-0.mp4').length === 1,
+        'Exactly one state per lesson',
+      )
+    })
+  }
   const captured = performance.getEntriesByType('measure')
   const observer = new PerformanceObserver((list) => captured.push(...list.getEntries()))
   observer.observe({ entryTypes: ['measure'] })
@@ -67,7 +129,32 @@ void (async () => {
       )
       expect((await read('library')).length === 1, 'Isolated library must have one course')
     })
-    if (phase === 'first') {
+    if (phase === 'lessons' || phase === 'lesson-restart') {
+      route('lesson-0.mp4')
+      await until(() => document.querySelector('video')?.readyState >= 2, 'lesson video ready')
+      if (phase === 'lessons') await checkLessonEndFlow()
+      else
+        await step('restart-keeps-single-lesson-state', async () => {
+          const flows = (await read('settings', { key: 'learning-management:v1' })).flows
+          expect(
+            flows.filter((flow) => flow.path === 'lesson-0.mp4').length === 1,
+            'Saved lesson state survives restart',
+          )
+          expect(!visible(document.getElementById('flow-check-title')), 'Restart must not replay feedback')
+          const video = document.querySelector('video')
+          video.muted = true
+          video.currentTime = video.duration - 0.5
+          await video.play()
+          await until(() => video.ended, 'lesson ends after restart')
+          await editor()
+          await click('关闭练习')
+          await until(() => !globalThis.__AI_PLAYER_SMOKE_EDITOR__, 'practice closed after restart')
+          expect(
+            !visible(document.getElementById('flow-check-title')),
+            'Saved state prevents duplicate feedback after replay',
+          )
+        })
+    } else if (phase === 'first') {
       await step('learning-contract-edit-review-and-growth', async () => {
         location.hash = '/?dialog=study&section=outcomes'
         await click('签订学习契约')
@@ -290,33 +377,7 @@ void (async () => {
         }, 'run after cancel')
         await click('关闭练习')
       })
-      await step('pomodoro-pauses-playing-video', async () => {
-        const video = await until(() => document.querySelector('video'), 'video')
-        await click('重置番茄钟')
-        video.muted = true
-        await video.play()
-        await until(() => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'), 'focus running')
-        video.pause()
-        await until(
-          () => document.querySelector('.pomodoro-heading')?.textContent.includes('已暂停'),
-          'video pause pauses focus',
-        )
-        await video.play()
-        await until(
-          () => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'),
-          'video resume resumes focus',
-        )
-        const originalNow = Date.now
-        Date.now = () => originalNow() + 61000
-        try {
-          await until(
-            () => video.paused && document.querySelector('.pomodoro-heading')?.textContent.includes('短休息'),
-            'timer pauses video',
-          )
-        } finally {
-          Date.now = originalNow
-        }
-      })
+      await checkLessonEndFlow()
       await step('legacy-note-features-removed', async () => {
         location.hash = '/?dialog=settings'
         await until(() => document.body.textContent.includes('桌宠设置'), 'settings panel')
@@ -334,6 +395,7 @@ void (async () => {
       await step('restart-restores-notion-binding-and-code-results', async () => {
         route('lesson-0.mp4')
         await until(() => document.querySelector('[aria-label="Notion 笔记"]'), 'Notion panel after restart')
+        expect(!visible(document.getElementById('flow-check-title')), 'Restart must not replay saved lesson feedback')
         await until(async () => {
           const probe = await invoke('desktop_smoke_notion', { text: null })
           return probe.probe?.text === 'Native Notion draft' && probe.probe?.hadCookie && !probe.hidden

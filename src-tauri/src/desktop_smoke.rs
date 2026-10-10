@@ -187,7 +187,7 @@ pub fn desktop_smoke_report(
     result: serde_json::Value,
 ) -> Result<(), String> {
     let phase = std::env::var("AI_PLAYER_SMOKE_PHASE").unwrap_or_default();
-    if !["first", "second"].contains(&phase.as_str()) {
+    if !["first", "second", "lessons", "lesson-restart"].contains(&phase.as_str()) {
         return Err("Invalid smoke phase".into());
     }
     if let Some(progress) = result["progress"].as_str() {
@@ -217,7 +217,7 @@ pub fn init() -> TauriPlugin<Wry> {
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
             {
                 let phase = std::env::var("AI_PLAYER_SMOKE_PHASE").unwrap_or_default();
-                if !["first", "second"].contains(&phase.as_str()) {
+                if !["first", "second", "lessons", "lesson-restart"].contains(&phase.as_str()) {
                     return;
                 }
                 let script = format!(

@@ -9,7 +9,7 @@ import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
 import { useCompanion } from '~/composables/useCompanion'
 import { providePomodoro } from '~/composables/usePomodoro'
-import { useFocusFlowPrompt } from '~/composables/useFocusFlowPrompt'
+import { useLessonCompletion } from '~/composables/useLessonCompletion'
 import { useLearningAssistant } from '~/composables/useLearningAssistant'
 import { usePlayer } from '~/composables/usePlayer'
 import { usePlayerDirectory } from '~/composables/usePlayerDirectory'
@@ -70,10 +70,6 @@ export function provideCourseWorkspace() {
 
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
-  useFocusFlowPrompt(pomodoro, learning, () => ({
-    courseId: course.value?.id ?? '',
-    path: video.value?.path ?? '',
-  }))
   watch(
     () => pomodoro.state.timer.status,
     (status, previous) => {
@@ -264,36 +260,15 @@ export function provideCourseWorkspace() {
         daily.practice.state.open,
     ),
   })
-  let longStudy: { courseId: string; path: string; startedAt: number; seconds: number } | null = null
-  watch(
-    () => player.state.playing,
-    (playing) => {
-      if (playing)
-        longStudy = {
-          courseId: course.value?.id ?? '',
-          path: video.value?.path ?? '',
-          startedAt: Date.now(),
-          seconds: companion.snapshot.value.sessionSeconds,
-        }
-      else {
-        if (
-          !pomodoro.state.settings.enabled &&
-          longStudy &&
-          longStudy.courseId === course.value?.id &&
-          longStudy.path === video.value?.path &&
-          companion.snapshot.value.sessionSeconds - longStudy.seconds >= 1200 &&
-          learning.state.data.preferences.flowPrompt
-        )
-          learning.pendingFlow.value = {
-            ...longStudy,
-            id: `study:${longStudy.startedAt}`,
-            endedAt: Date.now(),
-            hour: new Date(longStudy.startedAt).getHours(),
-          }
-        longStudy = null
-      }
-    },
-  )
+  const lessonCompletion = useLessonCompletion(learning, {
+    context: () =>
+      currentView.value === 'player' && course.value && video.value
+        ? { courseId: course.value.id, path: video.value.path }
+        : null,
+    blocked: () =>
+      appDialogs.isOpen.value || helpOpen.value || guideOpen.value || practice.state.open || daily.practice.state.open,
+    openPractice: () => openPractice(),
+  })
 
   watch(
     () => checkIn.justCheckedIn.value,
@@ -313,6 +288,7 @@ export function provideCourseWorkspace() {
   const hasNext = computed(() => !!video.value && !!guide.adjacent(video.value.path, 1))
 
   function onVideoSample(sample: import('~/types/practice').PlaybackSample) {
+    lessonCompletion.sample(sample)
     daily.sample(sample)
     companion.sample(sample)
     segment.sample(sample)
@@ -351,12 +327,17 @@ export function provideCourseWorkspace() {
 
   async function openPractice(scope: PracticeScope | null = null) {
     const target = video.value,
-      courseId = course.value?.id
+      courseId = course.value?.id,
+      view = currentView.value
     if (!target) return
+    guideOpen.value = false
+    helpOpen.value = false
+    segment.dismiss()
     daily.practice.close()
     player.pause()
     await leaveFullscreen()
-    if (video.value?.path === target.path && course.value?.id === courseId) await practice.open(target, scope)
+    if (video.value?.path === target.path && course.value?.id === courseId && currentView.value === view)
+      await practice.open(target, scope)
   }
 
   watch(
@@ -437,6 +418,9 @@ export function provideCourseWorkspace() {
       !appDialogs.isOpen.value &&
       !practice.state.open &&
       !helpOpen.value &&
+      !guideOpen.value &&
+      !lessonCompletion.pending.value &&
+      !learning.pendingFlow.value &&
       !daily.practice.state.open,
   )
   function openDailyPractice() {

@@ -9,6 +9,7 @@ import { useTranscripts } from '~/composables/useTranscripts'
 import { databaseRequest } from '~/utils/database'
 import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
 import { requestGuideJson } from '~/utils/guideAi'
+import { requestValidatedMaterial } from '~/utils/validatedMaterial'
 import {
   materialBatches,
   restoreSummary,
@@ -194,7 +195,13 @@ export function useLessonKnowledge(
           state.progress = `提炼材料 ${completed} / ${total} 批`
         },
         validate: (raw, batch) => validateSummaryPoints(raw, batch),
-        request: (batch) => request(summaryPrompt(video.title, batch)),
+        request: (batch) =>
+          requestValidatedMaterial({
+            messages: summaryPrompt(video.title, batch),
+            signal,
+            request,
+            validate: (raw) => validateSummaryPoints(raw, batch),
+          }),
       })
       let points = results.flat()
       if (!points.length) throw new Error('逐字稿中未找到足够的教学内容，无法生成知识点总结。')
@@ -217,7 +224,13 @@ export function useLessonKnowledge(
             state.progress = `合并整课总结 ${completed} / ${total} 批`
           },
           validate: (raw, batch) => validateWholeSummary(raw, batch),
-          request: (batch) => request(wholeSummaryPrompt(video.title, batch, mergeBatches.length > 1)),
+          request: (batch) =>
+            requestValidatedMaterial({
+              messages: wholeSummaryPrompt(video.title, batch, mergeBatches.length > 1),
+              signal,
+              request,
+              validate: (raw) => validateWholeSummary(raw, batch),
+            }),
         })
         points = merged.flatMap((result) => result.points)
         if (merged.length === 1) {

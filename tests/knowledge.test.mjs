@@ -33,6 +33,8 @@ const {
   dailyPlanSignature,
   validateWholeSummary,
   restoreSummary,
+  summaryPrompt,
+  wholeSummaryPrompt,
 } = await import('../app/utils/knowledge.ts')
 const { crossedSegmentEnd } = await import('../app/utils/segmentReminder.ts')
 const { useLessonPractice } = await import('../app/composables/useLessonPractice.ts')
@@ -284,6 +286,112 @@ test('知识点的时间点仅从真实引用计算，拒绝不存在的字幕',
   assert.throws(() =>
     validateSummaryPoints({ points: [{ title: '索引', text: '从零开始。', sourceIds: ['fake'] }] }, sources),
   )
+})
+
+test('后续批次的知识点与合并提示示例只使用当前真实引用编号', () => {
+  const sources = transcriptSources([cue(1, 5, 10)]).map((s) => ({ ...s, id: 's101' }))
+  const extract = summaryPrompt('后续批次', sources)[0].content.split('输入数据：')[0]
+  assert.match(extract, /"sourceIds":\["s101"\]/)
+  assert.doesNotMatch(extract, /"s1"/)
+  const merge = wholeSummaryPrompt('后续批次', [{ ...sources[0], id: 'm101' }])[0].content.split('输入数据：')[0]
+  assert.match(merge, /"sourceIds":\["m101"\]/)
+  assert.doesNotMatch(merge, /"m1"|"m2"/)
+})
+
+test('今日巩固自动纠正知识点引用与内容格式，保留真实证据后完成出题', async (t) => {
+  const h = harness(t),
+    normal = h.io.requestGuideJson
+  const attempts = { extract: 0, merge: 0 }
+  const corrections = []
+  h.io.requestGuideJson = async (...args) => {
+    const result = await normal(...args)
+    const messages = args[1],
+      prompt = messages[0].content
+    if (messages.length > 1) corrections.push(messages.at(-1).content)
+    if (prompt.startsWith('依据逐字稿') && ++attempts.extract === 1) result.points[0].sourceIds = ['fake']
+    if (prompt.startsWith('综合教学材料') && ++attempts.merge === 1) result.points[0].text = '字'.repeat(1501)
+    return result
+  }
+  await h.daily.open()
+  assert.equal(h.daily.practice.state.error, '')
+  assert.equal(h.daily.practice.history.value.length, 1)
+  assert.equal(corrections.length, 2)
+  assert.match(corrections[0], /引用无效/)
+  assert.match(corrections[1], /1500/)
+  const record = h.daily.practice.current.value
+  assert.deepEqual([...new Set(record.sources.map((s) => s.path))], ['a.mp4', 'b.mp4'])
+  assert.ok(record.sources.every((s) => s.start >= 0 && s.end <= 30))
+  assert.ok(
+    h.saves.filter((s) => s.key.startsWith('ai-batches:')).every((s) => !JSON.stringify(s.value).includes('fake')),
+  )
+})
+
+test('持续返回无效知识点最多纠正两次，用户重试后可恢复且不保存无效结果', async (t) => {
+  const h = harness(t),
+    normal = h.io.requestGuideJson
+  let attempted = 0
+  h.io.requestGuideJson = async () => {
+    attempted++
+    return { points: [{ title: '列表', text: '列表索引', sourceIds: ['fake'] }] }
+  }
+  await h.daily.open()
+  assert.equal(attempted, 3)
+  assert.match(h.daily.practice.state.error, /引用无效/)
+  assert.equal(h.daily.practice.history.value.length, 0)
+  assert.equal(h.knowledge.get('course', 'a.mp4', [{ start: 0, end: 30 }]).summary, null)
+  h.io.requestGuideJson = normal
+  await h.daily.open()
+  assert.equal(h.daily.practice.state.error, '')
+  assert.equal(h.daily.practice.history.value.length, 1)
+})
+
+test('取消知识点请求后不会用迟到的无效响应发起纠正请求', async (t) => {
+  const h = harness(t),
+    pending = deferred(),
+    started = deferred()
+  let requests = 0
+  h.io.requestGuideJson = () => {
+    requests++
+    started.resolve()
+    return pending.promise
+  }
+  const result = h.knowledge.ensure('course', videos[0]).catch((error) => error)
+  await started.promise
+  h.knowledge.cancel('course', videos[0].path)
+  pending.resolve({ points: [{ title: '列表', text: '列表索引', sourceIds: ['fake'] }] })
+  assert.equal((await result).name, 'AbortError')
+  assert.equal(requests, 1)
+})
+
+test('已有课后练习和今日作业直接恢复材料与草稿，不因知识点服务失败阻塞作答', async (t) => {
+  const h = harness(t)
+  await h.practice.open(videos[0], null)
+  await h.practice.generate(3)
+  h.practice.updateDraft('保留课后草稿')
+  const lessonId = h.practice.current.value.id
+  h.practice.close()
+  await h.daily.open()
+  h.daily.practice.updateDraft('保留今日草稿')
+  const dailyId = h.daily.practice.current.value.id
+  await h.daily.flush()
+  h.daily.practice.close()
+  h.io.useTranscripts = () => {
+    throw Error('不能重新准备知识点')
+  }
+  h.io.requestGuideJson = () => {
+    throw Error('AI 暂不可用')
+  }
+  h.knowledge.sourcesFor = () => {
+    throw Error('知识点尚未准备好')
+  }
+  await h.practice.open(videos[0], null)
+  assert.equal(h.practice.state.error, '')
+  assert.equal(h.practice.history.value.find((record) => record.id === lessonId).draft, '保留课后草稿')
+  await h.daily.open()
+  assert.equal(h.daily.practice.state.error, '')
+  assert.equal(h.daily.practice.current.value.id, dailyId)
+  assert.equal(h.daily.practice.current.value.draft, '保留今日草稿')
+  assert.ok(h.daily.practice.hasMaterial.value)
 })
 
 test('每日完成条件排除空计划、仅疑问、未完成视频和过期计划', () => {

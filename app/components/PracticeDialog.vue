@@ -749,7 +749,7 @@ async function upload(event: Event) {
           ><UiButton variant="text" size="sm" @click="practice.cancel()">取消</UiButton>
         </div>
         <div
-          v-else-if="state.historyReady && (!configured || !hasMaterial)"
+          v-else-if="!current && !state.error && state.historyReady && (!configured || !hasMaterial)"
           class="flex flex-wrap items-center justify-between gap-2 text-caption text-stone"
         >
           <span>{{

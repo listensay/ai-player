@@ -12,7 +12,7 @@ const learning = useLearningManagement()
     @update:model-value="!$event && (learning.pendingFlow.value = null)"
   >
     <section class="pane p-6">
-      <h2 id="flow-check-title" class="text-heading-sm">刚才学得怎么样？</h2>
+      <h2 id="flow-check-title" class="text-heading-sm">这节课学得怎么样？</h2>
       <div class="mt-6 grid grid-cols-2 gap-3">
         <UiButton
           v-for="(label, mood) in FLOW_LABELS"

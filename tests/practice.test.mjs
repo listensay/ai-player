@@ -931,7 +931,7 @@ test('知识点准备失败后明确提示并可在弹窗重试，恢复后正�
     },
   })
   assert.match(dialog.text(), /HTTP 502/)
-  assert.match(dialog.text(), /知识点尚未准备好，请重试准备/)
+  assert.doesNotMatch(dialog.text(), /知识点尚未准备好，请重试准备/)
   assert.doesNotMatch(dialog.text(), /知识点准备完成后可生成练习/)
   assert.equal(h.practice.hasMaterial.value, false)
   await dialog.click('重试准备')

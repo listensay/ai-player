@@ -110,7 +110,7 @@ async function copyLink() {
     </article>
     <article class="pane space-y-4 p-6">
       <h2 class="text-heading-sm">专注伴学</h2>
-      <VCheckbox v-model="preferences.flowPrompt" label="专注结束后，记录心流状态" /><VCheckbox
+      <VCheckbox v-model="preferences.flowPrompt" label="每节课结束后，记录一次学习状态" /><VCheckbox
         v-model="preferences.quietFocus"
         label="全屏专注时，让 Karen 安静陪读"
       /><VTextField

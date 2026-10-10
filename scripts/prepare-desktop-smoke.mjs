@@ -83,7 +83,7 @@ export async function prepareDesktopSmoke(directory) {
       works: [],
       protections: [],
       preferences: {
-        flowPrompt: false,
+        flowPrompt: true,
         quietFocus: false,
         shortcut: '',
         calendarTime: '19:00',

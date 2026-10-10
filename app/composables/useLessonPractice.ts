@@ -357,6 +357,14 @@ export function useLessonPractice(
       if (!state.historyReady) await (historyLoad = loadHistory())
       if (controller.signal.aborted || !state.historyReady) return
       state.selectedId = history.value.find((r) => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
+      if (options.sources && current.value) {
+        const saved = history.value
+          .filter((record) => JSON.stringify(record.scope) === JSON.stringify(scope))
+          .flatMap((record) => record.sources)
+        const unique = new Map(saved.map(({ id: _id, ...source }) => [JSON.stringify(source), source]))
+        state.preparedSources = [...unique.values()].map((source, index) => ({ ...source, id: `s${index + 1}` }))
+        return
+      }
       const cues = await loadLessonSubtitles(video)
       if (controller.signal.aborted) return
       state.cues = cues
@@ -404,6 +412,11 @@ export function useLessonPractice(
       if (!state.historyReady) await (historyLoad = loadHistory())
       if (controller.signal.aborted || !state.historyReady) return
       state.selectedId = history.value.at(-1)?.id ?? ''
+      // Saved daily homework already carries its evidence; reopening must not depend on AI preparation.
+      if (mode === 'daily' && current.value) {
+        state.preparedSources = current.value.sources.map((source) => ({ ...source }))
+        return
+      }
       const sources = await loader(controller.signal)
       if (!controller.signal.aborted) state.preparedSources = sources
     } catch (err) {
