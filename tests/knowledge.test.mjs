@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { approvedPracticeReview } from './fixtures/practiceReview.mjs'
+globalThis.approvedPracticeReview = approvedPracticeReview
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { createRenderer, reactive, ref } from 'vue'
@@ -12,6 +14,16 @@ const boundaries = {
 }
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '~/utils/guideAi')
+      return {
+        url:
+          'data:text/javascript,' +
+          encodeURIComponent(`export const requestGuideJson = (...args) =>
+        args[1][0].content.startsWith('审查课后练习质量。')
+          ? (globalThis.knowledgeIO.reviewPractice ?? globalThis.approvedPracticeReview)(args[1])
+          : globalThis.knowledgeIO.requestGuideJson(...args)`),
+        shortCircuit: true,
+      }
     if (boundaries[specifier]) {
       const source = boundaries[specifier]
         .map((name) => `export const ${name} = (...args) => globalThis.knowledgeIO.${name}(...args)`)
@@ -42,6 +54,21 @@ const { practicePrompt, validateDailyPracticeQuestion, restorePractice } = await
 const { calculateDay, nextStudyDay } = await import('../app/utils/dailyPlan.ts')
 const { restoreFeedback } = await import('../app/utils/learningFeedback.ts')
 const { emptyStudyRecords } = await import('../app/utils/studyProgram.ts')
+
+test('分批和整课知识总结保留编程实现方法，将业务约定标为示例条件', () => {
+  const source = [{ id: 's1', kind: 'subtitle', text: '用循环检查客户名，最多尝试三次，用 return 结束函数。' }]
+  for (const messages of [
+    summaryPrompt('Python', source),
+    wholeSummaryPrompt('Python', source),
+    wholeSummaryPrompt('Python', source, true),
+  ]) {
+    assert.match(messages[0].content, /编程材料优先保留.*控制流.*关键代码/)
+    assert.match(messages[0].content, /只作为示例条件，不单独提炼成语言知识/)
+    assert.match(messages[0].content, /不要只留下业务结局而丢失如何实现/)
+    assert.match(messages[0].content, /确实教授业务规则或领域规范时，保留规则/)
+  }
+})
+
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 const deferred = () => {
   let resolve

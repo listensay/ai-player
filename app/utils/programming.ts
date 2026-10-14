@@ -171,10 +171,11 @@ export function restoreProgrammingRun(
 export function programmingPrompt(languages: ProgrammingLanguage[]): string {
   const available = [...new Set(languages)]
   if (!available.length)
-    return '本机未检测到可用编程环境。使用 task 提供编程练习，不生成可执行的 code 题，不改变课程语言。'
+    return '本机未检测到可用编程环境。使用 task 提供要求编写、补全或修复代码并提交实现的编程练习，不生成可执行的 code 题，不改变课程语言，不用选择题或业务问答替代动手实现。'
   return `本次可用编程语言：${available.join(', ')}。只按课程材料选择列表内的语言，不改写课程语言。可执行代码题使用 kind:"code" 并必须提供 programming 对象；环境未安装或依赖安装、多文件、浏览器交互的练习使用 task。
 programming 格式：{"version":1,"language":"从本次可用语言中选择","mode":"completion或implementation","functionName":"solve","signature":"使用所选语言描述参数类型、返回值和边界约束","starterCode":"所选语言的可运行骨架，TODO 标记待实现逻辑","referenceCode":"对应语言的完整可运行参考实现","hints":["思路提示，不泄漏完整答案"],"tests":[{"id":"normal","name":"常规输入","kind":"normal","example":true,"args":[[1,2]],"expected":3},{"id":"empty","name":"空数组","kind":"boundary","example":false,"args":[[]],"expected":0}]}。
 mode=completion 提供已有业务逻辑和明确 TODO 待补全部分；mode=implementation 提供函数骨架，由用户完整实现。初始代码不得直接通过全部测试。函数名与接口、题干、初始代码、参考实现一致。
+围绕本课已教的实现方法设计最小可练单元；业务规则、阈值和返回约定全部写入题干，criteria 考核代码正确性和已学边界处理，不考回忆 demo 设定。命令行输入循环可用参数中的预设输入序列代替 input()，使重试、提前结束等控制流能自动测试；不要在测试运行时等待真实用户输入。提供与已学方法无关的解析或环境骨架，不为可运行性引入未学技能。
 ${available.filter(usesFunctionInterface).join('、')} 使用函数接口：输入是位置参数数组 args，按 functionName 调用并同步返回 JSON 值；初始代码和参考实现只定义函数，不自行读取标准输入或打印返回值，不使用 export 或 Promise。TypeScript 只使用可擦除类型注解，不使用 enum、namespace 等需要转换的语法。Python 使用 Python 3 语法，保留课程中的命名风格。
 ${available.filter((language) => !usesFunctionInterface(language)).join('、') || '其他语言'} 使用完整单文件程序：从标准输入读取一行 JSON 位置参数数组 args，最后一行标准输出为一个 JSON 结果，之前的输出作为日志；提供包含完整输入解析和结果输出的初始骨架，只将业务逻辑留为 TODO。仅使用该语言标准库，不依赖额外包。Java 入口为 public class Main，Kotlin 文件为 Main.kt，C# 为 .NET 6+ 控制台程序。signature 必须明确参数类型和输入输出约定。代码最多 32000 字，接口最多 1500 字，提示 0–4 项每项最多 1000 字。
 提供 3–12 个输入互不重复的测试用例，同时覆盖正常情况和边界情况；边界用例要按题目适用的输入类型尽量多样，例如空数组或空字符串、负数、零、正负数混合、极值、重复值等。至少一个 example=true。全部用例在用户运行测试时自动执行，输入只在测试结果中展示，不要把具体用例的输入或预期值写进题干、接口和提示。每个用例 args 与 expected 合计最多 6000 字；id 最多 60 字、name 最多 160 字。对象按键值比较、数组按顺序比较。运行程序会独立执行参考实现校验，失败的题不会展示；不要声称已运行。参考代码和参考答案默认隐藏。criteria 包括核心功能和边界要求，给出与其一一对应、合计100的 criterionPoints。`

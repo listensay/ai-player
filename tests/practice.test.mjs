@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { approvedPracticeReview } from './fixtures/practiceReview.mjs'
+globalThis.approvedPracticeReview = approvedPracticeReview
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { readFileSync } from 'node:fs'
@@ -16,6 +18,16 @@ const boundaries = {
 }
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === '~/utils/guideAi')
+      return {
+        url:
+          'data:text/javascript,' +
+          encodeURIComponent(`export const requestGuideJson = (...args) =>
+        args[1][0].content.startsWith('审查课后练习质量。')
+          ? (globalThis.practiceTestIO.reviewPractice ?? globalThis.approvedPracticeReview)(args[1])
+          : globalThis.practiceTestIO.requestGuideJson(...args)`),
+        shortCircuit: true,
+      }
     if (boundaries[specifier]) {
       const source = boundaries[specifier]
         .map((name) => `export const ${name} = (...args) => globalThis.practiceTestIO.${name}(...args)`)
@@ -306,6 +318,70 @@ test('取消生成后，即使服务返回也不新增题目', async (t) => {
   await generation
   assert.equal(h.practice.history.value.length, 0)
   assert.equal(h.practice.state.busy, '')
+})
+
+test('内容审查期间取消或切课，不保存迟到结果也不继续自动修正', async (t) => {
+  for (const change of ['cancel', 'lesson', 'settings']) {
+    const pending = deferred()
+    const started = deferred()
+    let reviewing
+    const h = harness(t, {
+      reviewPractice: (messages) => {
+        reviewing = messages
+        started.resolve()
+        return pending.promise
+      },
+    })
+    await open(h)
+    const generation = h.practice.generate()
+    await Promise.race([
+      started.promise,
+      generation.then(() => {
+        throw Error('生成未进入内容审查')
+      }),
+    ])
+    assert.ok(reviewing)
+    if (change === 'cancel') h.practice.cancel()
+    else if (change === 'lesson') await open(h, 'b.mp4')
+    else h.settings.model = 'new-model'
+    pending.resolve(approvedPracticeReview(reviewing))
+    await generation
+    assert.equal(h.practice.state.records.length, 0)
+    assert.equal(h.calls.length, 1)
+  }
+})
+
+test('追加练习请求带上错误和提交时提示记录，审查通过后保留原作答', async (t) => {
+  const old = record('wrong-help')
+  old.attempts = [
+    {
+      answer: 'B',
+      helpLevel: 4,
+      at: 10,
+      feedback: {
+        result: 'retry',
+        strengths: [],
+        gaps: ['把索引零误当成一'],
+        nextStep: '练索引',
+        sourceIds: ['s1'],
+      },
+    },
+  ]
+  const h = harness(t, {
+    dbFetchPractice: async () => ({ 'a.mp4': [old] }),
+    requestGuideJson: async (_settings, messages) => {
+      const data = JSON.parse(messages[0].content.split('输入数据：')[1])
+      assert.equal(data.learning[0].helpLevel, 4)
+      assert.equal(data.learning[0].action, 'remediate')
+      assert.deepEqual(data.learning[0].gaps, ['把索引零误当成一'])
+      return question('换一个数组，识别首个元素的位置。')
+    },
+  })
+  await open(h)
+  await h.practice.generate(1)
+  assert.equal(h.practice.state.error, '')
+  assert.equal(h.practice.history.value.length, 2)
+  assert.deepEqual(h.practice.state.records.find((record) => record.id === old.id).attempts, old.attempts)
 })
 
 test('切换课节取消请求，旧题不会进入新课节', async (t) => {
@@ -1107,6 +1183,29 @@ test('lesson practice prompt specifies required arrays and their limits for all 
   assert.match(prompt, /只有一项也必须使用数组/)
 })
 
+test('课后出题以代码实现为主，业务约定作已知条件，并保留纯概念及领域课程例外', () => {
+  for (const count of [1, 'auto', 3]) {
+    const prompt = practicePrompt('Python 客户管理', sources, null, [], count, false, 'auto', ['python'])[0].content
+    assert.match(prompt, /只出一题时优先出 code/)
+    assert.match(prompt, /至少一半（向上取整）为 code/)
+    assert.match(prompt, /业务约定必须作为题干给定条件/)
+    assert.match(prompt, /禁止出.*第三次输入不合法姓名/)
+    assert.match(prompt, /再练循环、条件判断和 return/)
+    assert.match(prompt, /未教授代码操作时，不强行安排写代码/)
+    assert.match(prompt, /只有材料确实在教授业务规则、领域规范或需求分析本身时/)
+    assert.match(prompt, /sourceIds 必须引用直接支持所考知识或实现方法的材料/)
+    assert.match(prompt, /预设输入序列代替 input\(\)/)
+    assert.doesNotMatch(prompt, /"knowledge":\{"category":"concept","level":"awareness"/)
+  }
+  const noRuntime = practicePrompt('Python', sources, null, [], 'auto', false, 'auto', [])[0].content
+  assert.match(noRuntime, /使用 task.*提交实现/)
+  assert.match(noRuntime, /不改变课程语言/)
+  const daily = practicePrompt('综合项目', sources, null, [], 1, true)[0].content
+  assert.match(daily, /综合练习大题/)
+  assert.match(daily, /业务约定是任务的已知条件/)
+  assert.match(daily, /不考回忆老师设了几次重试/)
+})
+
 function codeResult(input, passed = input.code === input.exercise.referenceCode) {
   return {
     version: 1,
@@ -1393,11 +1492,9 @@ test('课后练习题型与题数由 AI 依据知识点自主决定，界面不�
       correctOptionIds: ['true'],
     },
     {
-      ...question('知识点三考查：简答题'),
-      kind: 'explain',
-      knowledge: { category: 'concept', level: 'proficiency', reason: '简答考查熟练度' },
-      options: undefined,
-      correctOptionIds: undefined,
+      ...codeQuestion,
+      prompt: '知识点三考查：独立实现',
+      programming: { ...codeQuestion.programming, mode: 'implementation' },
     },
     {
       ...codeQuestion,
@@ -1443,7 +1540,7 @@ test('课后练习题型与题数由 AI 依据知识点自主决定，界面不�
   assert.equal(h.practice.state.questionCount, 4)
   assert.deepEqual(
     [...h.practice.history.value].reverse().map((r) => r.question.kind),
-    ['single-choice', 'true-false', 'explain', 'code'],
+    ['single-choice', 'true-false', 'code', 'code'],
   )
 })
 

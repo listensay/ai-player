@@ -6,6 +6,7 @@ import type { GuideSettings, SubtitleCue } from '~/types/guide'
 import type {
   PracticeAttachment,
   PracticeRecord,
+  PracticeQuestion,
   PracticeScope,
   PracticeSource,
   ProgrammingRun,
@@ -13,23 +14,20 @@ import type {
 import { aiTaskSettings, completeAiBatches, runAiBatches } from '~/utils/aiBatchTask'
 import { materialBatches } from '~/utils/knowledge'
 import { prepareDailyPracticeSources } from '~/utils/dailyPractice'
-import { isRecord } from '~/utils/guide'
+import { generatePracticeBatch, validateGeneratedPractice } from '~/utils/practiceGeneration'
+import { practiceFocusBatch, practiceLearningContext } from '~/utils/practiceLearning'
 import { loadLessonSubtitles } from '~/utils/guideMedia'
 import { requestGuideJson } from '~/utils/guideAi'
 import {
   enoughPracticeMaterial,
-  practicePrompt,
   practiceReviewPrompt,
   practiceSources,
-  validatePracticeQuestion,
-  validateDailyPracticeQuestion,
   validatePracticeFeedback,
   restorePractice,
   isChoiceQuestion,
   practiceAnswerText,
   reviewPracticeChoice,
   appendPracticeRecord,
-  isRepeatedPracticeQuestion,
   PRACTICE_ATTEMPT_LIMIT,
   PROGRAMMING_HISTORY_LIMIT,
 } from '~/utils/practice'
@@ -478,15 +476,16 @@ export function useLessonPractice(
         mode === 'daily'
           ? allBatches
           : count === 1
-            ? [allBatches[history.value.length % allBatches.length]!]
+            ? [practiceFocusBatch(allBatches, history.value, history.value.length)]
             : allBatches
-      const batchExpectedCount = typeof count === 'number' ? count : 4
+      const batchExpectedCount = typeof count === 'number' ? count : 1
       if (batches.length * batchExpectedCount > historyLimit)
         throw new Error(`知识点较多，请精简补充材料后重试（本次最多保留 ${historyLimit} 题）。`)
       const previous = history.value.map((r) => r.question)
+      const learning = practiceLearningContext(history.value)
       const identity = {
         kind: 'practice',
-        promptVersion: 5,
+        promptVersion: 7,
         programmingLanguages,
         courseId: activeId,
         path,
@@ -497,8 +496,24 @@ export function useLessonPractice(
         programmingPreference: state.programmingPreference,
         batches,
         previous,
+        learning,
         settings: aiTaskSettings(submittedSettings),
       }
+      const batchOptions = (batch: PracticeSource[], index: number, completed: PracticeQuestion[][]) => ({
+        title: identity.title,
+        sources: batch,
+        scope,
+        recent: [...previous, ...completed.flat()],
+        count,
+        daily: mode === 'daily',
+        preference: identity.programmingPreference,
+        languages: programmingLanguages,
+        learning,
+        limit:
+          count === 'auto'
+            ? Math.min(5, Math.floor((historyLimit - completed.flat().length) / (batches.length - index)))
+            : count,
+      })
       const results = await runAiBatches({
         identity,
         batches,
@@ -506,67 +521,18 @@ export function useLessonPractice(
         progress: (done, total) => {
           state.generationProgress = `已完成 ${done} / ${total} 批`
         },
-        request: (batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) =>
-          requestGuideJson(
-            submittedSettings,
-            practicePrompt(
-              state.title,
-              batch,
-              scope,
-              [...previous, ...completed.flat()],
-              count,
-              mode === 'daily',
-              identity.programmingPreference,
-              programmingLanguages,
-            ),
-            controller.signal,
-          ),
-        validate: async (raw, batch, _index, completed: ReturnType<typeof validatePracticeQuestion>[][]) => {
-          const questions =
-            count === 1
-              ? [raw]
-              : Array.isArray(raw)
-                ? raw
-                : isRecord(raw) && Array.isArray(raw.questions)
-                  ? raw.questions
-                  : count === 'auto' && isRecord(raw) && raw.kind
-                    ? [raw]
-                    : []
-          if (typeof count === 'number' && count > 1 && questions.length !== count) {
-            throw new Error('AI 返回的题目数量不完整，请重试。')
-          }
-          if ((count === 1 || count === 'auto') && !questions.length) {
-            throw new Error('AI 返回的题目数量不完整，请重试。')
-          }
-          if (count === 'auto' && questions.length > historyLimit) {
-            throw new Error('AI 返回的题目数量超出限制，请重试。')
-          }
-          const validated: ReturnType<typeof validatePracticeQuestion>[] = []
-          for (const item of questions) {
-            const question =
-              mode === 'daily'
-                ? validateDailyPracticeQuestion(item, batch)
-                : validatePracticeQuestion(item, batch, true, true)
-            const programming = programmingQuestion(question)
-            if (
-              mode !== 'daily' &&
-              identity.programmingPreference !== 'auto' &&
-              programming?.mode !== identity.programmingPreference
-            )
-              throw new Error('AI 返回的编程题型与所选题型不一致，请重新生成。')
-            if (programming) {
-              if (!programmingLanguages.includes(programming.language))
-                throw new Error('本机未安装题目所需的编程环境，请在设置中重新检测。')
-              state.generationProgress = '正在验证编程题'
-              await verifyProgrammingExercise(programming, controller.signal, codeRunner)
-            }
-            if (isRepeatedPracticeQuestion(question, [...previous, ...completed.flat(), ...validated])) {
-              throw new Error('AI 返回了已有题目，请重试或补充学习材料。')
-            }
-            validated.push(question)
-          }
-          return validated
-        },
+        request: (batch, index, completed: PracticeQuestion[][]) =>
+          generatePracticeBatch({
+            ...batchOptions(batch, index, completed),
+            signal: controller.signal,
+            request: (messages) => requestGuideJson(submittedSettings, messages, controller.signal),
+            verify: (exercise, signal) => verifyProgrammingExercise(exercise, signal, codeRunner),
+            progress: (message) => {
+              state.generationProgress = message
+            },
+          }),
+        validate: (raw, batch, index, completed: PracticeQuestion[][]) =>
+          validateGeneratedPractice(raw, batchOptions(batch, index, completed)),
       })
       if (controller.signal.aborted) return
       const groupId = crypto.randomUUID()

@@ -2,8 +2,13 @@ import type { GuideSettings, SubtitleCue } from '../types/guide'
 import type { PracticeRecord } from '../types/practice'
 import { dbFetchPractice, dbSavePractice } from '~/utils/dbClient'
 import { requestGuideJson } from '~/utils/guideAi'
-import { materialBatches } from '~/utils/knowledge'
-import { enoughPracticeMaterial, practicePrompt, practiceSources, validatePracticeQuestion } from '~/utils/practice'
+import { materialBatches, transcriptSources } from '~/utils/knowledge'
+import { enoughPracticeMaterial, PRACTICE_HISTORY_LIMIT } from '~/utils/practice'
+import { generatePracticeBatch, validateGeneratedPractice } from '~/utils/practiceGeneration'
+import { practiceLearningContext } from '~/utils/practiceLearning'
+import { programmingQuestion } from '~/utils/programming'
+import { availableProgrammingLanguages } from '~/utils/programmingEnvironments'
+import { verifyProgrammingExercise } from '~/utils/programmingRunner'
 
 const revisions = new Map<string, number>()
 export function automaticPracticeRevision(courseId: string, path: string) {
@@ -26,44 +31,56 @@ export function generateAutomaticPractice(
   if (existing) return existing
   const snapshot = { ...settings }
   const task = (async () => {
-    if ((await dbFetchPractice(courseId))[path]?.some((r) => r.scope === null)) return
+    const saved = (await dbFetchPractice(courseId))[path] ?? []
+    if (saved.some((r) => r.scope === null)) return
     if (!snapshot.baseUrl || !snapshot.model) throw Error('请先配置 AI，再打开本课重试生成练习。')
-    const sources = practiceSources('', cues, '', null)
+    const sources = transcriptSources(cues)
     if (!enoughPracticeMaterial(sources)) throw Error('逐字稿内容不足，无法自动生成课后练习。')
     const controller = new AbortController()
     const records: PracticeRecord[] = []
     const groupId = crypto.randomUUID()
-    // Cover the lesson in bounded batches; conceptual questions need no local runtime.
+    const programmingLanguages = await availableProgrammingLanguages()
+    // 与手动出题使用同一套规则和运行校验，覆盖完整逐字稿。
     const batches = materialBatches(sources)
     if (batches.length > 20) throw Error('逐字稿较长，请在课后练习中按片段生成。')
-    for (const batch of batches) {
-      const raw = await requestGuideJson(
-        snapshot,
-        practicePrompt(
-          title,
-          batch,
-          null,
-          records.map((r) => r.question),
-          1,
-          false,
-          'auto',
-          [],
-        ),
-        controller.signal,
+    for (const [index, batch] of batches.entries()) {
+      // 按剩余批次分配题目额度，避免前半课出满后无法保存整组练习。
+      const questionLimit = Math.min(
+        5,
+        Math.floor((PRACTICE_HISTORY_LIMIT - records.length) / (batches.length - index)),
       )
-      const question = validatePracticeQuestion(raw, batch, true, true)
-      if (question.kind === 'code') throw Error('自动练习需要概念题，请打开课后练习重新生成。')
-      records.push({
-        id: crypto.randomUUID(),
-        groupId,
-        path,
-        createdAt: Date.now(),
-        scope: null,
+      const options = {
+        title,
         sources: batch,
-        question,
-        draft: '',
-        attempts: [],
+        scope: null,
+        recent: [...records, ...saved].map((r) => r.question),
+        count: 'auto' as const,
+        limit: questionLimit,
+        daily: false,
+        preference: 'auto' as const,
+        languages: programmingLanguages,
+        learning: practiceLearningContext(saved),
+      }
+      const raw = await generatePracticeBatch({
+        ...options,
+        signal: controller.signal,
+        request: (messages) => requestGuideJson(snapshot, messages, controller.signal),
+        verify: verifyProgrammingExercise,
       })
+      for (const question of validateGeneratedPractice(raw, options)) {
+        const programming = programmingQuestion(question)
+        records.push({
+          id: crypto.randomUUID(),
+          groupId,
+          path,
+          createdAt: Date.now(),
+          scope: null,
+          sources: batch,
+          question,
+          draft: programming?.starterCode ?? '',
+          attempts: [],
+        })
+      }
     }
     const latest = (await dbFetchPractice(courseId))[path] ?? []
     if (latest.some((r) => r.scope === null)) return

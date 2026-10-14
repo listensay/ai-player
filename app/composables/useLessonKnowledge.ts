@@ -159,7 +159,7 @@ export function useLessonKnowledge(
       const submittedSettings = { ...settings }
       const identity = {
         kind: 'knowledge',
-        promptVersion: 2,
+        promptVersion: 3,
         id,
         path: video.path,
         title: video.title,
