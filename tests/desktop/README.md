@@ -5,7 +5,7 @@ fixture database and local Notion substitute; it does not edit the installed app
 notes or log in to Notion.
 
 For the lesson completion flow alone, run `AI_PLAYER_SMOKE_LESSON_ONLY=1 npm run test:desktop`.
-This uses the same isolated app and two native launches to verify that Pomodoro breaks do not prompt
+This uses the same isolated app and two native launches to verify that playback continues as wall time advances and pauses do not prompt
 feedback, actual video completion opens practice, closing practice prompts one lesson state, and
 replaying the lesson (including after restarting) preserves that single state. It does not require
 the native Notion fixture to load.

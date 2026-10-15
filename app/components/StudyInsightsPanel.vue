@@ -6,7 +6,7 @@ import UiButton from './UiButton.vue'
 import PlayboMascot from './PlayboMascot.vue'
 import PracticeText from './PracticeText.vue'
 const props = defineProps<{ courses: HomeCourse[]; today: string; loading: boolean; error: string }>()
-const emit = defineEmits<{ reminder: [time: string]; refresh: [] }>()
+const emit = defineEmits<{ refresh: [] }>()
 const insights = useStudyInsights(toRef(props, 'courses'), toRef(props, 'today'))
 const { data, kind, offset, ready, busy, exporting, markdown } = insights
 function refresh() {
@@ -79,7 +79,7 @@ function refresh() {
             v-for="metric in [
               { label: '学习投入 / 小时', value: (data.seconds / 3600).toFixed(1) },
               { label: '达标打卡 / 天', value: data.checked },
-              { label: '完成专注 / 次', value: data.focusCompleted },
+              { label: '练习达标 / 题', value: data.solved },
               { label: '标记已掌握 / 个', value: data.mastered.length },
             ]"
             :key="metric.label"
@@ -126,67 +126,5 @@ function refresh() {
         </div>
       </template>
     </div>
-    <template v-if="ready && !loading && !error">
-      <div class="pane bg-pure-white p-5 md:p-7">
-        <h3 class="text-subheading">专注时段分析</h3>
-        <div
-          class="mt-5 flex h-32 items-end gap-1"
-          role="img"
-          aria-label="24 小时专注完成次数柱状图，具体数字见下方表格"
-        >
-          <div
-            v-for="hour in data.hours"
-            :key="hour.hour"
-            class="flex h-full min-w-0 flex-1 flex-col justify-end"
-            :title="`${hour.hour} 时：完成 ${hour.completed} 次`"
-          >
-            <div
-              class="min-h-1 rounded-t bg-brand-orange"
-              :style="{
-                height: `${Math.max(3, (hour.completed / Math.max(1, ...data.hours.map((h) => h.completed))) * 100)}%`,
-              }"
-            />
-          </div>
-        </div>
-        <div class="mt-2 flex justify-between text-caption text-stone">
-          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
-        </div>
-        <p v-if="!data.best" class="mt-5 text-body-sm text-stone">暂无时段建议</p>
-        <div v-else class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-linen pt-4">
-          <p class="text-body-sm">
-            {{ String(data.best.hour).padStart(2, '0') }}:00 · 中断率
-            {{ Math.round((data.best.interrupted / data.best.samples) * 100) }}% · {{ data.best.samples }} 次记录
-          </p>
-          <UiButton size="sm" @click="emit('reminder', `${String(data.best.hour).padStart(2, '0')}:00`)"
-            >按此时段创建提醒</UiButton
-          >
-        </div>
-        <details class="mt-4">
-          <summary class="cursor-pointer text-caption text-stone">查看小时数据</summary>
-          <div class="max-h-64 overflow-auto">
-            <table class="w-full text-left text-caption">
-              <thead>
-                <tr>
-                  <th>开始小时</th>
-                  <th>已结束</th>
-                  <th>完成</th>
-                  <th>有中断</th>
-                  <th>课程打卡</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="hour in data.hours" :key="hour.hour">
-                  <td class="py-2">{{ hour.hour }}:00</td>
-                  <td>{{ hour.samples }}</td>
-                  <td>{{ hour.completed }}</td>
-                  <td>{{ hour.interrupted }}</td>
-                  <td>{{ hour.checkIns }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </details>
-      </div>
-    </template>
   </section>
 </template>

@@ -2,7 +2,7 @@ use crate::db;
 use rusqlite::Connection;
 use std::{fs, path::Path};
 
-/// Remove retired local-note data without copying it or touching Notion/session data.
+/// Remove retired feature data without copying it or touching Notion/session data.
 pub fn clear(directory: &Path, connection: &mut Connection) -> db::Result<()> {
     connection
         .execute_batch("PRAGMA secure_delete=ON;")
@@ -12,7 +12,14 @@ pub fn clear(directory: &Path, connection: &mut Connection) -> db::Result<()> {
         .execute_batch(
             "DELETE FROM note_images;
              DELETE FROM notes;
-             DELETE FROM app_settings WHERE key = 'milestones:v1';",
+             DELETE FROM app_settings WHERE key = 'milestones:v1' OR key GLOB 'pomodoro:*';
+             UPDATE app_settings
+             SET value_json = json_remove(value_json, '$.preferences.quietFocus', '$.preferences.shortcut')
+             WHERE key = 'learning-management:v1' AND CASE WHEN json_valid(value_json)
+               THEN json_type(value_json, '$.preferences') = 'object'
+                 AND (json_type(value_json, '$.preferences.quietFocus') IS NOT NULL
+                   OR json_type(value_json, '$.preferences.shortcut') IS NOT NULL)
+               ELSE 0 END;",
         )
         .map_err(|e| e.to_string())?;
     transaction.commit().map_err(|e| e.to_string())?;
@@ -50,6 +57,97 @@ pub fn clear(directory: &Path, connection: &mut Connection) -> db::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_retired_timer_settings_and_history_preserving_learning_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut connection = db::open(&directory.path().join("ai-player.db")).unwrap();
+        let original = serde_json::json!({
+            "version": 1,
+            "flows": [{"id": "lesson-feedback", "mood": "steady"}],
+            "contracts": [{"id": "course-goal"}],
+            "preferences": {
+                "flowPrompt": true, "quietFocus": true, "shortcut": "Study",
+                "calendarTime": "20:00", "calendarDays": 30, "calendarEnabled": true
+            }
+        });
+        connection
+            .execute(
+                "INSERT INTO app_settings VALUES ('learning-management:v1', ?1, 123)",
+                [original.to_string()],
+            )
+            .unwrap();
+        connection.execute_batch(
+            "INSERT INTO app_settings VALUES ('pomodoro:v1','{\"settings\":{},\"timer\":{},\"focusHistory\":[{}]}',1);
+             INSERT INTO app_settings VALUES ('pomodoro:v0','{}',1);
+             INSERT INTO app_settings VALUES ('study-tools:v1','{\"reminders\":[{}]}',1);
+             INSERT INTO check_ins VALUES ('course','2026-10-15',900,900,1,1,1);
+             INSERT INTO video_progress VALUES ('course','lesson',90,100,0.9,1,1);"
+        ).unwrap();
+        let mut expected = original;
+        expected["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("quietFocus");
+        expected["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove("shortcut");
+        for _ in 0..2 {
+            clear(directory.path(), &mut connection).unwrap();
+            let (value, updated_at): (String, i64) = connection.query_row(
+                "SELECT value_json, updated_at FROM app_settings WHERE key='learning-management:v1'",
+                [], |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&value).unwrap(),
+                expected
+            );
+            assert_eq!(updated_at, 123);
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM app_settings", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                2
+            );
+            assert_eq!(
+                connection
+                    .query_row("SELECT seconds FROM check_ins", [], |row| row
+                        .get::<_, f64>(0))
+                    .unwrap(),
+                900.0
+            );
+            assert_eq!(
+                connection
+                    .query_row("SELECT time FROM video_progress", [], |row| row
+                        .get::<_, f64>(0))
+                    .unwrap(),
+                90.0
+            );
+        }
+        connection
+            .execute(
+                "UPDATE app_settings SET value_json='invalid' WHERE key='learning-management:v1'",
+                [],
+            )
+            .unwrap();
+        clear(directory.path(), &mut connection).unwrap();
+        let value: String = connection
+            .query_row(
+                "SELECT value_json FROM app_settings WHERE key='learning-management:v1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "invalid");
+        assert!(fs::read_dir(directory.path()).unwrap().all(|entry| {
+            matches!(
+                entry.unwrap().file_name().to_str(),
+                Some("ai-player.db" | "ai-player.db-wal" | "ai-player.db-shm")
+            )
+        }));
+    }
 
     #[test]
     fn removes_only_retired_data_without_creating_a_backup() {

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { PomodoroSnapshot } from '~/types/pomodoro'
-import PomodoroBadge from '~/components/PomodoroBadge.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
 import { RouterLink } from 'vue-router'
@@ -8,7 +6,6 @@ import { RouterLink } from 'vue-router'
 defineProps<{
   companionActive?: boolean
   companionBusy?: boolean
-  pomodoro?: PomodoroSnapshot
   courseName?: string
   total?: number
   done?: number
@@ -17,10 +14,6 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  pomodoroStart: []
-  pomodoroPause: []
-  pomodoroReset: []
-  pomodoroSettings: []
   companion: []
   help: []
   close: []
@@ -33,25 +26,13 @@ const emit = defineEmits<{
 
 <template>
   <header
-    class="grid h-14 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-linen bg-pure-white px-3 sm:px-4 md:px-5"
+    class="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-3 sm:px-4 md:px-5"
   >
     <div class="flex min-w-0 items-center gap-3 overflow-hidden">
       <RouterLink to="/" aria-label="AI Player 首页" class="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
         <span class="h-3.5 w-3.5 rounded-full bg-brand-orange" aria-hidden="true" />
         <span class="text-body font-bold tracking-[-0.03em] text-charcoal-ink">AI Player</span>
       </RouterLink>
-    </div>
-
-    <!-- Equal outer columns keep the timer centered on the window, regardless of toolbar width. -->
-    <div class="flex justify-center">
-      <PomodoroBadge
-        v-if="currentView === 'player' && pomodoro"
-        :timer="pomodoro"
-        @start="emit('pomodoroStart')"
-        @pause="emit('pomodoroPause')"
-        @reset="emit('pomodoroReset')"
-        @settings="emit('pomodoroSettings')"
-      />
     </div>
 
     <div aria-label="顶部操作" class="flex min-w-0 items-center justify-end gap-2">

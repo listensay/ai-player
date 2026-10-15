@@ -109,17 +109,8 @@ async function copyLink() {
       >
     </article>
     <article class="pane space-y-4 p-6">
-      <h2 class="text-heading-sm">专注伴学</h2>
-      <VCheckbox v-model="preferences.flowPrompt" label="每节课结束后，记录一次学习状态" /><VCheckbox
-        v-model="preferences.quietFocus"
-        label="全屏专注时，让 Karen 安静陪读"
-      /><VTextField
-        v-model="preferences.shortcut"
-        label="macOS 专注快捷指令"
-        placeholder="例如：开始学习"
-        maxlength="200"
-      />
-      <p class="text-caption text-stone">开始番茄钟时运行所选快捷指令。</p>
+      <h2 class="text-heading-sm">学习偏好</h2>
+      <VCheckbox v-model="preferences.flowPrompt" label="每节课结束后，记录一次学习状态" />
       <UiButton variant="dark" :disabled="!!learning.state.saving || !learning.state.ready" @click="save"
         >保存学习偏好</UiButton
       >

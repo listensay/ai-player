@@ -3,7 +3,6 @@ import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
 import { buildStudyInsights, digestPeriod } from '~/utils/studyInsights'
 import { restoreHomeCourse } from '~/utils/learningHome'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import type { createPomodoro } from './usePomodoro'
 import type { provideDesktopSettings } from './useDesktopSettings'
 import type { Ref } from 'vue'
 import type { Course, VideoEntry } from '~/types/course'
@@ -29,7 +28,6 @@ import type { provideLearningManagement } from './useLearningManagement'
 export function useCompanion(options: {
   ask?: () => void
   learning?: ReturnType<typeof provideLearningManagement>
-  pomodoro?: ReturnType<typeof createPomodoro>
   desktopSettings: ReturnType<typeof provideDesktopSettings>
   player: ReturnType<typeof usePlayer>
   course: Ref<Course | null>
@@ -62,7 +60,6 @@ export function useCompanion(options: {
       bondLevel.value = buildStudyInsights(
         courses,
         { notes: [], practices: [] },
-        [],
         digestPeriod('week', 0),
         undefined,
         options.learning?.state.data.rewardDays,
@@ -212,11 +209,6 @@ export function useCompanion(options: {
         : []
     return {
       bondLevel: bondLevel.value,
-      quietFocus:
-        !!options.learning?.state.data.preferences.quietFocus &&
-        state.fullscreen &&
-        options.pomodoro?.snapshot.value.phase === 'focus' &&
-        options.pomodoro?.snapshot.value.status === 'running',
       lessonKey: lessonKey.value,
       lesson: video.value?.title ?? '',
       course: course.value?.name ?? '',
@@ -247,7 +239,6 @@ export function useCompanion(options: {
       careDue: session.careDue,
       restRemaining: restRemaining.value,
       concept: companionConcept(points, state.currentTime, options.concepts.value),
-      pomodoro: options.pomodoro?.snapshot.value,
     }
   })
   async function publish(force = false) {

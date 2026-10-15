@@ -53,40 +53,27 @@ void (async () => {
     await until(async () => (await codeRecord()).draft === value, 'persist code')
   }
   async function checkLessonEndFlow() {
-    await step('pomodoro-pauses-playing-video', async () => {
+    await step('playback-stays-user-controlled', async () => {
       const video = await until(() => document.querySelector('video'), 'video')
-      await click('重置番茄钟')
       video.muted = true
+      video.currentTime = 0
       await video.play()
-      await until(() => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'), 'focus running')
-      video.pause()
-      await until(
-        () => document.querySelector('.pomodoro-heading')?.textContent.includes('已暂停'),
-        'video pause pauses focus',
-      )
-      await video.play()
-      await until(
-        () => document.querySelector('.pomodoro-heading')?.textContent.includes('进行中'),
-        'video resume resumes focus',
-      )
       const originalNow = Date.now
-      Date.now = () => originalNow() + 61000
+      Date.now = () => originalNow() + 26 * 60000
       try {
-        await until(
-          () => video.paused && document.querySelector('.pomodoro-heading')?.textContent.includes('短休息'),
-          'timer pauses video',
-        )
+        await pause(1500)
+        expect(!video.paused, 'Elapsed wall time must not pause playback')
+        expect(!visible(document.getElementById('flow-check-title')), 'Playback must not prompt lesson feedback')
       } finally {
         Date.now = originalNow
       }
-      expect(
-        !visible(document.getElementById('flow-check-title')),
-        'Pomodoro completion must not prompt lesson feedback',
-      )
+      video.pause()
+      await pause(300)
+      expect(!visible(document.getElementById('flow-check-title')), 'Pause must not prompt lesson feedback')
     })
     await step('lesson-end-practice-and-single-feedback', async () => {
-      const video = document.querySelector('video')
-      await click('重置番茄钟')
+      const video = await until(() => document.querySelector('video'), 'video')
+      video.muted = true
       video.currentTime = video.duration - 0.5
       await video.play()
       await until(() => video.ended, 'actual media ended event')

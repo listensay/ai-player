@@ -8,7 +8,6 @@ import { useKnowledgePreparation } from '~/composables/useKnowledgePreparation'
 import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
 import { useCompanion } from '~/composables/useCompanion'
-import { providePomodoro } from '~/composables/usePomodoro'
 import { useLessonCompletion } from '~/composables/useLessonCompletion'
 import { useLearningAssistant } from '~/composables/useLearningAssistant'
 import { usePlayer } from '~/composables/usePlayer'
@@ -51,7 +50,6 @@ export function provideCourseWorkspace() {
   watch(appDialogs.isOpen, (open) => {
     if (open) player.pause()
   })
-  const pomodoro = providePomodoro(() => player.state.playing, player.pause)
 
   const stage = ref<{ toggleFullscreen: () => void } | null>(null)
 
@@ -70,17 +68,6 @@ export function provideCourseWorkspace() {
 
   const course = computed(() => store.state.course)
   const video = computed(() => store.state.currentVideo)
-  watch(
-    () => pomodoro.state.timer.status,
-    (status, previous) => {
-      const shortcut = learning.state.data.preferences.shortcut.trim()
-      if (status === 'running' && previous !== 'running' && pomodoro.state.timer.phase === 'focus' && shortcut) {
-        void desktopInvoke('run_focus_shortcut', { name: shortcut }).catch(() =>
-          showToast('专注快捷指令未完成，请检查快捷指令名称。'),
-        )
-      }
-    },
-  )
   watch(
     () => [course.value?.id, video.value?.path] as const,
     ([id, path], _old, onCleanup) => {
@@ -238,7 +225,6 @@ export function provideCourseWorkspace() {
   const companion = useCompanion({
     ask: () => assistant.open('ask'),
     learning,
-    pomodoro,
     desktopSettings,
     player,
     course,
@@ -276,12 +262,6 @@ export function provideCourseWorkspace() {
       if (day) {
         showToast('今日学习目标已达成，已打卡。')
       }
-    },
-  )
-  watch(
-    () => pomodoro.snapshot.value.notice,
-    (notice) => {
-      if (notice) showToast(notice)
     },
   )
   const hasPrev = computed(() => !!video.value && !!guide.adjacent(video.value.path, -1))
@@ -646,7 +626,6 @@ export function provideCourseWorkspace() {
       await practice.flush()
       checkIn.persist()
       await daily.flush()
-      await pomodoro.flush()
       await studyTools.flush()
       await learning.flush()
       await flushDatabaseWrites()
@@ -705,7 +684,6 @@ export function provideCourseWorkspace() {
   const workspace = {
     appDialogs,
     companion,
-    pomodoro,
     reminderLinks,
     store,
     stats,

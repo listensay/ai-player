@@ -1,4 +1,3 @@
-import type { PomodoroSnapshot } from '../types/pomodoro'
 import type { PlaybackSample } from '../types/practice'
 import type { KnowledgePoint } from '../types/knowledge'
 import { effectivePlaybackSeconds } from './checkIn.ts'
@@ -51,9 +50,7 @@ export function companionConcept(points: KnowledgePoint[], seconds: number, conc
 }
 
 export interface CompanionSnapshot {
-  quietFocus?: boolean
   bondLevel?: number
-  pomodoro?: PomodoroSnapshot
   lessonKey: string
   lesson: string
   course: string

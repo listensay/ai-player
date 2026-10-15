@@ -1,32 +1,9 @@
-import type { FocusSession, StudyEvidence } from '../types/studyInsights'
+import type { StudyEvidence } from '../types/studyInsights'
 import type { HomeCourse } from './learningHome'
 import { isRecord } from './guide.ts'
 import { localDayKey } from './learningFeedback.ts'
 import { addDays, validDate } from './studyProgram.ts'
 
-export function restoreFocusHistory(raw: unknown): FocusSession[] {
-  if (raw === undefined) return []
-  if (!Array.isArray(raw) || raw.length > 5000) throw Error('专注历史格式异常。')
-  return raw.map((s) => {
-    if (
-      !isRecord(s) ||
-      !Number.isSafeInteger(s.startedAt) ||
-      Number(s.startedAt) < 0 ||
-      !validDate(s.date) ||
-      !Number.isInteger(s.startHour) ||
-      Number(s.startHour) < 0 ||
-      Number(s.startHour) > 23 ||
-      !Number.isSafeInteger(s.interruptions) ||
-      Number(s.interruptions) < 0 ||
-      !['active', 'completed', 'abandoned'].includes(String(s.outcome)) ||
-      (s.outcome === 'active'
-        ? s.endedAt !== null
-        : !Number.isSafeInteger(s.endedAt) || Number(s.endedAt) < Number(s.startedAt))
-    )
-      throw Error('专注历史格式异常。')
-    return { ...s } as unknown as FocusSession
-  })
-}
 export function restoreStudyEvidence(raw: unknown): StudyEvidence {
   if (!isRecord(raw) || !Array.isArray(raw.notes) || !Array.isArray(raw.practices)) throw Error('学习证据格式异常。')
   const timestamp = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
@@ -61,7 +38,6 @@ export function digestPeriod(kind: 'week' | 'month', offset: 0 | -1, today = loc
 export function buildStudyInsights(
   courses: HomeCourse[],
   evidence: StudyEvidence,
-  history: FocusSession[],
   period: { start: string; end: string; label: string },
   today = localDayKey(),
   reviewDays: string[] = [],
@@ -70,7 +46,6 @@ export function buildStudyInsights(
   const atPeriod = (at: number) => within(localDayKey(new Date(at)))
   const checkDays = new Set<string>(),
     activeDays = new Set<string>()
-  const checkHours = Array.from({ length: 24 }, () => 0)
   let totalSeconds = 0,
     seconds = 0,
     stageTasks = 0
@@ -93,7 +68,6 @@ export function buildStudyInsights(
         record.targetSeconds > 0
       ) {
         checkDays.add(day)
-        if (within(day)) checkHours[new Date(record.checkedAt).getHours()]!++
       }
     }
     for (const record of entry.context.records.entries) {
@@ -123,29 +97,6 @@ export function buildStudyInsights(
       .map((p) => [JSON.stringify([p.courseId, p.id]), p]),
   )
   const solved = [...solid.values()].filter((p) => atPeriod(p.solidAt!)).length
-  const sessions = history.filter((s) => within(s.date))
-  const hours = Array.from({ length: 24 }, (_, hour) => {
-    const group = sessions.filter((s) => s.startHour === hour && s.outcome !== 'active')
-    return {
-      hour,
-      samples: group.length,
-      completed: group.filter((s) => s.outcome === 'completed').length,
-      interrupted: group.filter((s) => s.interruptions > 0 || s.outcome === 'abandoned').length,
-      checkIns: checkHours[hour]!,
-    }
-  })
-  // At least five terminal sessions on three separate days; no causal/productivity claim.
-  const best =
-    hours
-      .filter(
-        (h) =>
-          h.samples >= 5 &&
-          h.completed > 0 &&
-          h.interrupted < h.samples &&
-          new Set(sessions.filter((s) => s.startHour === h.hour && s.outcome !== 'active').map((s) => s.date)).size >=
-            3,
-      )
-      .sort((a, b) => a.interrupted / a.samples - b.interrupted / b.samples || b.completed - a.completed)[0] ?? null
   const points =
     checkDays.size * 10 + stageTasks * 5 + new Set(reviewDays.filter((d) => validDate(d) && d <= today)).size * 5
   const level = points >= 300 ? 3 : points >= 70 ? 2 : 1
@@ -158,9 +109,6 @@ export function buildStudyInsights(
     needsReview: [...new Set(needsReview)].slice(0, 20),
     updatedCharacters,
     solved,
-    focusCompleted: sessions.filter((s) => s.outcome === 'completed').length,
-    hours,
-    best,
     growth: {
       days: activeDays.size,
       totalSeconds,
@@ -174,5 +122,5 @@ export function buildStudyInsights(
 }
 export type StudyInsights = ReturnType<typeof buildStudyInsights>
 export function digestMarkdown(data: StudyInsights, reflection = '') {
-  return `# Karen 学习${data.period.label.includes('周') ? '周报' : '月报'}\n\n> ${data.period.start} — ${data.period.end} · ${data.period.label}\n\n## 学习概况\n\n- 学习投入：${(data.seconds / 3600).toFixed(1)} 小时\n- 达标打卡：${data.checked} 天\n- 完成专注：${data.focusCompleted} 次\n- 标记已掌握：${data.mastered.length} 个知识点\n- 练习达标：${data.solved} 道题\n\n## 课程学习记录\n\n${data.courseRows.map((c) => `- ${c.name.replace(/[\r\n]/g, ' ')}：${c.minutes} 分钟${c.watchCompleted ? '（已学完）' : ''}`).join('\n') || '本期暂无学习记录。'}\n\n## 复盘与建议\n\n${reflection || (data.needsReview.length ? `待强化知识点：${data.needsReview.join('、')}。` : '本期暂无待强化知识点。')}\n${data.incomplete ? '\n> 提示：部分课程读取失败，统计可能不完整。\n' : ''}`
+  return `# Karen 学习${data.period.label.includes('周') ? '周报' : '月报'}\n\n> ${data.period.start} — ${data.period.end} · ${data.period.label}\n\n## 学习概况\n\n- 学习投入：${(data.seconds / 3600).toFixed(1)} 小时\n- 达标打卡：${data.checked} 天\n- 标记已掌握：${data.mastered.length} 个知识点\n- 练习达标：${data.solved} 道题\n\n## 课程学习记录\n\n${data.courseRows.map((c) => `- ${c.name.replace(/[\r\n]/g, ' ')}：${c.minutes} 分钟${c.watchCompleted ? '（已学完）' : ''}`).join('\n') || '本期暂无学习记录。'}\n\n## 复盘与建议\n\n${reflection || (data.needsReview.length ? `待强化知识点：${data.needsReview.join('、')}。` : '本期暂无待强化知识点。')}\n${data.incomplete ? '\n> 提示：部分课程读取失败，统计可能不完整。\n' : ''}`
 }

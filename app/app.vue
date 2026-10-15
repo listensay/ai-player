@@ -28,7 +28,6 @@ const {
   guideTab,
   reminderLinks,
   companion,
-  pomodoro,
   currentView,
   toast,
   course,
@@ -64,13 +63,8 @@ watch(
         :total="stats.total"
         :done="stats.done"
         :current-view="currentView"
-        :pomodoro="pomodoro.snapshot.value"
         :companion-active="companion.miniOpen.value"
         :companion-busy="companion.opening.value"
-        @pomodoro-start="pomodoro.start()"
-        @pomodoro-pause="pomodoro.pause()"
-        @pomodoro-reset="pomodoro.reset()"
-        @pomodoro-settings="appDialogs.open('settings', 'pomodoro')"
         @settings="appDialogs.open('settings')"
         @study="appDialogs.open('study')"
         @back="router.push(course ? `/courses/${course.id}` : '/')"

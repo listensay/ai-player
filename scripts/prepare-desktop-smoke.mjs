@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import ffmpeg from 'ffmpeg-static'
 import { performanceContext } from '../tests/fixtures/performance.mjs'
 import { programmingQuestion } from '../tests/fixtures/programming.mjs'
-import { defaultPomodoroSettings, freshPomodoro } from '../app/utils/pomodoro.ts'
 import { localDayKey } from '../app/utils/learningFeedback.ts'
 
 export async function prepareDesktopSmoke(directory) {
@@ -72,7 +71,6 @@ export async function prepareDesktopSmoke(directory) {
       'null',
       now,
     )
-    const settings = { ...defaultPomodoroSettings(), focusMinutes: 1, shortBreakMinutes: 1 }
     const setting = db.prepare('INSERT INTO app_settings VALUES (?,?,?)')
     const learning = {
       version: 1,
@@ -84,8 +82,6 @@ export async function prepareDesktopSmoke(directory) {
       protections: [],
       preferences: {
         flowPrompt: true,
-        quietFocus: false,
-        shortcut: '',
         calendarTime: '19:00',
         calendarDays: 14,
         calendarEnabled: false,
@@ -93,7 +89,6 @@ export async function prepareDesktopSmoke(directory) {
     }
     setting.run('learning-management:v1', JSON.stringify(learning), now)
     setting.run('desktop-auto-open-companion', 'false', now)
-    setting.run('pomodoro:v1', JSON.stringify({ version: 1, settings, timer: freshPomodoro(settings) }), now)
     db.prepare('INSERT INTO notes VALUES (?,?,?,?)').run(id, 'lesson-0.mp4', '# Native note\n\nOriginal fixture', now)
     const record = {
       id: 'smoke-code',

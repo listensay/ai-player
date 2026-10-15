@@ -23,8 +23,6 @@ export function emptyLearningManagement(): LearningManagementData {
     protections: [],
     preferences: {
       flowPrompt: true,
-      quietFocus: true,
-      shortcut: '',
       calendarTime: '20:00',
       calendarDays: 30,
       calendarEnabled: false,
@@ -126,8 +124,6 @@ export function parseLearningManagement(raw: unknown): LearningManagementData {
   if (
     !isRecord(p) ||
     typeof p.flowPrompt !== 'boolean' ||
-    typeof p.quietFocus !== 'boolean' ||
-    !text(p.shortcut, 200) ||
     !/^([01]\d|2[0-3]):[0-5]\d$/.test(p.calendarTime) ||
     !Number.isInteger(p.calendarDays) ||
     p.calendarDays < 1 ||
@@ -135,7 +131,15 @@ export function parseLearningManagement(raw: unknown): LearningManagementData {
     typeof p.calendarEnabled !== 'boolean'
   )
     throw Error('学习管理设置无效。')
-  return structuredClone(data)
+  return structuredClone({
+    ...data,
+    preferences: {
+      flowPrompt: p.flowPrompt,
+      calendarTime: p.calendarTime,
+      calendarDays: p.calendarDays,
+      calendarEnabled: p.calendarEnabled,
+    },
+  })
 }
 
 export function parseLearningSources(raw: unknown): LearningSources {

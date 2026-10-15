@@ -158,12 +158,6 @@ const coursePaused = (id: string) =>
             :loading="home.loading.value"
             :error="home.error.value"
             @refresh="home.refresh"
-            @reminder="
-              (time) => {
-                editReminder()
-                reminder.time = time
-              }
-            "
           >
             <template #plan-health>
               <LearningHealthPanel v-if="activeSection === 'insights'" />

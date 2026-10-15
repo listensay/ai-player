@@ -35,18 +35,8 @@ test('学习管理删除冗余统计说明文案，保留核心数据展示与�
     assert.ok(!copy.source.includes(phrase), `冗余文案已清除: ${phrase}`)
   }
   assert.doesNotMatch(copy.summaries, /统计说明/)
-  assert.match(copy.visible, /暂无时段建议/)
   assert.match(copy.visible, /导出 Markdown/)
   assert.match(copy.source, /role="alert"/)
-})
-
-test('番茄钟删除冗余计时规则说明，操作与设置完整保留', () => {
-  const copy = templateCopy('components/PomodoroSettingsPanel.vue')
-  assert.doesNotMatch(copy.summaries, /计时规则/)
-  assert.doesNotMatch(copy.source, /每次启动应用|播放视频开始|时长修改/)
-  assert.match(copy.source, /@click="clock\.pause\(\)"/)
-  assert.match(copy.source, /v-if="current.notice" role="status"/)
-  assert.match(copy.source, /@click="save"/)
 })
 
 test('提醒规则删除冗余说明，创建与删除确认保持简洁', () => {

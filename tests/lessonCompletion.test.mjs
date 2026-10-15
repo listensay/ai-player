@@ -66,7 +66,7 @@ function fixture(t) {
   }
 }
 
-test('长课暂停与番茄钟休息不反馈，视频结束先打开练习，关闭后才反馈一次', async (t) => {
+test('长课暂停不反馈，视频结束先打开练习，关闭后才反馈一次', async (t) => {
   const h = fixture(t)
   await h.sample()
   await h.sample({ playing: false }, 25 * 60_000)

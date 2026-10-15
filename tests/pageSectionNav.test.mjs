@@ -92,7 +92,7 @@ test('学习管理与设置共用菜单和布局，报告保留状态、提醒�
   }
   assert.match(study, /v-show="activeSection === 'insights'"\s+id="study-insights"/)
   assert.match(study, /v-show="activeSection === 'reminders'"\s+id="study-reminders"/)
-  assert.match(study, /@reminder=/)
+  assert.doesNotMatch(study, /@reminder=/)
   assert.equal((study.match(/<StudyFormDialog/g) ?? []).length, 3)
   assert.match(settings, /props.initialSection/)
 })

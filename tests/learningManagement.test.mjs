@@ -43,6 +43,22 @@ const { calculateDayBudget } = await import('../app/utils/dailyPlan.ts')
 const { emptyStudyRecords } = await import('../app/utils/studyProgram.ts')
 const today = '2026-10-05'
 const now = new Date(`${today}T12:00:00`).getTime()
+test('读取旧学习偏好时移除退役字段，保留课后反馈和日历配置', () => {
+  const saved = emptyLearningManagement()
+  saved.preferences.calendarTime = '08:30'
+  saved.preferences.flowPrompt = false
+  saved.preferences.quietFocus = true
+  saved.preferences.shortcut = 'Study'
+  const restored = parseLearningManagement(saved)
+  assert.deepEqual(restored.preferences, {
+    flowPrompt: false,
+    calendarTime: '08:30',
+    calendarDays: 30,
+    calendarEnabled: false,
+  })
+  assert.deepEqual(parseLearningManagement(restored), restored)
+  assert.equal(saved.preferences.shortcut, 'Study')
+})
 function course() {
   return {
     course: { id: 'course', name: '前端学习', status: 'active' },
@@ -386,11 +402,11 @@ test('保存失败不提交状态，并发操作按成功保存的状态继续�
   await Promise.all([
     store.mutate((data) => data.cards.push(card())),
     store.mutate((data) => {
-      data.preferences.shortcut = 'Focus'
+      data.preferences.calendarTime = '08:30'
     }),
   ])
   assert.equal(persisted.cards.length, 1)
-  assert.equal(persisted.preferences.shortcut, 'Focus')
+  assert.equal(persisted.preferences.calendarTime, '08:30')
   const data = emptyLearningManagement()
   data.cards = [card()]
   assert.equal(recordReview(data, [course()], 'card', 'remembered', now), true)

@@ -105,7 +105,7 @@ test('知识点、每日练习和课程移除定位正确；无关设置不失�
   await store.courses('2026-10-07')
   await store.sources()
   const before = calls.length
-  store.invalidate('settings', { body: { key: 'pomodoro:v1' } })
+  store.invalidate('settings', { body: { key: 'desktop-settings:v1' } })
   await store.courses('2026-10-07')
   await store.sources()
   assert.equal(calls.length, before)

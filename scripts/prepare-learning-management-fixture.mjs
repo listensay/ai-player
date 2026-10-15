@@ -226,8 +226,6 @@ setting('learning-management:v1', {
   ],
   preferences: {
     flowPrompt: true,
-    quietFocus: true,
-    shortcut: '',
     calendarTime: '20:00',
     calendarDays: 30,
     calendarEnabled: false,

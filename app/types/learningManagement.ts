@@ -64,8 +64,6 @@ export interface LearningManagementData {
   protections: StreakProtection[]
   preferences: {
     flowPrompt: boolean
-    quietFocus: boolean
-    shortcut: string
     calendarTime: string
     calendarDays: number
     calendarEnabled: boolean

@@ -322,9 +322,11 @@ function confirmStatus() {
                 >
                   <span
                     class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-caption font-bold"
-                    :class="milestone.done ? 'bg-charcoal-ink text-white' : 'border border-linen'"
-                    >{{ milestone.done ? '✓' : i + 1 }}</span
+                    :class="milestone.done ? 'bg-charcoal-ink text-pure-white' : 'border border-linen'"
                   >
+                    <AppIcon v-if="milestone.done" name="check" :size="16" />
+                    <template v-else>{{ i + 1 }}</template>
+                  </span>
                   <div class="min-w-0 flex-1">
                     <p class="text-body-sm font-bold leading-7 [overflow-wrap:anywhere]">
                       {{ moduleMap.get(milestone.moduleId)?.title }}

@@ -235,7 +235,6 @@ pub fn run() {
             learning_integrations::choose_knowledge_vault,
             learning_integrations::knowledge_vault_document,
             learning_integrations::open_learning_resource,
-            learning_integrations::run_focus_shortcut,
             export_performance_report,
             mac_reminders::mac_reminders_status,
             mac_reminders::mac_reminders_export,

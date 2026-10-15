@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import type { CompanionSnapshot } from '~/utils/companion'
 import PlayboMascot from './PlayboMascot.vue'
 import AppIcon from './AppIcon.vue'
-import { formatStudyClock } from '~/utils/checkIn'
 
 const props = withDefaults(
   defineProps<{
@@ -47,9 +46,7 @@ let greetingIndex = 0
 const greetings = ['我在，陪你慢慢学。', '收到摸摸，充电成功！', '肩膀放松一下，喝口水吧。', '一点点进步，也值得开心。']
 const bubbleVisible = computed(
   () =>
-    !props.state.quietFocus &&
-    !menuOpen.value &&
-    (panelOpen.value || !!reaction.value || (!quiet.value && props.desktop && props.state.ready)),
+    !menuOpen.value && (panelOpen.value || !!reaction.value || (!quiet.value && props.desktop && props.state.ready)),
 )
 function react() {
   reaction.value = greetings[greetingIndex++ % greetings.length]!
@@ -116,16 +113,7 @@ function menuKeys(event: KeyboardEvent) {
         : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
   buttons[next]?.focus()
 }
-const pomodoro = computed(() =>
-  props.desktop && props.state.pomodoro?.enabled && props.state.pomodoro.visible ? props.state.pomodoro : undefined,
-)
-const attention = computed(
-  () =>
-    props.error ||
-    props.state.celebration ||
-    (pomodoro.value?.notice ? `pomodoro:${pomodoro.value.revision}:${pomodoro.value.notice}` : '') ||
-    (props.state.careDue ? 'care' : ''),
-)
+const attention = computed(() => props.error || props.state.celebration || (props.state.careDue ? 'care' : ''))
 const panelOpen = computed(() => expanded.value || (!!attention.value && dismissed.value !== attention.value))
 const canPlay = computed(() => props.connected && props.state.ready && !props.state.blocked && !props.busy)
 const controlLabel = computed(() =>
@@ -137,7 +125,6 @@ const message = computed(
     (!props.connected
       ? '播放器连接中。'
       : props.state.celebration ||
-        pomodoro.value?.notice ||
         (props.state.blocked
           ? '先完成主窗口里的操作，再回来听课。'
           : props.state.careDue
@@ -311,15 +298,6 @@ defineExpose({ collapse })
             :playing="connected && state.playing && !state.buffering && !state.blocked"
             :size="desktop ? 124 : 128"
         /></span>
-        <span
-          v-if="state.quietFocus && state.pomodoro"
-          class="pet-focus-clock"
-          :style="{
-            background: `linear-gradient(90deg, #ffce00 ${Math.round((1 - state.pomodoro.remainingSeconds / Math.max(1, state.pomodoro.totalSeconds)) * 100)}%, #f9f4f2 0)`,
-          }"
-          aria-label="专注剩余时间"
-          >{{ formatStudyClock(state.pomodoro.remainingSeconds) }}</span
-        >
       </button>
       <button
         v-if="desktop"
@@ -361,18 +339,6 @@ defineExpose({ collapse })
 </template>
 
 <style scoped>
-.pet-focus-clock {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 12px;
-  border: 1px solid #e2ded9;
-  border-radius: 999px;
-  color: #2d2c2b;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 .companion-pet {
   position: relative;
   width: 144px;

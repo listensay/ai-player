@@ -12,7 +12,6 @@ const { descriptor } = parse(readFileSync(filename, 'utf8'))
 const compiled = compileScript(descriptor, { id: 'pet-interactions' })
   .content.replace(/import PlayboMascot from .*\n/, 'const PlayboMascot = {}\n')
   .replace(/import AppIcon from .*\n/, 'const AppIcon = {}\n')
-  .replace("from '~/utils/checkIn'", `from '${new URL('../app/utils/checkIn.ts', import.meta.url).href}'`)
   .replaceAll("from 'vue'", `from '${import.meta.resolve('vue')}'`)
 const { outputText } = ts.transpileModule(compiled, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -57,14 +56,6 @@ function mount(t) {
   })
   return { pet, props, events, app, windowEvents }
 }
-test('全屏安静陪读收起气泡，退出后恢复原有提示', (t) => {
-  const { pet, props } = mount(t)
-  assert.equal(pet.bubbleVisible.value, true)
-  props.state.quietFocus = true
-  assert.equal(pet.bubbleVisible.value, false)
-  props.state.quietFocus = false
-  assert.equal(pet.bubbleVisible.value, true)
-})
 test('单击回应四秒后恢复状态，双击只发送一次播放指令', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const { pet, events } = mount(t)
@@ -126,45 +117,6 @@ test('点击穿透后窗口失焦会收起菜单，卸载会移除监听', async
   assert.equal(pet.menuOpen.value, false)
   app.unmount()
   assert.equal(windowEvents.size, 0)
-})
-
-test('桌宠移除番茄钟控件后，无视频、隐藏日常提示或主窗口弹窗时仍显示阶段消息', async (t) => {
-  const { pet, props } = mount(t)
-  props.state.ready = false
-  props.state.blocked = true
-  props.state.pomodoro = {
-    ready: true,
-    enabled: true,
-    visible: true,
-    phase: 'short-break',
-    status: 'running',
-    remainingSeconds: 300,
-    totalSeconds: 300,
-    completedFocuses: 1,
-    round: 1,
-    longBreakEvery: 4,
-    revision: 2,
-    notice: '专注完成，已开始短休息 5 分钟。',
-    error: '',
-  }
-  await nextTick()
-  pet.toggleQuiet()
-  props.state.pomodoro.revision++
-  await nextTick()
-  assert.equal(pet.bubbleVisible.value, true)
-  assert.match(pet.message.value, /专注完成/)
-  assert.equal(pet.pomodoro.value.remainingSeconds, 300)
-  pet.collapse()
-  assert.equal(pet.panelOpen.value, false)
-  props.state.pomodoro.notice = '休息结束，播放视频或手动开始下一次专注。'
-  props.state.pomodoro.revision++
-  await nextTick()
-  assert.equal(pet.panelOpen.value, true)
-  assert.match(pet.message.value, /休息结束/)
-  assert.doesNotMatch(descriptor.template.content, /PomodoroBadge|pomodoroStart|pomodoroPause|pomodoroReset/)
-  props.state.pomodoro.visible = false
-  await nextTick()
-  assert.equal(pet.pomodoro.value, undefined)
 })
 
 test('问问 Karen 只发送问答事件，离线或遮罩期间不可用', (t) => {

@@ -278,46 +278,6 @@ pub async fn open_learning_resource(location: String) -> db::Result<()> {
     .await
     .map_err(|e| e.to_string())?
 }
-#[tauri::command]
-pub async fn run_focus_shortcut(name: String) -> db::Result<()> {
-    if name.trim().is_empty()
-        || name.len() > 200
-        || name.chars().any(char::is_control)
-        || name.starts_with('-')
-    {
-        return Err("快捷指令名称无效。".into());
-    }
-    #[cfg(target_os = "macos")]
-    return tauri::async_runtime::spawn_blocking(move || {
-        let mut child = Command::new("/usr/bin/shortcuts")
-            .args(["run", &name])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|_| "无法启动快捷指令。".to_string())?;
-        let started = std::time::Instant::now();
-        loop {
-            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-                return if status.success() {
-                    Ok(())
-                } else {
-                    Err("快捷指令未完成，请检查名称与系统权限。".into())
-                };
-            }
-            if started.elapsed() > Duration::from_secs(30) {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("快捷指令执行超时。".into());
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    #[cfg(not(target_os = "macos"))]
-    Err("此功能需要 macOS。".into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

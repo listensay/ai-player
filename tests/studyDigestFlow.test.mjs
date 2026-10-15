@@ -9,11 +9,6 @@ registerHooks({
         url: 'data:text/javascript,export const flushDatabaseWrites=async()=>{}; export const databaseRequest=async()=>({notes:[],practices:[]});',
         shortCircuit: true,
       }
-    if (specifier === './usePomodoro')
-      return {
-        url: 'data:text/javascript,export const usePomodoro=()=>({state:{focusHistory:[]}})',
-        shortCircuit: true,
-      }
     if (specifier === './useAiSettings')
       return {
         url: 'data:text/javascript,export const useAiSettings=()=>({settings:{model:"mock",baseUrl:"https://example.test"},configured:{value:true},state:{}})',

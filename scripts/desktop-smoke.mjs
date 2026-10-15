@@ -98,9 +98,7 @@ try {
         throw Error(`${name}: ${metric.duration.toFixed(0)} ms exceeds ${limits[name]} ms`)
     }
   }
-  console.log(
-    'Native desktop regression passed: Notion view switching/restart, programming execution/cancel, timer pause/resume, removed local note features.',
-  )
+  console.log(`Native desktop regression passed: ${reports.flatMap((report) => report.steps).join(', ')}.`)
 } finally {
   fixtureServer.close()
   await mkdir(join(root, '.cache'), { recursive: true })

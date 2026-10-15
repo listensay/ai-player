@@ -97,10 +97,6 @@ test('播放器侧栏独立展开、Notion 实例保留、页签恢复且顶部�
         'const formatStudyClock = String, formatStudyHours = String',
       )
       .replace(/import (\w+) from ['"](?:~\/components\/|\.\/)[^\n]+/g, 'const $1 = globalThis.sidebarStubs.$1')
-      .replace(
-        /from ['"]~\/utils\/pomodoro['"]/g,
-        `from '${new URL('../app/utils/pomodoro.ts', import.meta.url).href}'`,
-      )
       .replace(/import \{ RouterLink \} from [^\n]+/, 'const RouterLink = globalThis.sidebarStubs.RouterLink')
       .replace(/from ["']vue["']/g, `from '${import.meta.resolve('vue')}'`)
     const { outputText } = ts.transpileModule(code, {
@@ -188,34 +184,14 @@ test('播放器侧栏独立展开、Notion 实例保留、页签恢复且顶部�
   assert.equal(find('data-stub', 'TranscriptPanel').props['data-active'], true)
   results.push('逐字稿隐藏停用、展开保留页签')
   app.unmount()
-  globalThis.sidebarStubs.PomodoroBadge = await component('app/components/PomodoroBadge.vue')
   const actions = []
-  const timer = reactive({
-    ready: true,
-    enabled: true,
-    visible: false,
-    phase: 'focus',
-    status: 'idle',
-    remainingSeconds: 1500,
-    totalSeconds: 1500,
-    completedFocuses: 0,
-    round: 1,
-    longBreakEvery: 4,
-    revision: 1,
-    notice: '',
-    error: '',
-  })
-  const headerProps = reactive({ courseName: '测试', currentView: 'player', pomodoro: timer })
+  const headerProps = reactive({ courseName: '测试', currentView: 'player' })
   const TopBar = await component('app/components/AppTopBar.vue')
   const header = element('root'),
     top = renderer.createApp({
       setup: () => () =>
         h(TopBar, {
           ...headerProps,
-          onPomodoroStart: () => actions.push('start'),
-          onPomodoroPause: () => actions.push('pause'),
-          onPomodoroReset: () => actions.push('reset'),
-          onPomodoroSettings: () => actions.push('settings'),
           onBack: () => actions.push('back'),
           onSettings: () => actions.push('settings-dialog'),
           onStudy: () => actions.push('study-dialog'),
@@ -242,43 +218,9 @@ test('播放器侧栏独立展开、Notion 实例保留、页签恢复且顶部�
   assert.equal(headerFind('AI 导学'), undefined)
   assert.equal(headerFind('概览'), undefined)
   assert.equal(headerFind('播放器'), undefined)
-  const headerElement = walk(header).find((n) => n.type === 'header')
-  assert.match(headerElement.props.class, /grid-cols-\[minmax\(0,1fr\)_auto_minmax\(0,1fr\)\]/)
-  assert.match(headerFind('播放器番茄钟').parent.props.class, /justify-center/)
-  assert.ok(headerFind('播放器番茄钟').parent.parent === headerElement)
-  assert.ok(headerFind('播放器番茄钟'), '桌宠提醒关闭不隐藏顶部番茄钟')
-  assert.equal(headerFind('番茄钟剩余时间').text, '25:00')
-  headerFind('开始番茄钟').props.onClick()
-  timer.status = 'running'
-  timer.remainingSeconds = 1499
-  await nextTick()
-  assert.equal(headerFind('番茄钟剩余时间').text, '24:59')
-  headerFind('暂停番茄钟').props.onClick()
-  timer.status = 'paused'
-  await nextTick()
-  headerFind('继续番茄钟').props.onClick()
-  headerFind('重置番茄钟').props.onClick()
-  headerFind('打开番茄钟设置').props.onClick()
-  assert.deepEqual(actions, ['start', 'pause', 'start', 'reset', 'settings'])
-  timer.phase = 'long-break'
-  timer.remainingSeconds = 900
-  timer.totalSeconds = 900
-  await nextTick()
-  assert.equal(headerFind('番茄钟剩余时间').text, '15:00')
-  assert.ok(walk(header).some((n) => n.text?.includes('长休息')))
-  timer.enabled = false
-  await nextTick()
-  assert.equal(headerFind('继续番茄钟').props.disabled, true)
-  assert.equal(headerFind('重置番茄钟').props.disabled, true)
-  assert.ok(!headerFind('打开番茄钟设置').props.disabled)
-  timer.enabled = true
-  timer.ready = false
-  await nextTick()
-  assert.equal(headerFind('继续番茄钟').props.disabled, true)
   headerFind('返回视频信息').props.onClick()
   headerProps.currentView = 'dashboard'
   await nextTick()
-  assert.equal(headerFind('播放器番茄钟'), undefined)
   assert.deepEqual(toolbarLabels(), ['AI 导学', '返回首页'])
   assert.equal(headerFind('概览'), undefined)
   assert.equal(headerFind('播放器'), undefined)
