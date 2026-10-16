@@ -53,6 +53,8 @@ export interface VideoProgress {
 export interface RecentCourse {
   id: string
   name: string
+  /** 原文件夹名称，独立于用户自定义的显示名称。 */
+  sourceName?: string
   handle?: CourseDirectoryHandle
   videoCount: number
   lastOpenedAt: number

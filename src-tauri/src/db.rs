@@ -195,16 +195,16 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
         "library" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
                 (
-                    "SELECT * FROM course_library WHERE id=?",
-                    vec![SqlValue::Text(canonical(db, id)?)],
+                    "SELECT c.*,COALESCE(p.display_name,c.name) AS display_name FROM course_library c LEFT JOIN course_library_preferences p ON p.course_id=c.id WHERE c.id=? AND (COALESCE(p.deleted,0)=0 OR ?)",
+                    vec![SqlValue::Text(canonical(db, id)?), SqlValue::Integer(i64::from(q["includeDeleted"] == "true"))],
                 )
             } else {
                 (
-                    "SELECT * FROM course_library ORDER BY pinned DESC,last_opened_at DESC",
+                    "SELECT c.*,COALESCE(p.display_name,c.name) AS display_name FROM course_library c LEFT JOIN course_library_preferences p ON p.course_id=c.id WHERE COALESCE(p.deleted,0)=0 ORDER BY c.pinned DESC,c.last_opened_at DESC",
                     vec![],
                 )
             };
-            let list: Vec<Value> = rows(db, query, args)?.iter().map(|r| json!({"id":r["id"],"name":r["name"],"videoCount":r["video_count"],"lastOpenedAt":r["last_opened_at"],"lastVideoPath":r["last_video_path"],"status":r["status"],"pinned":r["pinned"]==1})).collect();
+            let list: Vec<Value> = rows(db, query, args)?.iter().map(|r| json!({"id":r["id"],"name":r["display_name"],"sourceName":r["name"],"videoCount":r["video_count"],"lastOpenedAt":r["last_opened_at"],"lastVideoPath":r["last_video_path"],"status":r["status"],"pinned":r["pinned"]==1})).collect();
             Ok(if q["id"].is_string() {
                 list.into_iter().next().unwrap_or(Value::Null)
             } else {
@@ -295,16 +295,16 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
         "recent-courses" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
                 (
-                    "SELECT * FROM recent_courses WHERE id=?",
+                    "SELECT r.*,COALESCE(p.display_name,r.name) AS display_name FROM recent_courses r LEFT JOIN course_library_preferences p ON p.course_id=r.id WHERE r.id=? AND COALESCE(p.deleted,0)=0",
                     vec![SqlValue::Text(canonical(db, id)?)],
                 )
             } else {
                 (
-                    "SELECT * FROM recent_courses ORDER BY last_opened_at DESC LIMIT 20",
+                    "SELECT r.*,COALESCE(p.display_name,r.name) AS display_name FROM recent_courses r LEFT JOIN course_library_preferences p ON p.course_id=r.id WHERE COALESCE(p.deleted,0)=0 ORDER BY r.last_opened_at DESC LIMIT 20",
                     vec![],
                 )
             };
-            let list: Vec<Value> = rows(db, query, args)?.iter().map(|r| json!({"id":r["id"],"name":r["name"],"videoCount":r["video_count"],"lastOpenedAt":r["last_opened_at"],"lastVideoPath":r["last_video_path"]})).collect();
+            let list: Vec<Value> = rows(db, query, args)?.iter().map(|r| json!({"id":r["id"],"name":r["display_name"],"sourceName":r["name"],"videoCount":r["video_count"],"lastOpenedAt":r["last_opened_at"],"lastVideoPath":r["last_video_path"]})).collect();
             Ok(if q["id"].is_string() {
                 list.into_iter().next().unwrap_or(Value::Null)
             } else {
@@ -435,6 +435,16 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
     }
 }
 fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) -> Result<Value> {
+    if method == "DELETE" && endpoint == "library" {
+        let id = canonical(db, text(q, "id")?)?;
+        if read(db, "library", &json!({"id":id,"includeDeleted":"true"}))?.is_null() {
+            return Err("课程不存在".into());
+        }
+        db.execute("INSERT INTO course_library_preferences(course_id,deleted) VALUES (?,1) ON CONFLICT(course_id) DO UPDATE SET deleted=1", [&id]).map_err(|e| e.to_string())?;
+        db.execute("DELETE FROM recent_courses WHERE id=?", [&id])
+            .map_err(|e| e.to_string())?;
+        return Ok(json!({"success":true}));
+    }
     if endpoint == "ai-batch-cache" {
         if method == "POST" {
             let key = text(b, "key")?;
@@ -492,6 +502,14 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
     match endpoint {
         "library" => {
             let id = canonical(db, text(b, "id")?)?;
+            if read(db,"library",&json!({"id":id}))?.is_null() { return Err("课程不存在或已删除".into()); }
+            if let Some(value) = b.get("name") {
+                let name = value.as_str().ok_or("课程名称无效")?.trim();
+                if name.is_empty() || name.chars().count() > 120 || name.chars().any(char::is_control) {
+                    return Err("课程名称应为 1–120 个字符".into());
+                }
+                db.execute("INSERT INTO course_library_preferences(course_id,display_name) VALUES (?,?) ON CONFLICT(course_id) DO UPDATE SET display_name=excluded.display_name", params![id,name]).map_err(|e| e.to_string())?;
+            }
             if let Some(status) = b["status"].as_str() {
                 if !["active","paused","archived"].contains(&status) { return Err("课程状态无效".into()); }
                 db.execute("UPDATE course_library SET status=? WHERE id=?", params![status,id]).map_err(|e| e.to_string())?;
@@ -516,7 +534,16 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
             } else { next["initialMinutes"] = snapshot["plannedMinutes"].clone(); }
             upsert(db,"daily_plan_snapshots","course_id,date,snapshot_json","course_id,date",vec![course()?,json!(date),next])?;
         }
-        "recent-courses" => upsert(db,"recent_courses","id,name,video_count,last_opened_at,last_video_path,created_at,updated_at","id",vec![json!(canonical(db,text(b,"id")?)?),json!(text(b,"name")?),default("videoCount",json!(0)),default("lastOpenedAt",time.clone()),b["lastVideoPath"].clone(),time.clone(),time.clone()])?,
+        "recent-courses" => {
+            let id = canonical(db,text(b,"id")?)?;
+            let deleted = db.query_row("SELECT deleted FROM course_library_preferences WHERE course_id=?", [&id], |row| row.get::<_,bool>(0)).optional().map_err(|e| e.to_string())?.unwrap_or(false);
+            if deleted {
+                if b["restore"] != true { return Err("课程已删除，请重新打开".into()); }
+                db.execute("UPDATE course_library_preferences SET deleted=0 WHERE course_id=?", [&id]).map_err(|e| e.to_string())?;
+                db.execute("UPDATE course_library SET status='active',pinned=0 WHERE id=?", [&id]).map_err(|e| e.to_string())?;
+            }
+            upsert(db,"recent_courses","id,name,video_count,last_opened_at,last_video_path,created_at,updated_at","id",vec![json!(id),json!(text(b,"name")?),default("videoCount",json!(0)),default("lastOpenedAt",time.clone()),b["lastVideoPath"].clone(),time.clone(),time.clone()])?;
+        },
         "progress" => upsert(db,"video_progress","course_id,video_path,time,duration,ratio,done,updated_at","course_id,video_path",vec![course()?,json!(text(b,"path")?),default("time",json!(0)),default("duration",json!(0)),default("ratio",json!(0)),json!(b["done"]==true),time.clone()])?,
         "notes" => {
             let content = b["content"].as_str().ok_or("笔记内容无效")?;
@@ -873,6 +900,250 @@ mod persistence_tests {
             json!({"id":"course-0","status":"invalid"})
         )
         .is_err());
+    }
+
+    #[test]
+    fn library_names_survive_refresh_and_validate_before_commit() {
+        let mut db = database();
+        let original =
+            json!({"id":"course","name":"原文件夹","videoCount":2,"lastVideoPath":"one.mp4"});
+        request(
+            &mut db,
+            "recent-courses",
+            "POST",
+            json!({}),
+            original.clone(),
+        )
+        .unwrap();
+        db.execute("INSERT INTO course_aliases VALUES ('alias','course')", [])
+            .unwrap();
+        request(
+            &mut db,
+            "library",
+            "POST",
+            json!({}),
+            json!({"id":"alias","name":"  我的课程  ","pinned":true}),
+        )
+        .unwrap();
+        request(&mut db, "recent-courses", "POST", json!({}), original).unwrap();
+        for endpoint in ["library", "recent-courses"] {
+            let result = read(&db, endpoint, &json!({"id":"course"})).unwrap();
+            assert_eq!(result["name"], "我的课程");
+            assert_eq!(result["sourceName"], "原文件夹");
+            assert_eq!(result["lastVideoPath"], "one.mp4");
+        }
+        for name in [
+            json!("   "),
+            json!("x".repeat(121)),
+            json!("a\nb"),
+            json!(12),
+            Value::Null,
+        ] {
+            assert!(request(
+                &mut db,
+                "library",
+                "POST",
+                json!({}),
+                json!({"id":"course","name":name,"pinned":false})
+            )
+            .is_err());
+            let result = read(&db, "library", &json!({"id":"course"})).unwrap();
+            assert_eq!(result["name"], "我的课程");
+            assert_eq!(result["pinned"], true);
+        }
+        assert!(request(
+            &mut db,
+            "library",
+            "POST",
+            json!({}),
+            json!({"id":"course","name":"不能保存","status":"invalid"})
+        )
+        .is_err());
+        assert_eq!(
+            read(&db, "library", &json!({"id":"course"})).unwrap()["name"],
+            "我的课程"
+        );
+    }
+
+    #[test]
+    fn library_delete_hides_course_and_rejects_late_recent_writes() {
+        let mut db = database();
+        let original = json!({"id":"course","name":"原文件夹","videoCount":2});
+        request(
+            &mut db,
+            "recent-courses",
+            "POST",
+            json!({}),
+            original.clone(),
+        )
+        .unwrap();
+        request(
+            &mut db,
+            "recent-courses",
+            "POST",
+            json!({}),
+            json!({"id":"other","name":"其他课程"}),
+        )
+        .unwrap();
+        request(
+            &mut db,
+            "library",
+            "POST",
+            json!({}),
+            json!({"id":"course","name":"自定义名称"}),
+        )
+        .unwrap();
+        request(
+            &mut db,
+            "progress",
+            "POST",
+            json!({}),
+            json!({"courseId":"course","path":"one.mp4","time":45,"duration":60}),
+        )
+        .unwrap();
+        request(
+            &mut db,
+            "notes",
+            "POST",
+            json!({}),
+            json!({"courseId":"course","videoPath":"one.mp4","content":"保留的笔记"}),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO course_locations VALUES ('course','/original/videos')",
+            [],
+        )
+        .unwrap();
+        request(
+            &mut db,
+            "library",
+            "DELETE",
+            json!({"id":"course"}),
+            Value::Null,
+        )
+        .unwrap();
+        for endpoint in ["library", "recent-courses"] {
+            assert!(read(&db, endpoint, &json!({"id":"course"}))
+                .unwrap()
+                .is_null());
+            assert_eq!(
+                read(&db, endpoint, &json!({}))
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+        assert_eq!(
+            read(&db, "dashboard", &json!({"courseId":"course"})).unwrap(),
+            json!([])
+        );
+        assert!(request(
+            &mut db,
+            "recent-courses",
+            "POST",
+            json!({}),
+            original.clone()
+        )
+        .is_err());
+        assert!(request(
+            &mut db,
+            "library",
+            "POST",
+            json!({}),
+            json!({"id":"course","name":"迟到的名称"})
+        )
+        .is_err());
+        assert_eq!(
+            read(&db, "progress", &json!({"courseId":"course"})).unwrap()["one.mp4"]["time"],
+            json!(45.0)
+        );
+        assert_eq!(
+            read(
+                &db,
+                "notes",
+                &json!({"courseId":"course","videoPath":"one.mp4"})
+            )
+            .unwrap()["content"],
+            "保留的笔记"
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT path FROM course_locations WHERE course_id='course'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "/original/videos"
+        );
+        let mut restored = original;
+        restored["restore"] = json!(true);
+        request(&mut db, "recent-courses", "POST", json!({}), restored).unwrap();
+        let course = read(&db, "library", &json!({"id":"course"})).unwrap();
+        assert_eq!(course["name"], "自定义名称");
+        assert_eq!(course["sourceName"], "原文件夹");
+        assert_eq!(
+            read(&db, "progress", &json!({"courseId":"course"})).unwrap()["one.mp4"]["time"],
+            json!(45.0)
+        );
+    }
+
+    #[test]
+    fn library_preferences_migrate_and_survive_database_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("old.db");
+        {
+            let mut db = super::open(&path).unwrap();
+            db.execute("DROP TABLE course_library_preferences", [])
+                .unwrap();
+            db.execute(
+                "INSERT INTO recent_courses VALUES ('old','旧课程',2,1,'one.mp4',1,1)",
+                [],
+            )
+            .unwrap();
+            // Existing databases gain the preferences table without changing course IDs or names.
+            drop(db);
+            db = super::open(&path).unwrap();
+            assert_eq!(
+                read(&db, "library", &json!({"id":"old"})).unwrap()["name"],
+                "旧课程"
+            );
+            request(
+                &mut db,
+                "library",
+                "POST",
+                json!({}),
+                json!({"id":"old","name":"新的名称"}),
+            )
+            .unwrap();
+            request(
+                &mut db,
+                "library",
+                "DELETE",
+                json!({"id":"old"}),
+                Value::Null,
+            )
+            .unwrap();
+        }
+        let mut db = super::open(&path).unwrap();
+        assert_eq!(read(&db, "library", &json!({})).unwrap(), json!([]));
+        assert_eq!(
+            read(&db, "library", &json!({"id":"old","includeDeleted":"true"})).unwrap()["name"],
+            "新的名称"
+        );
+        request(
+            &mut db,
+            "recent-courses",
+            "POST",
+            json!({}),
+            json!({"id":"old","name":"旧课程","videoCount":2,"restore":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            read(&db, "library", &json!({"id":"old"})).unwrap()["name"],
+            "新的名称"
+        );
     }
 
     #[test]

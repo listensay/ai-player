@@ -2,7 +2,8 @@ import { computed, reactive } from 'vue'
 import { useProgress } from '~/composables/useProgress'
 import { scanCourse } from '~/utils/fs'
 import { chooseCourseFolder, fileMetadata } from '~/utils/desktopFiles'
-import { databaseRequest } from '~/utils/database'
+import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
+import { normalizeCourseName } from '~/utils/courseLibrary'
 import type { CourseDirectoryHandle } from '~/types/storage'
 import { markRaw } from 'vue'
 import type { Course, LibraryCourse, RecentCourse, TreeFilter, VideoEntry } from '~/types/course'
@@ -50,18 +51,20 @@ async function initialize() {
   }))
 }
 
-async function getRecent(id: string): Promise<RecentCourse | null> {
+async function getRecent(id: string, includeDeleted = false): Promise<RecentCourse | null> {
   const recent =
     state.recents.find((r) => r.id === id) ??
     state.library.find((r) => r.id === id) ??
-    (await databaseRequest<RecentCourse | null>('library', { query: { id } }))
+    (await databaseRequest<RecentCourse | null>('library', {
+      query: { id, ...(includeDeleted ? { includeDeleted: 'true' } : {}) },
+    }))
   if (!recent) return null
   return { ...recent, handle: handles.get(recent.id) ?? handles.get(id) }
 }
 
-async function saveRecent(recent: RecentCourse) {
+async function saveRecent(recent: RecentCourse, restore = false) {
   const { handle: _handle, ...record } = recent
-  return dbSaveRecentCourse(record)
+  return dbSaveRecentCourse({ ...record, name: recent.sourceName ?? recent.name, restore })
 }
 
 async function findIdentity(handle: CourseDirectoryHandle) {
@@ -72,13 +75,13 @@ async function findIdentity(handle: CourseDirectoryHandle) {
     } catch {
       /* 单个目录不可用不影响其他已保存的课程位置 */
     }
-    if (same) return { id, recent: await getRecent(id) }
+    if (same) return { id, recent: await getRecent(id, true) }
   }
   return null
 }
 
 async function validateRelink(recent: RecentCourse, handle: CourseDirectoryHandle, videos: VideoEntry[]) {
-  if (handle.name !== recent.name || videos.length !== recent.videoCount) return false
+  if (handle.name !== (recent.sourceName ?? recent.name) || videos.length !== recent.videoCount) return false
   const guide = await dbFetchGuide(recent.id)
   const metadata = guide?.metadata
   if (metadata && typeof metadata === 'object') {
@@ -130,7 +133,8 @@ export function useCourseStore() {
       handles.set(id, rawHandle)
       const entry: RecentCourse = {
         id,
-        name: handle.name,
+        name: existing?.name ?? handle.name,
+        sourceName: handle.name,
         handle: rawHandle,
         videoCount: videos.length,
         lastOpenedAt: Date.now(),
@@ -139,19 +143,22 @@ export function useCourseStore() {
       // 进度需先就绪，直接打开播放器时才能恢复播放位置。
       await progress.ready()
       if (token !== operation) return false
-      state.course = { id, name: handle.name, handle: rawHandle, root: tree, videos }
-      state.accessRecent = entry
-      state.recents = [entry, ...state.recents.filter((r) => r.id !== id)].slice(0, MAX_RECENTS)
-      const libraryEntry = state.library.find((r) => r.id === id)
-      if (libraryEntry) Object.assign(libraryEntry, entry)
-      else state.library.unshift({ ...entry, status: 'active', pinned: false })
       const target =
         videos.find((v) => v.path === preferredVideoPath) ??
         videos.find((v) => v.path === entry.lastVideoPath) ??
         videos[0]!
-      state.currentVideo = target
       entry.lastVideoPath = target.path
-      await saveRecent(entry)
+      if (!(await saveRecent(entry, true))) throw new Error('课程记录保存失败，请重试。')
+      const saved = await databaseRequest<LibraryCourse>('library', { query: { id } })
+      if (token !== operation) return false
+      entry.name = saved.name
+      state.course = { id, name: entry.name, handle: rawHandle, root: tree, videos }
+      state.accessRecent = entry
+      state.recents = [entry, ...state.recents.filter((r) => r.id !== id)].slice(0, MAX_RECENTS)
+      const libraryEntry = state.library.find((r) => r.id === id)
+      if (libraryEntry) Object.assign(libraryEntry, saved, entry)
+      else state.library.unshift({ ...saved, ...entry })
+      state.currentVideo = target
       return token === operation
     } catch (err) {
       if (token === operation) state.error = `读取课程失败：${(err as Error).message}`
@@ -253,6 +260,40 @@ export function useCourseStore() {
     }
   }
 
+  async function renameCourse(id: string, value: string) {
+    const name = normalizeCourseName(value)
+    if (state.loading) throw new Error('课程正在处理中，请稍后重试。')
+    state.loading = true
+    try {
+      await initialize()
+      await databaseRequest('library', { method: 'POST', body: { id, name } })
+      for (const entry of [...state.library, ...state.recents, state.accessRecent]) {
+        if (entry?.id === id) entry.name = name
+      }
+      if (state.course?.id === id) state.course.name = name
+      return name
+    } finally {
+      state.loading = false
+    }
+  }
+
+  async function deleteCourse(id: string) {
+    if (state.loading) throw new Error('课程正在处理中，请稍后重试。')
+    state.loading = true
+    try {
+      await initialize()
+      await progress.flush()
+      await flushDatabaseWrites()
+      await databaseRequest('library', { method: 'DELETE', query: { id } })
+      state.library = state.library.filter((entry) => entry.id !== id)
+      state.recents = state.recents.filter((entry) => entry.id !== id)
+      if (state.course?.id === id) closeCourse()
+      else if (state.accessRecent?.id === id) state.accessRecent = null
+    } finally {
+      state.loading = false
+    }
+  }
+
   function selectVideo(video: VideoEntry) {
     if (state.currentVideo === video) return
     state.currentVideo = video
@@ -306,6 +347,8 @@ export function useCourseStore() {
     restoreCourse,
     removeRecent,
     updateLibrary,
+    renameCourse,
+    deleteCourse,
     selectVideo,
     selectByOffset,
     closeCourse,

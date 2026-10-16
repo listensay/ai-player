@@ -306,7 +306,17 @@ pub fn desktop_smoke_report(
     result: serde_json::Value,
 ) -> Result<(), String> {
     let phase = std::env::var("AI_PLAYER_SMOKE_PHASE").unwrap_or_default();
-    if !["first", "second", "lessons", "lesson-restart"].contains(&phase.as_str()) {
+    if ![
+        "first",
+        "second",
+        "lessons",
+        "lesson-restart",
+        "library",
+        "library-restart",
+        "catalog",
+    ]
+    .contains(&phase.as_str())
+    {
         return Err("Invalid smoke phase".into());
     }
     if let Some(progress) = result["progress"].as_str() {
@@ -336,14 +346,20 @@ pub fn init() -> TauriPlugin<Wry> {
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
             {
                 let phase = std::env::var("AI_PLAYER_SMOKE_PHASE").unwrap_or_default();
-                if !["first", "second", "lessons", "lesson-restart"].contains(&phase.as_str()) {
+                if !["first", "second", "lessons", "lesson-restart", "library", "library-restart", "catalog"].contains(&phase.as_str()) {
                     return;
                 }
                 let script = format!(
                     "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {}; globalThis.__AI_PLAYER_SMOKE_IME__ = {};\n{}",
                     serde_json::json!(phase),
                     interactive_ime(),
-                    include_str!("../../tests/desktop/smoke.js")
+                    if phase == "catalog" {
+                        include_str!("../../tests/desktop/courseCatalog.js")
+                    } else if phase.starts_with("library") {
+                        include_str!("../../tests/desktop/courseLibrary.js")
+                    } else {
+                        include_str!("../../tests/desktop/smoke.js")
+                    }
                 );
                 if let Err(error) = webview.eval(&script) {
                     eprintln!("Desktop smoke injection failed: {error}");

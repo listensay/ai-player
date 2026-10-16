@@ -12,6 +12,8 @@ import TodayWorkList from '~/components/TodayWorkList.vue'
 import UiButton from '~/components/UiButton.vue'
 import PlanAdjustment from '~/components/PlanAdjustment.vue'
 import ContinueStudyButton from '~/components/ContinueStudyButton.vue'
+import CourseCatalogBranch from '~/components/CourseCatalogBranch.vue'
+import { catalogFolderPaths, catalogLocation, filterCourseCatalog } from '~/utils/courseCatalog'
 import type { Course, VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
@@ -185,7 +187,8 @@ const week = computed(() => {
 // Keep consecutive route segments in order, including returns to an earlier stage.
 const openGroups = reactive(new Set<string>())
 const groupPages = reactive<Record<string, number>>({})
-const catalogPage = ref(1)
+const openFolders = reactive(new Set<string>())
+const folderPages = reactive<Record<string, number>>({})
 const pageSize = 12
 const searching = computed(() => !!searchQuery.value.trim() || filter.value !== 'all')
 const groups = computed(() => {
@@ -213,16 +216,30 @@ const groups = computed(() => {
     }
   })
 })
-const catalogPages = computed(() => Math.max(1, Math.ceil(filteredVideos.value.length / pageSize)))
-const currentCatalogPage = computed(() => Math.min(catalogPage.value, catalogPages.value))
-const visibleVideos = computed(() =>
-  filteredVideos.value.slice((currentCatalogPage.value - 1) * pageSize, currentCatalogPage.value * pageSize),
+const catalogRoot = computed(() =>
+  filterCourseCatalog(
+    props.course.root,
+    new Set(filteredVideos.value.map((video) => video.path)),
+    courseProgressMap.value,
+  ),
 )
+const folderPaths = computed(() => catalogFolderPaths(catalogRoot.value))
 watch([searchQuery, filter, routeView, () => guide.state.includeOptional], () => {
-  catalogPage.value = 1
+  for (const key of Object.keys(folderPages)) delete folderPages[key]
   for (const key of Object.keys(groupPages)) delete groupPages[key]
 })
-const allOpen = computed(() => groups.value.every((g) => openGroups.has(g.key)))
+watch(
+  () => props.course.id,
+  () => {
+    openFolders.clear()
+    for (const key of Object.keys(folderPages)) delete folderPages[key]
+  },
+)
+const allOpen = computed(() =>
+  routeView.value
+    ? groups.value.every((g) => openGroups.has(g.key))
+    : folderPaths.value.every((path) => openFolders.has(path)),
+)
 function isOpen(key: string) {
   return searching.value || openGroups.has(key)
 }
@@ -231,8 +248,17 @@ function setGroupOpen(key: string, value: unknown) {
   else openGroups.delete(key)
 }
 function toggleAll() {
+  if (!routeView.value) {
+    if (allOpen.value) openFolders.clear()
+    else for (const path of folderPaths.value) openFolders.add(path)
+    return
+  }
   if (allOpen.value) openGroups.clear()
   else for (const g of groups.value) openGroups.add(g.key)
+}
+function setFolderOpen(path: string, open: boolean) {
+  if (open) openFolders.add(path)
+  else openFolders.delete(path)
 }
 
 // Follow the same unfinished lesson as “continue learning”; completed courses stay at the last viewed lesson.
@@ -246,6 +272,10 @@ const progressVideo = computed(() => {
 const progressTarget = computed(() => {
   const path = progressVideo.value?.path
   if (!path || !guide.guideReady.value || !progress.state.ready || searching.value) return null
+  if (!routeView.value) {
+    const folders = catalogLocation(catalogRoot.value, path, pageSize)
+    return folders ? { path, folders, groupKey: undefined, page: 1 } : null
+  }
   const group = routeView.value
     ? groups.value.find((entry) => entry.videos.some((video) => video.path === path))
     : undefined
@@ -275,8 +305,14 @@ async function revealLesson(path: string) {
   const lesson = viewport?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)
   if (!viewport || !lesson) return
   // Wait for the UI expansion to finish before measuring the final page height.
-  const panel = lesson.closest('.v-expansion-panel-text')
-  await Promise.allSettled((panel?.getAnimations() ?? []).map((animation) => animation.finished))
+  const animations: Animation[] = []
+  for (
+    let panel = lesson.closest('.v-expansion-panel-text');
+    panel;
+    panel = panel.parentElement?.closest('.v-expansion-panel-text') ?? null
+  )
+    animations.push(...panel.getAnimations())
+  await Promise.allSettled(animations.map((animation) => animation.finished))
   if (revision !== revealRevision || !lesson.isConnected || !viewport.clientHeight) return
   const bounds = lesson.getBoundingClientRect(),
     frame = viewport.getBoundingClientRect()
@@ -300,7 +336,12 @@ watch(
     if (target.groupKey) {
       openGroups.add(target.groupKey)
       groupPages[target.groupKey] = target.page
-    } else catalogPage.value = target.page
+    } else if (target.folders) {
+      for (const location of target.folders) {
+        if (location.folder) openFolders.add(location.folder)
+        folderPages[location.folder] = location.page
+      }
+    }
     void revealLesson(target.path)
   },
   { immediate: true },
@@ -514,7 +555,7 @@ const todayMinutes = computed(() =>
                 <VCheckbox v-model="guide.state.includeOptional" label="包含选修课" />
               </VListItem>
               <VListItem
-                v-if="routeView && groups.length > 1 && !searching"
+                v-if="(routeView ? groups.length > 1 : folderPaths.length > 0) && !searching"
                 :title="allOpen ? '全部收起' : '全部展开'"
                 @click="toggleAll"
               />
@@ -701,90 +742,76 @@ const todayMinutes = computed(() =>
             </section>
           </div>
 
-          <!-- 完整目录 -->
-          <div v-else class="course-lesson-grid grid gap-4">
-            <button
-              v-for="v in visibleVideos"
-              :key="v.path"
-              type="button"
-              :data-path="v.path"
-              :aria-current="v.path === progressVideo?.path ? 'step' : undefined"
-              :class="{ 'overview-current-lesson': v.path === progressVideo?.path }"
-              class="group flex h-full w-full min-w-0 items-start gap-3.5 rounded-2xl border border-linen bg-pure-white p-4 text-left transition-all duration-150 hover:border-charcoal-ink hover:shadow-xs"
-              @click="emit('play', v)"
-            >
-              <span
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-caption font-bold"
-                :class="
-                  getVideoProgress(v.path)?.done
-                    ? 'bg-charcoal-ink text-pure-white'
-                    : getVideoProgress(v.path)?.ratio
-                      ? 'bg-sunbeam-yellow/40 text-charcoal-ink'
-                      : 'bg-page-cream text-stone'
-                "
-              >
-                <AppIcon v-if="getVideoProgress(v.path)?.done" name="check" :size="14" />
-                <span v-else>{{ String(lessonNumber(v)).padStart(2, '0') }}</span>
-              </span>
-              <span class="min-w-0 flex-1">
-                <span
-                  class="line-clamp-2 text-body-sm font-bold leading-snug text-charcoal-ink [overflow-wrap:anywhere] group-hover:text-deep-indigo"
-                  :title="v.title"
-                >
-                  {{ lessonTitle(v) }}
-                </span>
-                <span class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-stone">
-                  <span
-                    v-if="v.path === progressVideo?.path"
-                    class="rounded-full bg-deep-indigo/10 px-2 py-0.5 text-[11px] font-bold text-deep-indigo"
-                  >
-                    当前课节
-                  </span>
-                  <span
-                    v-if="getVideoProgress(v.path)?.done"
-                    class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink"
-                  >
-                    已完成
-                  </span>
-                  <span
-                    v-else-if="getVideoProgress(v.path)?.ratio"
-                    class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink"
-                  >
-                    已看 {{ Math.round((getVideoProgress(v.path)?.ratio ?? 0) * 100) }}%
-                  </span>
-
-                  <span v-if="v.dir" class="min-w-0 truncate text-[11px]" :title="v.dir">{{
-                    conciseSource(v.dir)
-                  }}</span>
-                </span>
-              </span>
-              <span
-                class="mt-1 shrink-0 text-stone transition-transform duration-150 group-hover:translate-x-1 group-hover:text-charcoal-ink"
-              >
-                <AppIcon name="chevron-right" :size="16" />
-              </span>
-            </button>
-          </div>
-
-          <nav
-            v-if="!routeView && catalogPages > 1"
-            class="mt-5 flex items-center justify-end gap-3"
-            aria-label="课程目录分页"
+          <!-- 完整目录：按原文件夹层级展开 -->
+          <CourseCatalogBranch
+            v-else
+            :folder="catalogRoot"
+            :expanded="openFolders"
+            :pages="folderPages"
+            :page-size="pageSize"
+            :filtering="searching"
+            @toggle="setFolderOpen"
+            @page="(path, page) => (folderPages[path] = page)"
           >
-            <UiButton size="sm" :disabled="currentCatalogPage === 1" @click="catalogPage = currentCatalogPage - 1">
-              上一页
-            </UiButton>
-            <span class="text-caption tabular font-medium text-stone"
-              >{{ currentCatalogPage }} / {{ catalogPages }}</span
-            >
-            <UiButton
-              size="sm"
-              :disabled="currentCatalogPage === catalogPages"
-              @click="catalogPage = currentCatalogPage + 1"
-            >
-              下一页
-            </UiButton>
-          </nav>
+            <template #video="{ video: v }">
+              <button
+                type="button"
+                :data-path="v.path"
+                :aria-current="v.path === progressVideo?.path ? 'step' : undefined"
+                :class="{ 'overview-current-lesson': v.path === progressVideo?.path }"
+                class="group flex h-full w-full min-w-0 items-start gap-3.5 rounded-2xl border border-linen bg-pure-white p-4 text-left transition-all duration-150 hover:border-charcoal-ink hover:shadow-xs"
+                @click="emit('play', v)"
+              >
+                <span
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-caption font-bold"
+                  :class="
+                    getVideoProgress(v.path)?.done
+                      ? 'bg-charcoal-ink text-pure-white'
+                      : getVideoProgress(v.path)?.ratio
+                        ? 'bg-sunbeam-yellow/40 text-charcoal-ink'
+                        : 'bg-page-cream text-stone'
+                  "
+                >
+                  <AppIcon v-if="getVideoProgress(v.path)?.done" name="check" :size="14" />
+                  <span v-else>{{ String(lessonNumber(v)).padStart(2, '0') }}</span>
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span
+                    class="line-clamp-2 text-body-sm font-bold leading-snug text-charcoal-ink [overflow-wrap:anywhere] group-hover:text-deep-indigo"
+                    :title="v.title"
+                  >
+                    {{ lessonTitle(v) }}
+                  </span>
+                  <span class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-stone">
+                    <span
+                      v-if="v.path === progressVideo?.path"
+                      class="rounded-full bg-deep-indigo/10 px-2 py-0.5 text-[11px] font-bold text-deep-indigo"
+                    >
+                      当前课节
+                    </span>
+                    <span
+                      v-if="getVideoProgress(v.path)?.done"
+                      class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink"
+                    >
+                      已完成
+                    </span>
+                    <span
+                      v-else-if="getVideoProgress(v.path)?.ratio"
+                      class="shrink-0 whitespace-nowrap font-medium text-charcoal-ink"
+                    >
+                      已看 {{ Math.round((getVideoProgress(v.path)?.ratio ?? 0) * 100) }}%
+                    </span>
+                  </span>
+                </span>
+                <span
+                  class="mt-1 shrink-0 text-stone transition-transform duration-150 group-hover:translate-x-1 group-hover:text-charcoal-ink"
+                >
+                  <AppIcon name="chevron-right" :size="16" />
+                </span>
+              </button>
+            </template>
+          </CourseCatalogBranch>
+
           <div v-if="!filteredVideos.length" class="py-12 text-center text-body-sm text-stone">未找到匹配的课节</div>
         </div>
       </section>

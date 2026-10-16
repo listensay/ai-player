@@ -93,6 +93,11 @@ CREATE TABLE IF NOT EXISTS course_library (
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','archived')),
   pinned INTEGER NOT NULL DEFAULT 0
 );
+-- 显示名称与目录名分离；删除标记防止迟到的最近课程写入恢复已移除课程。
+CREATE TABLE IF NOT EXISTS course_library_preferences (
+  course_id TEXT PRIMARY KEY, display_name TEXT,
+  deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1))
+);
 INSERT OR IGNORE INTO course_library (id,name,video_count,last_opened_at,last_video_path)
   SELECT id,name,video_count,last_opened_at,last_video_path FROM recent_courses;
 CREATE TRIGGER IF NOT EXISTS library_recent_insert AFTER INSERT ON recent_courses BEGIN

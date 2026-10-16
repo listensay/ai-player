@@ -20,6 +20,7 @@ export async function dbSaveRecentCourse(course: {
   videoCount: number
   lastOpenedAt: number
   lastVideoPath?: string
+  restore?: boolean
 }): Promise<boolean> {
   try {
     await databaseRequest('recent-courses', {

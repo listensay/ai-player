@@ -81,7 +81,7 @@ export function createLearningData(request: typeof databaseRequest) {
         collection,
       ) ||
       (collection === 'settings' && /^(study-records:|daily-practice:)/u.test(key))
-    if (material) sources.invalidate(id)
+    if (material || collection === 'library') sources.invalidate(id)
     if (planning) dashboard.invalidate(id)
     return material || planning
   }

@@ -22,8 +22,40 @@ const { outputText } = ts.transpileModule(code, {
 const { default: Dashboard } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'))
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
-function mount(t, { completed = 37, ready = true, route = true } = {}) {
-  const videos = Array.from({ length: 64 }, (_, index) => ({ path: `${index}.mp4`, title: `课程 ${index + 1}`, index }))
+function mount(t, { completed = 37, ready = true, route = true, nested = false } = {}) {
+  const videos = Array.from({ length: 64 }, (_, index) => {
+    const dir = nested && index < 63 ? `${index < 12 ? '01-基础' : index < 48 ? '02-进阶' : '03-项目'}/01-入门` : ''
+    return {
+      kind: 'video',
+      path: `${dir ? dir + '/' : ''}${index}.mp4`,
+      name: `${index}.mp4`,
+      title: `课程 ${index + 1}`,
+      dir,
+      index,
+    }
+  })
+  const folder = (path, children) => ({
+    kind: 'folder',
+    path,
+    name: path.split('/').at(-1) || '课程',
+    children,
+    videoCount: children.reduce((sum, child) => sum + (child.kind === 'folder' ? child.videoCount : 1), 0),
+  })
+  const root = folder(
+    '',
+    nested
+      ? ['01-基础', '02-进阶', '03-项目']
+          .map((name) =>
+            folder(name, [
+              folder(
+                `${name}/01-入门`,
+                videos.filter((v) => v.dir.startsWith(name)),
+              ),
+            ]),
+          )
+          .concat(videos.at(-1))
+      : videos,
+  )
   const progress = {
     state: reactive({
       ready,
@@ -54,7 +86,7 @@ function mount(t, { completed = 37, ready = true, route = true } = {}) {
     routePositions: ref(new Map(videos.map((video, index) => [video.path, index + 1]))),
   }
   const props = reactive({
-    course: { id: 'one', name: '课程', videos },
+    course: { id: 'one', name: '课程', videos, root },
     currentVideo: videos[completed] ?? videos.at(-1),
     stats: { total: videos.length, done: completed, started: 0 },
   })
@@ -121,7 +153,7 @@ test('用户手动翻页或收起后，普通进度刷新不抢位置；切换�
   assert.equal(view.isOpen('b:12.mp4'), false)
   guide.state.view = 'all'
   await nextTick()
-  assert.equal(view.currentCatalogPage.value, 4)
+  assert.equal(view.folderPages[''], 4)
   guide.state.view = 'route'
   await nextTick()
   assert.equal(view.isOpen('b:12.mp4'), true)
@@ -151,7 +183,7 @@ test('全部学完后定位到最后观看课节，而非回到第一节', async
   assert.equal(view.groupPages['a:48.mp4'], 2)
   guide.state.view = 'all'
   await nextTick()
-  assert.equal(view.currentCatalogPage.value, 6)
+  assert.equal(view.folderPages[''], 6)
 })
 
 test('展开动画完成后才滚动，手动操作及卸载会取消迟到的自动定位', async (t) => {
@@ -209,4 +241,47 @@ test('展开动画完成后才滚动，手动操作及卸载会取消迟到的�
   finish()
   await late
   assert.equal(scrolls.length, 1)
+})
+
+test('完整目录沿原目录层级展开当前课节，按所在目录分页并保留同名子目录', async (t) => {
+  const { view, props } = mount(t, { route: false, nested: true })
+  await nextTick()
+  assert.deepEqual(
+    view.catalogRoot.value.children.map((node) => node.name),
+    ['01-基础', '02-进阶', '03-项目', '63.mp4'],
+  )
+  assert.equal(view.openFolders.has('02-进阶'), true)
+  assert.equal(view.openFolders.has('02-进阶/01-入门'), true)
+  assert.equal(view.openFolders.has('01-基础'), false)
+  assert.equal(view.folderPages['02-进阶/01-入门'], 3)
+  assert.equal(view.catalogRoot.value.children[1].children[0].videoCount, 36)
+  assert.equal(view.catalogRoot.value.children[1].done, 25)
+  assert.equal(view.catalogRoot.value.children[0].children[0].name, view.catalogRoot.value.children[1].children[0].name)
+  assert.equal(props.course.root.children[1].videoCount, 36)
+  view.toggleAll()
+  assert.equal(
+    view.folderPaths.value.every((path) => view.openFolders.has(path)),
+    true,
+  )
+  view.toggleAll()
+  assert.equal(view.openFolders.size, 0)
+})
+
+test('完整目录搜索保留命中视频的所有父目录，筛选不会修改原树，清除后恢复当前课节', async (t) => {
+  const { view, props } = mount(t, { route: false, nested: true })
+  await nextTick()
+  view.searchQuery.value = '课程 38'
+  await nextTick()
+  assert.equal(view.catalogRoot.value.children.length, 1)
+  assert.equal(view.catalogRoot.value.children[0].path, '02-进阶')
+  assert.equal(view.catalogRoot.value.children[0].children[0].children[0].path, '02-进阶/01-入门/37.mp4')
+  assert.equal(view.catalogRoot.value.videoCount, 1)
+  assert.equal(props.course.root.videoCount, 64)
+  view.filter.value = 'done'
+  await nextTick()
+  assert.equal(view.catalogRoot.value.children.length, 0)
+  view.searchQuery.value = ''
+  view.filter.value = 'all'
+  await nextTick()
+  assert.equal(view.folderPages['02-进阶/01-入门'], 3)
 })

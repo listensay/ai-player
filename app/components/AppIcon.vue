@@ -13,6 +13,8 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Ellipsis,
+  Pin,
 } from '@lucide/vue'
 import {
   ArrowLeft,
@@ -86,6 +88,8 @@ const icons = {
   'panel-left-open': PanelLeftOpen,
   'panel-right-close': PanelRightClose,
   'panel-right-open': PanelRightOpen,
+  more: Ellipsis,
+  pin: Pin,
 }
 export type IconName = keyof typeof icons
 withDefaults(defineProps<{ name: IconName; size?: number | string }>(), { size: 20 })
