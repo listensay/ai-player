@@ -4,6 +4,7 @@ import AppUtilityDialog from '~/components/AppUtilityDialog.vue'
 import { isAppDialogKind } from '~/composables/useAppDialogs'
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { useRoute, useRouter } from 'vue-router'
+import AppSidebar from '~/components/AppSidebar.vue'
 import AppTopBar from '~/components/AppTopBar.vue'
 import PlayerStudyHeader from '~/components/PlayerStudyHeader.vue'
 import UiButton from '~/components/UiButton.vue'
@@ -59,65 +60,77 @@ watch(
   <VApp>
     <div
       :inert="appDialogs.isOpen.value || helpOpen || guideOpen || practice.state.open || daily.practice.state.open"
-      class="flex h-dvh flex-col overflow-hidden bg-page-cream text-charcoal-ink"
+      class="flex h-dvh overflow-hidden bg-page-cream text-charcoal-ink"
     >
-      <AppTopBar
-        :course-name="course?.name"
-        :total="stats.total"
-        :done="stats.done"
+      <AppSidebar
+        v-if="currentView !== 'player'"
+        :course="course"
         :current-view="currentView"
         @settings="appDialogs.open('settings')"
         @study="appDialogs.open('study')"
-        @back="router.push(course ? `/courses/${course.id}` : '/')"
         @help="helpOpen = true"
-        @close="router.push('/')"
-        @guide="openGuide()"
-        @notes="router.push('/notes')"
-      >
-        <template v-if="course && currentView === 'player'" #center>
-          <PlayerStudyHeader />
-        </template>
-      </AppTopBar>
+      />
 
-      <aside
-        v-if="reminderLinks.error.value"
-        role="alert"
-        class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm"
-      >
-        <p>{{ reminderLinks.error.value }}</p>
-        <UiButton size="sm" @click="reminderLinks.retry()">重试打开</UiButton>
-      </aside>
-      <aside
-        v-if="progress.state.error"
-        role="alert"
-        class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm"
-      >
-        <p>{{ progress.state.error }}</p>
-        <UiButton
-          size="sm"
-          :disabled="progress.state.loading || progress.state.saving"
-          @click="progress.retry().catch(() => {})"
-          >{{ progress.state.ready ? '重试保存' : '重试读取' }}</UiButton
+      <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <AppTopBar
+          v-if="course && currentView === 'player'"
+          :course-name="course?.name"
+          :total="stats.total"
+          :done="stats.done"
+          :current-view="currentView"
+          @settings="appDialogs.open('settings')"
+          @study="appDialogs.open('study')"
+          @back="router.push(course ? `/courses/${course.id}` : '/courses')"
+          @help="helpOpen = true"
+          @close="router.push('/')"
+          @guide="openGuide()"
+          @notes="router.push('/notes')"
         >
-      </aside>
-      <StudyReminderNotice />
-      <RouterView />
+          <template v-if="course && currentView === 'player'" #center>
+            <PlayerStudyHeader />
+          </template>
+        </AppTopBar>
 
-      <!-- 轻提示 -->
-      <Transition
-        enter-active-class="transition duration-150 ease-soft"
-        enter-from-class="translate-y-2 opacity-0"
-        leave-active-class="transition duration-150 ease-soft"
-        leave-to-class="opacity-0"
-      >
-        <div
-          v-if="toast"
-          role="status"
-          class="pointer-events-none fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full bg-charcoal-ink px-4 py-2 text-body-sm font-medium text-pure-white shadow-subtle"
+        <aside
+          v-if="reminderLinks.error.value"
+          role="alert"
+          class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm"
         >
-          {{ toast }}
-        </div>
-      </Transition>
+          <p>{{ reminderLinks.error.value }}</p>
+          <UiButton size="sm" @click="reminderLinks.retry()">重试打开</UiButton>
+        </aside>
+        <aside
+          v-if="progress.state.error"
+          role="alert"
+          class="flex shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-5 py-3 text-body-sm"
+        >
+          <p>{{ progress.state.error }}</p>
+          <UiButton
+            size="sm"
+            :disabled="progress.state.loading || progress.state.saving"
+            @click="progress.retry().catch(() => {})"
+            >{{ progress.state.ready ? '重试保存' : '重试读取' }}</UiButton
+          >
+        </aside>
+        <StudyReminderNotice />
+        <RouterView />
+
+        <!-- 轻提示 -->
+        <Transition
+          enter-active-class="transition duration-150 ease-soft"
+          enter-from-class="translate-y-2 opacity-0"
+          leave-active-class="transition duration-150 ease-soft"
+          leave-to-class="opacity-0"
+        >
+          <div
+            v-if="toast"
+            role="status"
+            class="pointer-events-none fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full bg-charcoal-ink px-4 py-2 text-body-sm font-medium text-pure-white shadow-subtle"
+          >
+            {{ toast }}
+          </div>
+        </Transition>
+      </div>
     </div>
     <ShortcutsDialog :open="helpOpen" @close="helpOpen = false" />
     <GuideDialog

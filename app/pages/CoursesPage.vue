@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { usePageTitle } from '~/composables/usePageTitle'
 import LearningHome from '~/components/LearningHome.vue'
-usePageTitle('首页 · Study Helper')
+
+usePageTitle('网课学习 · Study Helper')
 </script>
 
 <template>
