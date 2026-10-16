@@ -4,12 +4,9 @@ import { buildInfo, diagnosticsReport } from '~/utils/diagnostics'
 import { performanceReport } from '~/utils/performance'
 import { desktopInvoke } from '~/utils/platform'
 import PageSectionNav from '~/components/PageSectionNav.vue'
-import { useAppDialogs } from '~/composables/useAppDialogs'
-import { currentRelease } from '~/utils/releases'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
 import ProgrammingSettingsPanel from '~/components/ProgrammingSettingsPanel.vue'
 import UiButton from '~/components/UiButton.vue'
-const dialogs = useAppDialogs()
 const props = defineProps<{ initialSection?: string }>()
 const activeSection = ref<'ai' | 'about' | 'programming'>('ai')
 watch(
@@ -64,13 +61,12 @@ async function exportReport() {
           <section v-if="activeSection === 'about'" id="settings-about" aria-labelledby="about-heading">
             <h2 id="about-heading" class="text-heading-sm">关于与诊断</h2>
             <div class="pane mt-5 space-y-4 p-5">
-              <p class="text-body font-bold">Study Helper {{ currentRelease.version }}</p>
+              <p class="text-body font-bold">Study Helper {{ buildInfo.version }}</p>
               <p class="text-caption text-stone">
                 构建 {{ buildInfo.commit }}{{ buildInfo.dirty ? ' · 包含本地修改' : '' }}<br />{{
                   buildInfo.builtAt ? new Date(buildInfo.builtAt).toLocaleString() : '开发环境'
                 }}
               </p>
-              <UiButton size="sm" variant="text" @click="dialogs.open('versions')">查看版本日志</UiButton>
               <div class="flex flex-wrap items-center gap-2">
                 <UiButton size="sm" variant="ghost" @click="metrics = performanceReport()">刷新耗时</UiButton>
                 <UiButton size="sm" :disabled="exporting" @click="exportReport">{{

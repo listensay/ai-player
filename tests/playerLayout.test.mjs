@@ -198,7 +198,6 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
           onMilestones: () => actions.push('milestones-dialog'),
           onClose: () => actions.push('close'),
           onGuide: () => actions.push('guide'),
-          onVersions: () => actions.push('versions-dialog'),
           onHelp: () => actions.push('help'),
         }),
     })
@@ -229,10 +228,9 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
   assert.deepEqual(actions.slice(-3), ['back', 'guide', 'close'])
   headerProps.courseName = ''
   await nextTick()
-  assert.deepEqual(toolbarLabels(), ['笔记', '学习管理', '设置', '版本日志', '快捷键（?）'])
-  headerFind('版本日志').props.onClick()
+  assert.deepEqual(toolbarLabels(), ['笔记', '学习管理', '设置', '快捷键（?）'])
   headerFind('快捷键').props.onClick()
-  assert.deepEqual(actions.slice(-2), ['versions-dialog', 'help'])
+  assert.equal(actions.at(-1), 'help')
   assert.equal(headerFind('返回上一页'), undefined)
   headerFind('设置').props.onClick()
   headerFind('学习管理').props.onClick()

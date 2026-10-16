@@ -19,7 +19,6 @@ const emit = defineEmits<{
   study: []
   guide: []
   notes: []
-  versions: []
 }>()
 </script>
 
@@ -82,9 +81,6 @@ const emit = defineEmits<{
           title="设置"
         >
           <AppIcon name="settings" :size="18" /><span class="hidden 2xl:inline">设置</span>
-        </UiButton>
-        <UiButton variant="text" size="sm" title="版本日志" aria-label="版本日志" @click="emit('versions')">
-          <AppIcon name="clock" :size="18" /><span class="hidden 2xl:inline">版本日志</span>
         </UiButton>
         <UiButton
           variant="text"

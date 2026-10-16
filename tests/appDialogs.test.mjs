@@ -49,7 +49,7 @@ const code = compileScript(descriptor, { id: 'utility-dialog-test', inlineTempla
   )
   .replace(/import (AppIcon|UiButton) from [^\n]+/g, 'const $1 = globalThis.utilityStubs.$1')
   .replace(
-    /import\('\.\/(SettingsPanel|StudyManagementPanel|ReleaseNotesPanel|MilestonesPanel)\.vue'\)/g,
+    /import\('\.\/(SettingsPanel|StudyManagementPanel|MilestonesPanel)\.vue'\)/g,
     'Promise.resolve(globalThis.utilityStubs.$1)',
   )
   .replace(/from ['"]vue['"]/g, `from '${import.meta.resolve('vue')}'`)
@@ -135,7 +135,6 @@ test('实际全屏容器切换设置后保留报告输入和实例，关闭按�
     SettingsPanel: panel('settings'),
     StudyManagementPanel: panel('study'),
     MilestonesPanel: panel('milestones'),
-    ReleaseNotesPanel: panel('versions'),
   }
   const { default: UtilityDialog } = await import(
     'data:text/javascript;base64,' + Buffer.from(outputText).toString('base64')

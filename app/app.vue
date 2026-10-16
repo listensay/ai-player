@@ -72,7 +72,6 @@ watch(
         @help="helpOpen = true"
         @close="router.push('/')"
         @guide="openGuide()"
-        @versions="appDialogs.open('versions')"
         @notes="router.push('/notes')"
       >
         <template v-if="course && currentView === 'player'" #center>
