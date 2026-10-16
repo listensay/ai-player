@@ -11,6 +11,7 @@ export default defineConfig([
     'dist/**',
     'node_modules/**',
     'src-tauri/runtime/**',
+    'src-tauri/affine/**',
     'src-tauri/target/**',
     'src-tauri/gen/**',
   ]),

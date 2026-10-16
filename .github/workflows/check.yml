@@ -18,6 +18,14 @@ jobs:
           components: rustfmt, clippy
       - run: npm ci
       - run: npm run check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/affine/build.mjs
+      - run: node scripts/affine/test.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
       - run: node scripts/desktop-runtime.mjs
       - run: npm run check:rust
       - run: npm run bundle:check

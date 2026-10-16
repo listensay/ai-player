@@ -39,6 +39,25 @@ void (async () => {
   function expect(condition, message) {
     if (!condition) throw Error(message)
   }
+  function cursorIsRouted(state) {
+    const cursor = state.cursorRouting
+    return (
+      !cursor ||
+      (cursor.attached &&
+        cursor.toolbarOwn &&
+        cursor.notesOwn.every((owns) => owns === !state.hidden) &&
+        cursor.hostOwn.every((owns) => owns === state.hidden))
+    )
+  }
+  async function noteVisibility(hidden, label) {
+    let state
+    await until(async () => {
+      state = await invoke('desktop_smoke_affine', { text: null })
+      return state.exists && state.hidden === hidden && cursorIsRouted(state)
+    }, label).catch((error) => {
+      throw Error(`${error}: ${JSON.stringify(state?.cursorRouting)}`)
+    })
+  }
   const route = (lesson) => {
     location.hash = `/courses/smoke-course/player?lesson=${lesson}`
   }
@@ -194,7 +213,7 @@ void (async () => {
           'Only the Karen header must be transparent',
         )
         expect(
-          growth.querySelectorAll('.pane').length === 5 &&
+          growth.querySelectorAll('.pane').length === 4 &&
             [...growth.querySelectorAll('.pane')].every(
               (card) => getComputedStyle(card).backgroundColor === 'rgb(255, 255, 255)',
             ),
@@ -202,146 +221,96 @@ void (async () => {
         )
         await click('关闭学习管理')
       })
-      await step('notion-native-edit-switch-hide-restore', async () => {
+      await step('affine-local-edit-switch-hide-restore', async () => {
         route('lesson-0.mp4')
-        const probe = () => invoke('desktop_smoke_notion', { text: null })
-        async function bindPage(name) {
-          const input = await until(() => document.querySelector('#notion-page-url'), 'page link')
-          input.value = `https://app.notion.com/${name}`
-          input.dispatchEvent(new Event('input', { bubbles: true }))
-          await click('绑定并打开')
-          await until(async () => (await probe()).probe?.path === `/${name}`, 'native page loaded')
-        }
-        await bindPage('smoke-a')
-        await until(async () => (await probe()).probe?.ipcBlocked, 'remote page denied native database access')
-        expect(!document.querySelector('.milkdown'), 'Removed local editor must not load')
-        const nativeUserAgent = (await probe()).probe?.userAgent ?? ''
-        if (/Macintosh/u.test(nativeUserAgent) && /AppleWebKit/u.test(nativeUserAgent)) {
-          expect(
-            /Version\/\d+(?:\.\d+)* Safari\/605\.1\.15/u.test(nativeUserAgent),
-            'Notion recognizes macOS WebKit as Safari',
+        const probe = () => invoke('desktop_smoke_affine', { text: null })
+        let lastNote
+        await until(
+          async () => {
+            lastNote = (await probe()).probe
+            return lastNote?.ready && lastNote.title === 'lesson-0' && lastNote.lesson?.path === 'lesson-0.mp4'
+          },
+          'local lesson note opens',
+          60000,
+        ).catch((error) => {
+          throw Error(
+            `${error}: ${JSON.stringify({ docId: lastNote?.docId, title: lastNote?.title, lesson: lastNote?.lesson })}`,
           )
-          expect(
-            !/Chrome|Chromium|Electron/u.test(nativeUserAgent),
-            'Notion must not use Chromium input handling on WebKit',
-          )
-        }
+        })
+        const first = (await probe()).probe.docId
+        await until(async () => (await probe()).probe?.ipcBlocked, 'notes cannot access the main database directly')
+        expect(!(await probe()).probe.hasLogin, 'Local workspace has no account entry')
+        const written = await invoke('desktop_smoke_affine', { text: 'Native AFFiNE draft' })
+        expect(written.probe?.text === 'Native AFFiNE draft', `Local draft write returned: ${JSON.stringify(written)}`)
+        await until(async () => (await probe()).probe?.text === 'Native AFFiNE draft', 'local editor stores its text')
         await until(async () => {
           const state = await probe(),
-            rect = document.querySelector('.notion-webview-slot').getBoundingClientRect()
+            rect = document.querySelector('.affine-webview-slot').getBoundingClientRect()
           return (
+            Math.abs(state.position.x - Math.ceil(rect.left)) <= 1 &&
             Math.abs(
               state.position.y -
                 Math.ceil(rect.top) -
                 (state.windowGeometry.hostSize.height / state.windowGeometry.scale - innerHeight),
-            ) <= 1 && Math.abs(state.position.x - Math.ceil(rect.left)) <= 1
+            ) <= 1
           )
-        }, 'native view aligns with DOM slot below its toolbar')
+        }, 'native notes align with the player panel')
+        await noteVisibility(false, 'only notes own the covered cursor region')
         const overlay = document.createElement('div')
         overlay.setAttribute('data-native-webview-overlay', '')
         overlay.style.cssText = 'position:fixed;inset:0;z-index:4000'
         document.body.append(overlay)
-        await until(async () => (await probe()).hidden, 'custom celebration hides native view')
+        await noteVisibility(true, 'overlay hides notes and returns the cursor to the host')
         overlay.remove()
-        await until(async () => !(await probe()).hidden, 'custom celebration dismissal restores native view')
-
-        if (globalThis.__AI_PLAYER_SMOKE_IME__) {
-          await step('notion-chinese-ime', async () => {
-            await until(
-              async () => {
-                const state = await probe()
-                ime = { nativeInput: state.nativeInput, probe: state.probe }
-                const result = state.probe
-                return (
-                  result?.text === '你好世界' &&
-                  result.richText === '你好世界' &&
-                  ['plain', 'rich'].every(
-                    (editor) => result.compositionState?.[editor]?.started && result.compositionState?.[editor]?.ended,
-                  )
-                )
-              },
-              'Chinese IME composition/commit in both fixture editors (not paste)',
-              600000,
-            )
-          })
-        }
-
-        await invoke('desktop_smoke_notion', { text: 'Native Notion draft' })
-        await until(async () => (await probe()).probe?.text === 'Native Notion draft', 'native editable page saves')
-        const popup = (action) => invoke('desktop_smoke_notion_popup', { action })
-        for (const [index, mode] of ['blank', 'direct'].entries()) {
-          await popup(mode)
-          await until(
-            async () => (await probe()).probe?.logins?.length === index + 1,
-            `${mode} popup returns to its opener`,
-          )
-          const state = (await probe()).probe
-          const result = state.logins[index]
-          expect(result.userAgent === nativeUserAgent, 'Login popup must keep the note panel browser profile')
-          expect(
-            !state.popupBlocked &&
-              result.hasOpener &&
-              result.sharedSession &&
-              result.callbackCookie &&
-              result.ipcBlocked,
-            'Popup must retain opener/session without native privileges',
-          )
-          expect(
-            state.path === '/smoke-a' && state.text === 'Native Notion draft',
-            'Login must not navigate or reload the note panel',
-          )
-          await until(async () => (await popup('count')) === 0, 'login popup closes itself')
-        }
-        await popup('hold')
-        await until(async () => (await popup('count')) === 1, 'cancelable login popup opens')
-        await popup('close')
-        await until(async () => (await popup('count')) === 0, 'cancel closes only popup')
-        await until(async () => (await probe()).probe?.popupClosed, 'opener observes canceled popup as closed')
-        expect((await probe()).probe?.text === 'Native Notion draft', 'Canceled login must preserve the note panel')
-        await popup('direct')
-        await until(
-          async () => (await probe()).probe?.logins?.length === 3,
-          'sign-in can be retried after cancellation',
-        )
-        await until(async () => (await popup('count')) === 0, 'retried popup closes itself')
+        await noteVisibility(false, 'notes return after overlay')
         await click('知识点')
-        await until(async () => (await probe()).hidden, 'tab hides native view')
-        await click('Notion')
-        await until(async () => !(await probe()).hidden, 'tab restores native view')
+        await noteVisibility(true, 'tab hides native notes')
+        await click('笔记')
+        await noteVisibility(false, 'tab restores native notes')
         await click('收起右侧面板')
-        await until(async () => (await probe()).hidden, 'sidebar hides native view')
+        await noteVisibility(true, 'sidebar hides native notes')
         await click('展开右侧面板')
-        await until(async () => !(await probe()).hidden, 'sidebar restores native view')
+        await noteVisibility(false, 'sidebar restores native notes')
         await click('课后练习')
-        await until(async () => (await probe()).hidden, 'dialog hides native view')
+        await noteVisibility(true, 'practice hides notes')
         await editor()
         await click('关闭练习')
-        await until(async () => !(await probe()).hidden, 'dialog close restores native view')
-        expect((await invoke('companion_is_open')) === false, 'Main-window commands must support multiple webviews')
+        await noteVisibility(false, 'closing practice restores notes')
         await click('全屏（F）')
-        await until(async () => (await probe()).hidden, 'fullscreen hides Notion')
+        await noteVisibility(true, 'fullscreen hides notes')
         await click('退出全屏（F）')
-        await until(async () => !(await probe()).hidden, 'leaving fullscreen restores Notion')
+        await noteVisibility(false, 'leaving fullscreen restores notes')
         const widthBefore = (await probe()).size.width
         document
           .querySelector('[aria-label="调整笔记面板宽度"]')
           .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
-        await until(async () => (await probe()).size.width > widthBefore, 'resizing panel moves native view')
-
+        await until(async () => (await probe()).size.width > widthBefore, 'resizing moves the native panel')
+        await noteVisibility(false, 'resized notes own their cursor region')
         route('lesson-1.mp4')
-        await bindPage('smoke-b')
-        expect((await probe()).probe.text === '', 'New lesson must not reuse the prior page')
+        await until(async () => {
+          const p = (await probe()).probe
+          return p?.ready && p.docId !== first && p.title === 'lesson-1' && p.lesson?.path === 'lesson-1.mp4'
+        }, 'different lessons have different notes')
+        expect((await probe()).probe.text === '', 'New lesson must start with an empty note')
         await click('课后练习')
         const python = await editor()
         expect(python.getModel().getLanguageId() === 'python', 'Python language did not load')
         await click('关闭练习')
         await until(() => !globalThis.__AI_PLAYER_SMOKE_EDITOR__, 'Python editor disposed')
         route('lesson-0.mp4')
-        await until(
-          async () =>
-            (await probe()).probe?.path === '/smoke-a' && (await probe()).probe?.text === 'Native Notion draft',
-          'saved lesson binding restores native document',
-        )
+        await until(async () => {
+          const p = (await probe()).probe
+          return p?.docId === first && p.text === 'Native AFFiNE draft'
+        }, 'lesson binding restores its local note')
+      })
+      await step('notes-workspace-cursor-routing', async () => {
+        location.hash = '/notes'
+        await until(() => !document.querySelector('video'), 'standalone note workspace')
+        await noteVisibility(false, 'standalone notes own their cursor region')
+        location.hash = '/'
+        await noteVisibility(true, 'home restores the host cursor')
+        route('lesson-0.mp4')
+        await noteVisibility(false, 'returning to the player restores note cursor routing')
       })
       await step('programming-execution-and-cancellation', async () => {
         await click('课后练习')
@@ -379,14 +348,17 @@ void (async () => {
         expect(blocked, 'Legacy local notes API must be disabled')
       })
     } else {
-      await step('restart-restores-notion-binding-and-code-results', async () => {
+      await step('restart-restores-local-notes-and-code-results', async () => {
         route('lesson-0.mp4')
-        await until(() => document.querySelector('[aria-label="Notion 笔记"]'), 'Notion panel after restart')
+        await until(() => document.querySelector('[aria-label="学习笔记"]'), 'Notes panel after restart')
         expect(!visible(document.getElementById('flow-check-title')), 'Restart must not replay saved lesson feedback')
         await until(async () => {
-          const probe = await invoke('desktop_smoke_notion', { text: null })
-          return probe.probe?.text === 'Native Notion draft' && probe.probe?.hadCookie && !probe.hidden
-        }, 'Notion page and browser session survive restart')
+          const probe = await invoke('desktop_smoke_affine', { text: null })
+          return (
+            probe.probe?.text === 'Native AFFiNE draft' && probe.probe?.lesson?.path === 'lesson-0.mp4' && !probe.hidden
+          )
+        }, 'local document and lesson binding survive restart')
+        await noteVisibility(false, 'cursor routing survives restart')
         await click('课后练习')
         expect((await editor()).getValue() === code, 'Monaco restored the wrong code')
         const record = await codeRecord()

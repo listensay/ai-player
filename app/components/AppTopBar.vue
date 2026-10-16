@@ -21,18 +21,24 @@ const emit = defineEmits<{
   settings: []
   study: []
   guide: []
+  notes: []
 }>()
 </script>
 
 <template>
   <header
     class="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-linen bg-pure-white px-3 sm:px-4 md:px-5"
+    :class="{ 'player-header': currentView === 'player' && $slots.center }"
   >
     <div class="flex min-w-0 items-center gap-3 overflow-hidden">
       <RouterLink to="/" aria-label="AI Player 首页" class="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
         <span class="h-3.5 w-3.5 rounded-full bg-brand-orange" aria-hidden="true" />
         <span class="text-body font-bold tracking-[-0.03em] text-charcoal-ink">AI Player</span>
       </RouterLink>
+    </div>
+
+    <div v-if="$slots.center" class="min-w-0">
+      <slot name="center" />
     </div>
 
     <div aria-label="顶部操作" class="flex min-w-0 items-center justify-end gap-2">
@@ -55,6 +61,9 @@ const emit = defineEmits<{
         </UiButton>
       </template>
       <template v-else>
+        <UiButton variant="text" size="sm" aria-label="笔记" title="笔记" @click="emit('notes')">
+          <AppIcon name="note" :size="18" /><span>笔记</span>
+        </UiButton>
         <UiButton
           variant="text"
           size="sm"
@@ -104,6 +113,18 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+.player-header {
+  display: grid;
+  grid-template-columns: minmax(128px, 1fr) auto minmax(128px, 1fr);
+}
+
+@media (max-width: 760px) {
+  .player-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+}
+
 .companion-toggle.ui-button.v-btn[aria-pressed='true'] {
   background: var(--color-page-cream);
   color: var(--color-deep-indigo);

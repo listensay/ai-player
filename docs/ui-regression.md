@@ -1,5 +1,41 @@
 # 桌面界面回归
 
+## 笔记指针闪烁修复（2026-10-16）
+
+macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将笔记菜单、按钮的手形指针重置为箭头。实际事件经 `WKMouseTrackingObserver` 转发，会绕过 `WKWebView.mouseMoved:`；11:12 安装的前一版虽通过原生命中检查，但用户实测仍闪烁。当前版本改为过滤主网页关联的 observer，按实际视图层级处理移动、进入和离开，保留其他实例的行为及所有实例类型。未采用会在 macOS 26 全屏切换时触发 AppKit 计算属性断言的动态子类方案。
+
+当前版本的 462 项前端测试、55 项 Rust 测试、格式、Clippy（含桌面测试特性）、类型检查、正式构建及包检查通过。独立 `app.aiplayer.smoke` 应用两次启动通过：笔记四角及中心的指针归属与 observer 关联、主工具栏、独立工作区与课节面板切换、缩放、侧栏/页签/弹窗/全屏显隐、回到首页和重启恢复。测试窗口与正式窗口一样禁用后台节流。日志见 `.cache/cursor-observer-frontend-check.log`、`.cache/cursor-observer-rust-check.log`、`.cache/cursor-observer-smoke-clippy.log`、`.cache/cursor-observer-desktop-check.log` 和 `.cache/cursor-observer-release-build.log`。
+
+实际指针运动单独验收：用户在“AI Player Smoke”的“全部”按钮上轻移鼠标后明确更正反馈为“没有频繁切换了，我点错了”。同期日志记录 1,570 次覆盖区域的主网页 `mouseMoved:` 被拦截，并有连续数百次移动期间不再设置箭头的区段。证据见 `.cache/cursor-observer-manual-check.json` 和 `.cache/cursor-observer-after.log`。自动命中检查及坐标点击不等同于实际鼠标运动；没有进行系统指针逐帧录像。
+
+12:04 将签名的 macOS arm64 0.1.0 修复版安装至 `/Applications/AI Player.app`，安装前后学习数据库内容校验一致。旧应用、学习数据库、完整 WebKit 笔记存储及本机端口配置备份位于 `/Users/od23/Library/Caches/ai-player-backups/20261016-120428-cursor-observer-install/`；15 个 WebKit SQLite 备份逐库比对模式与所有行。源码基准提交、可执行文件 SHA-256 与安装记录见 `.cache/cursor-observer-install.json`。正式包不包含原生指针诊断钩子。
+
+本次更新前、安装后及再次退出重启，正式应用均恢复工作区 `hQ89Xew6uvlRuTaNiXD1i`（端口 63536），两篇示例文档编号与内容预览一致，笔记显示菜单正常打开，首页两门课程及学习进度一致。系统签名校验通过，实际运行路径为 `/Applications/AI Player.app/Contents/MacOS/ai-player`。
+
+前一次 11:12 安装仍有独立的存储验收限制：更新前工作区编号为 `dAe76guZaOzaaJdR0_3bz`，更新后出现新的默认工作区 `hQ89Xew6uvlRuTaNiXD1i`；后者普通重启能恢复。旧工作区未在本机 AI Player WebKit 存储中找到，重置原因未确定。那次备份仅含旧应用和学习 SQLite 数据库，不含升级前 WebKit 笔记快照。用户已确认当时只有默认示例，没有个人笔记需要恢复；不能据此把那次跨版本笔记数据保留记为通过。前次安装记录保留在 `.cache/cursor-install.json`。
+
+## AFFiNE 本机工作区（2026-10-16）
+
+首页“笔记”打开独立 AFFiNE 工作区，播放器侧栏按课节打开同一工作区中的对应文档。保留文档、白板和本地整理功能，取消账号依赖；笔记 AI 复用主程序的模型设置。
+
+修复首次创建课节笔记及新文档备份等待远端就绪状态而停住的问题，改为等待本机文档加载和写入完成。原生回归先等待对应课节文档打开，再执行编辑，避免把默认欢迎文档误作课节笔记。同步更新成长面板已过时的卡片数量断言，保留白色背景检查。
+
+独立桌面回归两阶段通过：新建课节文档、写入、切课返回、侧栏调整、页签/弹窗/全屏隐藏和恢复、笔记视图不能直接读取主数据库、退出重启后的正文与课节关联恢复；播放、编程练习与课节反馈检查同时通过。日志为 `.cache/affine-desktop-continued.log`，报告为 `.cache/desktop-smoke-report.json`。
+
+真实 `AI Player Notes Check` 窗口确认中文粘贴编辑、文档切换白板、Markdown 导出、工作区快照重新导入后中文正文完整，以及新建文档立即进入备份。快照压缩包完整性检查通过并包含附件。取消导出不再误报成功；样例为 `.cache/affine-qa/affine-continued.md`、`affine-workspace-continued.bs.zip` 和 `affine-fresh-document.bs.zip`。
+
+笔记 AI 使用本机模拟模型，确认请求复用主程序配置、窗口显示回答、重启后通过历史入口恢复问答。未调用真实付费模型，未验证中文输入法候选词组合、Windows/Linux 或全部 AFFiNE 导入格式。462 项前端测试、55 项 Rust 测试、3 项笔记 AI 专项测试、静态检查、格式、类型检查、构建和主前端包体检查通过。存储和功能边界见 [AFFiNE 集成说明](affine-integration.md)。
+
+已构建、签名并安装 macOS arm64 0.1.0 正式应用（`d388b9b` 加本轮工作区修改）。安装时学习数据库校验一致，旧应用和数据库副本保存在 `/Users/od23/Library/Caches/ai-player-backups/20261016-102917-affine-local/`。正式版启动后确认首页两门课程及原有学习进度正常、独立 AFFiNE 工作区正常打开；课节编辑与重启验证使用前述独立样例。安装清单、可执行文件 SHA-256 与备份路径见 `.cache/affine-local-install.json`。
+
+## 播放页顶部学习入口精简（2026-10-15）
+
+“今日学习”和“今日巩固”移到顶部中间，缩为 32 像素高的单行圆角按钮；详细投入时间和任务进度通过悬停或点击查看，视频上方不再重复显示大卡片。
+
+前端完整检查通过（461 项测试）。独立 `app.aiplayer.regression` 原生窗口在 1280×900 和 860×700 下确认居中、无横向挤压；今日学习打开计划详情，未完成时巩固按钮禁用，勾选合成任务后显示“已打卡”和“开始”，点击巩固打开对应弹窗。样例范围没有逐字稿，弹窗正确提示材料不可用，本轮未调用真实 AI 生成。截图位于 `.cache/header-study-compact/native-1280.png` 和 `.cache/header-study-compact/native-860.png`。本轮未重跑完整 Notion 桌面回归，也未修改 Rust 源码。
+
+签名的 macOS arm64 0.1.0 应用已安装，旧应用副本已保留，安装前后数据库文件校验一致。首次进入正式课程时窗口控制超时，进程采样定位到主线程等待外置盘课程目录的 `fs_entries` / `read_dir`。重新启动后，同一正式课程正常载入，播放与暂停正常，顶部两个小入口居中显示“已打卡”和“开始”，最终视觉核验通过，截图见 `.cache/header-study-compact/installed-player.png`。本次未修改代码或系统权限来处理该阻塞；用户未看到权限弹窗，阻塞原因未确定，不能归因于权限或记为已修复的代码缺陷。安装记录与旧版路径见 `.cache/header-study-compact-install.json`，采样见 `.cache/header-study-compact/installed-process-sample.txt`。
+
 ## 移除番茄钟（2026-10-15）
 
 删除计时器、设置入口、播放器自动暂停联动、阶段提示音、桌宠阶段消息与倒计时、专注快捷指令及相关统计。旧设置、历史和专注偏好直接清理，不创建备份；保留课程进度、打卡、课后学习状态、日历和桌宠日常交互。

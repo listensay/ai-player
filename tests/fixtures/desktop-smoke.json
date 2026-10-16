@@ -9,6 +9,7 @@
     "windows": [
       {
         "label": "main",
+        "backgroundThrottling": "disabled",
         "title": "AI Player Smoke",
         "width": 1280,
         "height": 900,

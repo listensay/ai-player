@@ -1,3 +1,3 @@
-# Store Rust build artifacts on the external volume. Keep Cargo profile defaults.
+# Store Rust build artifacts in this project's external directory. Keep Cargo profile defaults.
 [build]
-target-dir = "/Volumes/Fake"
+target-dir = "/Volumes/Fake/tauri/ai-player/target"

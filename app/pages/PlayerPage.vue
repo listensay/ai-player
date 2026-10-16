@@ -6,13 +6,11 @@ import { usePageTitle } from '~/composables/usePageTitle'
 import { formatTime } from '~/utils/time'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTree from '~/components/CourseTree.vue'
-import NotionPanel from '~/components/NotionPanel.vue'
+import AffineWorkspace from '~/components/AffineWorkspace.vue'
 import TranscriptPanel from '~/components/TranscriptPanel.vue'
 import LessonKnowledgePanel from '~/components/LessonKnowledgePanel.vue'
-import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import UiButton from '~/components/UiButton.vue'
 import VideoStage from '~/components/VideoStage.vue'
-import { formatStudyClock, formatStudyHours } from '~/utils/checkIn'
 const LearningAssistantPanel = defineAsyncComponent(() => import('~/components/LearningAssistantPanel.vue'))
 const {
   assistant,
@@ -29,7 +27,6 @@ const {
   video,
   guide,
   segment,
-  checkIn,
   hasPrev,
   hasNext,
   onVideoSample,
@@ -99,42 +96,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
 
       <!-- 舞台 + 控制条 -->
       <div class="flex min-h-[60dvh] min-w-0 flex-col lg:min-h-0">
-        <button
-          type="button"
-          class="mb-3 flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-linen bg-pure-white p-3 text-left transition-colors hover:border-charcoal-ink/30"
-          @click="openGuide('today')"
-        >
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="text-body-sm font-bold">今日学习</span>
-              <span
-                v-if="checkIn.isAchieved.value"
-                class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-caption font-bold text-emerald-800"
-              >
-                <AppIcon name="check" :size="12" /> 今日已打卡
-              </span>
-              <span v-else class="text-caption font-bold text-stone"> 打卡进度 {{ checkIn.percent.value }}% </span>
-            </div>
-            <div class="mt-1 flex flex-wrap items-center gap-2 text-caption text-stone">
-              <span
-                >{{ guide.state.today?.items.filter((i) => i.done).length ?? 0 }}/{{
-                  guide.state.today?.items.length ?? 0
-                }}
-                项完成</span
-              >
-              <span>·</span>
-              <span
-                >实际投入 {{ formatStudyClock(checkIn.seconds.value) }} · 计划目标
-                {{ formatStudyHours(checkIn.targetSeconds.value) }}</span
-              >
-              <span v-if="checkIn.streak.value > 0" class="font-medium text-deep-indigo"
-                >· 连续打卡 {{ checkIn.streak.value }} 天</span
-              >
-            </div>
-          </div>
-          <span class="shrink-0 text-caption font-bold text-charcoal-ink">查看学习计划 →</span>
-        </button>
-        <DailyPracticeCard class="mb-3 shrink-0" />
         <VideoStage
           v-if="video"
           :ref="bindStage"
@@ -199,13 +160,13 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
             <button
               type="button"
               role="tab"
-              :aria-selected="rightTab === 'notion'"
+              :aria-selected="rightTab === 'notes'"
               class="inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-body-sm font-bold transition-colors duration-100 ease-soft"
-              :class="rightTab === 'notion' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
-              @click="rightTab = 'notion'"
+              :class="rightTab === 'notes' ? 'bg-charcoal-ink text-pure-white' : 'text-graphite hover:bg-cream-deep'"
+              @click="rightTab = 'notes'"
             >
               <AppIcon name="note" :size="15" />
-              Notion
+              笔记
             </button>
             <button
               type="button"
@@ -280,12 +241,13 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
           :key="`assistant:${course.id}:${video.path}`"
         />
         <LessonKnowledgePanel v-if="video" v-show="rightTab === 'knowledge'" />
-        <NotionPanel
+        <AffineWorkspace
           v-if="video"
-          v-show="rightTab === 'notion'"
+          v-show="rightTab === 'notes'"
           :course-id="course.id"
           :path="video.path"
-          :active="rightPanelOpen && rightTab === 'notion'"
+          :title="video.title"
+          :active="rightPanelOpen && rightTab === 'notes'"
           :blocked="player.state.fullscreen || treeOpen || panelWidth.dragging.value"
         />
 

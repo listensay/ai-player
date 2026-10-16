@@ -23,7 +23,9 @@
     "smoke:frontend": "node scripts/desktop-frontend.mjs smoke",
     "test:desktop": "node scripts/desktop-smoke.mjs",
     "benchmark:check": "node scripts/benchmark.mjs .cache/performance.json --check",
-    "bundle:check": "node scripts/check-bundle.mjs"
+    "bundle:check": "node scripts/check-bundle.mjs",
+    "notes:build": "node scripts/affine/build.mjs",
+    "notes:test": "node scripts/affine/test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",

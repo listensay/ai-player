@@ -18,6 +18,41 @@ const jobs = new Map<string, Promise<void>>()
 export function waitForAutomaticPractice(courseId: string, path: string) {
   return jobs.get(JSON.stringify([courseId, path]))
 }
+
+/** 自动触发只尝试一次相同材料；显式出题与重试仍直接走生成流程。 */
+export function createAutomaticPracticePreparer(
+  onError: (error: unknown, courseId: string, path: string) => void,
+  generate = generateAutomaticPractice,
+) {
+  const attempts = new Map<string, { signature: string; task: Promise<void>; settled: boolean }>()
+  return (...args: Parameters<typeof generateAutomaticPractice>) => {
+    const [courseId, path, title, cues, settings] = args
+    const key = JSON.stringify([courseId, path])
+    const signature = JSON.stringify([title, cues, settings])
+    const previous = attempts.get(key)
+    if (previous?.signature === signature) return previous.task
+    const submittedCues = cues.map((cue) => ({ ...cue }))
+    const submittedSettings = { ...settings }
+    const attempt = { signature, task: Promise.resolve(), settled: false }
+    attempts.set(key, attempt)
+    attempt.task = Promise.resolve()
+      .then(async () => {
+        await previous?.task
+        if (attempts.get(key) === attempt) await generate(courseId, path, title, submittedCues, submittedSettings)
+      })
+      .catch((error) => {
+        if (attempts.get(key) === attempt) onError(error, courseId, path)
+      })
+      .finally(() => {
+        attempt.settled = true
+        for (const [oldKey, old] of attempts) {
+          if (attempts.size <= 20) break
+          if (old.settled) attempts.delete(oldKey)
+        }
+      })
+    return attempt.task
+  }
+}
 /** A captured lesson identity keeps background work independent of player navigation. */
 export function generateAutomaticPractice(
   courseId: string,

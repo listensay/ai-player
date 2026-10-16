@@ -368,16 +368,13 @@ export function validateDailyPracticeQuestion(raw: unknown, sources: PracticeSou
 
 /** 自动预生成与手动出题接受相同的单题 / 题组格式和数量边界。 */
 export function practiceQuestionItems(raw: unknown, count: number | 'auto', limit = PRACTICE_HISTORY_LIMIT): unknown[] {
-  const questions =
-    count === 1
-      ? [raw]
-      : Array.isArray(raw)
-        ? raw
-        : isRecord(raw) && Array.isArray(raw.questions)
-          ? raw.questions
-          : count === 'auto' && isRecord(raw) && raw.kind
-            ? [raw]
-            : []
+  const questions = Array.isArray(raw)
+    ? raw
+    : isRecord(raw) && Array.isArray(raw.questions)
+      ? raw.questions
+      : count === 1 || (count === 'auto' && isRecord(raw) && raw.kind)
+        ? [raw]
+        : []
   if (!questions.length || (typeof count === 'number' && questions.length !== count))
     throw new Error('AI 返回的题目数量不完整，请重试。')
   if (questions.length > limit) throw new Error('AI 返回的题目数量超出限制，请重试。')

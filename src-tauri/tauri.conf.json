@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "macOSPrivateApi": true,
     "windows": [
       {
@@ -43,7 +44,8 @@
       "minimumSystemVersion": "13.5"
     },
     "resources": {
-      "runtime/": "runtime/"
+      "runtime/": "runtime/",
+      "affine/": "affine/"
     }
   }
 }

@@ -224,7 +224,7 @@ export function useLearningAssistant(options: {
       apply(parse(raw))
       notice.value = ctx.truncated
         ? '材料较长，本次仅处理预览中的内容，未覆盖完整课程。'
-        : '已生成。请核对来源，重要内容可复制到 Notion 或加入复习队列。'
+        : '已生成。请核对来源，重要内容可复制到 笔记 或加入复习队列。'
     } catch (reason) {
       if (token === taskId && expected === key.value) error.value = (reason as Error).message
     } finally {
@@ -270,7 +270,7 @@ export function useLearningAssistant(options: {
     error.value = ''
     try {
       await navigator.clipboard.writeText(seconds === undefined ? markdown : `${formatTime(seconds)}\n\n${markdown}`)
-      options.notify('已复制，可粘贴到 Notion')
+      options.notify('已复制，可粘贴到 笔记')
     } catch {
       error.value = '复制失败，请重试。'
     }

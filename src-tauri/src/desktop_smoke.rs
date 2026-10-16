@@ -9,6 +9,125 @@ fn interactive_ime() -> bool {
     std::env::var("AI_PLAYER_SMOKE_IME").as_deref() == Ok("1")
 }
 
+#[tauri::command]
+pub async fn desktop_smoke_affine(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    text: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if webview.label() != "main" {
+        return Err("Only the test host may inspect notes".into());
+    }
+    let Some(view) = app.get_webview(crate::affine::LABEL) else {
+        return Ok(serde_json::json!({"exists":false}));
+    };
+    crate::affine::require_notes(&view)?;
+    let script = format!(
+        r#"(() => {{
+      const workspace = window.currentWorkspace;
+      const docId = location.pathname.split('/')[3];
+      const doc = workspace?.docCollection.getDoc(docId);
+      if (!doc) return {{ready:false}};
+      const paragraphs = Array.from(doc.yBlocks.values()).map(block => block.get('prop:text')).filter(text => text && typeof text.insert === 'function');
+      if (!paragraphs.length) return {{ready:false}};
+      const content = {};
+      if (content !== null) doc.spaceDoc.transact(() => {{ const text = paragraphs[0]; text.delete(0,text.length); text.insert(0,content); }});
+      if (window.__AI_PLAYER_PROBE_IPC__ === undefined) {{
+        window.__AI_PLAYER_PROBE_IPC__ = 'pending';
+        window.__TAURI__.core.invoke('database_request', {{endpoint:'settings',method:'GET',query:{{key:'ai_settings'}},body:null}})
+          .then(() => {{window.__AI_PLAYER_PROBE_IPC__ = false;}})
+          .catch(() => {{window.__AI_PLAYER_PROBE_IPC__ = true;}});
+      }}
+      return {{ready:true,docId,workspaceId:workspace.id,title:doc.meta?.title,text:paragraphs.map(text=>text.toString()).join('\n'),
+        ipcBlocked:window.__AI_PLAYER_PROBE_IPC__ === true, hasLogin:!!document.querySelector('[data-testid="sidebar-user-avatar"]'), lesson:window.__AI_PLAYER_LESSON__ }};
+    }})()"#,
+        serde_json::json!(text)
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    view.eval_with_callback(script, move |json| {
+        let _ = tx.send(json);
+    })
+    .map_err(|e| e.to_string())?;
+    let probe = match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(json) if !json.is_empty() => {
+            serde_json::from_str::<serde_json::Value>(&json).map_err(|e| e.to_string())?
+        }
+        Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => serde_json::Value::Null,
+        Err(error) => return Err(error.to_string()),
+    };
+    #[cfg(target_os = "macos")]
+    let (hidden, cursor_routing) = {
+        let (tx, rx) = std::sync::mpsc::channel();
+        view.with_webview(move |view| {
+            use objc2::{msg_send, runtime::AnyObject};
+            use objc2_foundation::{NSPoint, NSRect};
+            let view = unsafe { &*(view.inner() as *const AnyObject) };
+            let hidden: bool = unsafe { msg_send![view, isHidden] };
+            let bounds: NSRect = unsafe { msg_send![view, bounds] };
+            let points: Vec<_> = [(0.1, 0.1), (0.9, 0.1), (0.5, 0.5), (0.1, 0.9), (0.9, 0.9)]
+                .into_iter()
+                .map(|(x, y)| {
+                    let local = NSPoint::new(
+                        bounds.origin.x + bounds.size.width * x,
+                        bounds.origin.y + bounds.size.height * y,
+                    );
+                    let point: NSPoint = unsafe {
+                        msg_send![view, convertPoint: local, toView: std::ptr::null::<AnyObject>()]
+                    };
+                    let owns = unsafe { crate::webview_cursor_macos::owns_point(view, point) };
+                    (point, owns)
+                })
+                .collect();
+            let _ = tx.send((hidden, points));
+        })
+        .map_err(|e| e.to_string())?;
+        let (hidden, points) = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| e.to_string())?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        webview
+            .with_webview(move |view| {
+                use objc2::{msg_send, runtime::AnyObject};
+                use objc2_foundation::{NSPoint, NSRect};
+                let view = unsafe { &*(view.inner() as *const AnyObject) };
+                let host_owns: Vec<_> = points
+                    .iter()
+                    .map(|(point, _)| unsafe {
+                        crate::webview_cursor_macos::owns_point(view, *point)
+                    })
+                    .collect();
+                let bounds: NSRect = unsafe { msg_send![view, bounds] };
+                // The main toolbar remains exposed above both note layouts.
+                let local = NSPoint::new(bounds.origin.x + 5.0, bounds.origin.y + 5.0);
+                let point: NSPoint = unsafe {
+                    msg_send![view, convertPoint: local, toView: std::ptr::null::<AnyObject>()]
+                };
+                let toolbar_owns = unsafe { crate::webview_cursor_macos::owns_point(view, point) };
+                let _ = tx.send(serde_json::json!({
+                    "attached":unsafe { crate::webview_cursor_macos::is_attached(view) },
+                    "notesOwn":points.iter().map(|(_, owns)| owns).collect::<Vec<_>>(),
+                    "hostOwn":host_owns,
+                    "toolbarOwn":toolbar_owns,
+                }));
+            })
+            .map_err(|e| e.to_string())?;
+        (
+            hidden,
+            rx.recv_timeout(std::time::Duration::from_secs(5))
+                .map_err(|e| e.to_string())?,
+        )
+    };
+    #[cfg(not(target_os = "macos"))]
+    let (hidden, cursor_routing) = (false, serde_json::Value::Null);
+    let scale = webview.window().scale_factor().map_err(|e| e.to_string())?;
+    Ok(
+        serde_json::json!({"exists":true,"hidden":hidden,"probe":probe,"cursorRouting":cursor_routing,
+      "position":view.position().map_err(|e|e.to_string())?.to_logical::<f64>(scale),
+      "size":view.size().map_err(|e|e.to_string())?.to_logical::<f64>(scale),
+      "windowGeometry":{"hostSize":webview.size().map_err(|e|e.to_string())?,"scale":scale}}),
+    )
+}
+
 fn fixture_origin() -> Option<Url> {
     let url = Url::parse(&std::env::var("AI_PLAYER_NOTION_SMOKE_URL").ok()?).ok()?;
     (url.scheme() == "http" && url.host_str() == Some("127.0.0.1")).then_some(url)

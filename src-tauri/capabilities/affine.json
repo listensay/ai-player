@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "affine",
+  "description": "The retained local notes workspace can request and cancel AI through the learning window.",
+  "local": false,
+  "webviews": ["affine-workspace"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "permissions": [
+    "allow-affine-ai-request",
+    "allow-affine-ai-cancel",
+    "allow-affine-save-export",
+    "notification:allow-is-permission-granted",
+    "allow-affine-lesson-context"
+  ]
+}

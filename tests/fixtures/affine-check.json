@@ -1,0 +1,17 @@
+{
+  "identifier": "app.aiplayer.affine-check",
+  "productName": "AI Player Notes Check",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AI Player Notes Check",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 860,
+        "minHeight": 640,
+        "maximized": false
+      }
+    ]
+  }
+}

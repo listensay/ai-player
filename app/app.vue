@@ -5,6 +5,7 @@ import { isAppDialogKind } from '~/composables/useAppDialogs'
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { useRoute, useRouter } from 'vue-router'
 import AppTopBar from '~/components/AppTopBar.vue'
+import PlayerStudyHeader from '~/components/PlayerStudyHeader.vue'
 import UiButton from '~/components/UiButton.vue'
 import StudyReminderNotice from '~/components/StudyReminderNotice.vue'
 import GuideDialog from '~/components/GuideDialog.vue'
@@ -14,6 +15,7 @@ import { RouterView } from 'vue-router'
 import { useProgress } from '~/composables/useProgress'
 import { onMounted, watch } from 'vue'
 import { pruneAiBatchCache } from '~/utils/aiBatchTask'
+import { useNoteAiBridge } from '~/composables/useNoteAiBridge'
 onMounted(() => {
   void pruneAiBatchCache()
 })
@@ -31,6 +33,7 @@ const {
   currentView,
   toast,
   course,
+  guide,
   practice,
   daily,
   openDailyPractice,
@@ -39,6 +42,7 @@ const {
   startSegment,
   selectGuideVideo,
 } = provideCourseWorkspace()
+useNoteAiBridge(guide.state.settings)
 // Preserve old saved links while all in-app entries open overlays without navigation.
 watch(
   () => route.query.dialog,
@@ -72,7 +76,12 @@ watch(
         @close="router.push('/')"
         @guide="openGuide()"
         @companion="companion.toggleMini()"
-      />
+        @notes="router.push('/notes')"
+      >
+        <template v-if="course && currentView === 'player'" #center>
+          <PlayerStudyHeader />
+        </template>
+      </AppTopBar>
 
       <p
         v-if="companion.error.value"

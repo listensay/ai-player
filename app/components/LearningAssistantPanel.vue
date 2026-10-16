@@ -96,7 +96,7 @@ function saveCode(code: string, language: string) {
       </nav>
     </div>
     <p class="mb-3 text-caption text-stone">
-      生成预览仅保留在本课会话中，切课后清空。需要保留的内容可复制到 Notion 或加入复习队列。
+      生成预览仅保留在本课会话中，切课后清空。需要保留的内容可复制到 笔记 或加入复习队列。
     </p>
     <details v-if="a.contextPreview" class="material-preview mb-4 rounded-xl border border-linen p-3">
       <summary class="cursor-pointer text-caption font-medium">

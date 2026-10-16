@@ -485,7 +485,7 @@ export function useLessonPractice(
       const learning = practiceLearningContext(history.value)
       const identity = {
         kind: 'practice',
-        promptVersion: 7,
+        promptVersion: 8,
         programmingLanguages,
         courseId: activeId,
         path,

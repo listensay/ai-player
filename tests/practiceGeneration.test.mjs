@@ -74,6 +74,7 @@ function review(questions, profile = {}) {
       index,
       goalIds: ['g1'],
       withinScope: true,
+      evidenceSupported: true,
       conditionsComplete: true,
       skillFocused: true,
       distinct: true,
@@ -97,6 +98,67 @@ test('普通课严格验收三题，少量两题、丰富四至五题、单目�
   assert.equal(validateGeneratedPractice(envelope([completion], { density: 'narrow' }), options()).length, 1)
   assert.equal(validateGeneratedPractice(envelope([completion]), options({ limit: 1 })).length, 1)
   assert.throws(() => validateGeneratedPractice({ questions: standard }, options()), /尚未通过内容审查/)
+})
+
+test('单题续练兼容单元素题组包装，仍拒绝空题组、多题和缺失题目字段', () => {
+  const q = concept()
+  for (const response of [q, [q], { questions: [q] }]) {
+    const raw = envelope([q], { programming: false, language: '' })
+    raw.response = response
+    assert.equal(validateGeneratedPractice(raw, options({ count: 1, limit: 1 }))[0].prompt, q.prompt)
+  }
+  for (const response of [[], { questions: [] }, [q, q], { questions: [q, q] }]) {
+    const raw = envelope([q], { programming: false, language: '' })
+    raw.response = response
+    assert.throws(() => validateGeneratedPractice(raw, options({ count: 1, limit: 1 })), /题目数量/)
+  }
+  const raw = envelope([q], { programming: false, language: '' })
+  raw.response = { questions: [{ ...q, referenceAnswer: '' }] }
+  assert.throws(() => validateGeneratedPractice(raw, options({ count: 1, limit: 1 })), /内容不完整/)
+})
+
+test('一次反馈全部题量、内容与覆盖问题，修正请求携带固定教学目标', async () => {
+  const questions = [concept('调度概念'), concept('共享数据'), concept('阻塞操作')]
+  const teaching = {
+    programming: false,
+    language: '',
+    goals: [
+      { id: 'g1', skill: '区分调度方式', sourceIds: ['s1'] },
+      { id: 'g2', skill: '解释阻塞处理', sourceIds: ['s1'] },
+    ],
+  }
+  let generations = 0,
+    reviews = 0
+  const raw = await generatePracticeBatch({
+    ...options(),
+    signal: new AbortController().signal,
+    verify: async () => {
+      throw Error('概念题不执行代码')
+    },
+    request: async (messages) => {
+      if (messages[0].content.startsWith('审查')) {
+        reviews++
+        const result = review(questions.slice(0, generations === 1 ? 2 : 3), teaching)
+        if (reviews === 1) {
+          result.items[0].withinScope = false
+          result.items[0].revision = '只考本课介绍的概念。'
+          result.items[1].conditionsComplete = false
+          result.items[1].revision = '给出共享数据操作是否会主动让出的条件。'
+        } else result.items[2].goalIds = ['g2']
+        return result
+      }
+      generations++
+      if (generations === 2) {
+        const correction = messages.at(-1).content
+        for (const expected of [/应生成 3 道题/, /第 1 题需修正/, /第 2 题需修正/, /遗漏/, /"id":"g2"/])
+          assert.match(correction, expected)
+      }
+      return { questions: questions.slice(0, generations === 1 ? 2 : 3) }
+    },
+  })
+  assert.equal(generations, 2)
+  assert.equal(reviews, 2)
+  assert.equal(validateGeneratedPractice(raw, options()).length, 3)
 })
 
 test('编程比例、补全与独立实现组合、课程语言及实际提交要求不可由题型标签绕过', () => {
@@ -129,7 +191,7 @@ test('编程比例、补全与独立实现组合、课程语言及实际提交�
 })
 
 test('每题都需通过范围、业务条件、技能、去重和适应性审查，引用必须真实且支持目标', () => {
-  for (const key of ['withinScope', 'conditionsComplete', 'skillFocused', 'distinct', 'adapted']) {
+  for (const key of ['withinScope', 'evidenceSupported', 'conditionsComplete', 'skillFocused', 'distinct', 'adapted']) {
     const raw = envelope(standard)
     raw.review.items[1][key] = false
     raw.review.items[1].revision = '请练数组实现，不要背业务结局或引入未学框架。'
@@ -151,6 +213,31 @@ test('每题都需通过范围、业务条件、技能、去重和适应性审�
     ],
   })
   assert.throws(() => validateGeneratedPractice(uncovered, options()), /遗漏/)
+})
+
+test('协程概念在不同字幕重复讲解时按语义核对依据，不要求题目与目标引用同一条字幕', () => {
+  const material = [
+    { id: 's4', kind: 'subtitle', text: '协程是一种用户态的轻量级线程。' },
+    { id: 's37', kind: 'subtitle', text: '进程和线程由操作系统调度，协程由程序自身调度。' },
+    { id: 's70', kind: 'subtitle', text: '协程的调度者是程序自身，程序员控制何时让出执行权限。' },
+  ]
+  const q = { ...concept('协程的调度由谁控制？'), sourceIds: ['s70'] }
+  const raw = envelope([q], {
+    programming: false,
+    language: '',
+    goals: [{ id: 'g1', skill: '辨别协程调度方式', sourceIds: ['s4', 's37'] }],
+  })
+  raw.response = q
+  const opts = options({ sources: material, count: 1, limit: 1 })
+  assert.equal(validateGeneratedPractice(raw, opts).length, 1)
+  raw.review.items[0].evidenceSupported = false
+  raw.review.items[0].revision = '引用的材料没有说明调度方式。'
+  assert.throws(() => validateGeneratedPractice(raw, opts), /引用的材料没有说明/)
+  delete raw.review.items[0].evidenceSupported
+  assert.throws(() => validateGeneratedPractice(raw, opts), /缺少检查结果/)
+  raw.review.items[0].evidenceSupported = true
+  raw.response.sourceIds = ['invented']
+  assert.throws(() => validateGeneratedPractice(raw, opts), /不存在的学习材料/)
 })
 
 test('先修正少出题，再修正整组选择题，第三次通过才返回可保存结果', async () => {

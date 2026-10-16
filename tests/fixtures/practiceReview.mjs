@@ -23,6 +23,7 @@ export function approvedPracticeReview(messages) {
       index,
       goalIds: ['g1'],
       withinScope: true,
+      evidenceSupported: true,
       conditionsComplete: true,
       skillFocused: true,
       distinct: true,

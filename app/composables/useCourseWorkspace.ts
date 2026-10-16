@@ -21,7 +21,7 @@ import { provideStudyTools } from '~/composables/useStudyTools'
 import { provideLearningManagement } from '~/composables/useLearningManagement'
 import type { ReviewCard } from '~/types/learningManagement'
 import { useReminderLinks } from '~/composables/useReminderLinks'
-import { generateAutomaticPractice } from '~/utils/automaticPractice'
+import { createAutomaticPracticePreparer } from '~/utils/automaticPractice'
 import { onTranscriptReady, useTranscripts } from '~/composables/useTranscripts'
 import { useWorkspaceLifecycle } from './useWorkspaceLifecycle'
 import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
@@ -59,7 +59,7 @@ export function provideCourseWorkspace() {
   const pendingSeek = ref<{ path: string; seconds: number } | null>(null)
   const { treeOpen, desktopTreeOpen, treeVisible, toggleTree } = usePlayerDirectory()
   const rightPanelOpen = ref(true)
-  const rightTab = ref<'knowledge' | 'notion' | 'transcript' | 'assistant'>('notion')
+  const rightTab = ref<'knowledge' | 'notes' | 'transcript' | 'assistant'>('notes')
   const transcripts = useTranscripts()
 
   const currentView = computed(() => (route.path.endsWith('/player') ? ('player' as const) : ('dashboard' as const)))
@@ -99,13 +99,15 @@ export function provideCourseWorkspace() {
   const practice = useLessonPractice(course, guide.state.settings, guide.configured, {
     sources: (target, scope) => knowledge.sourcesFor(course.value!.id, target, scope ? [scope] : undefined),
   })
+  const prepareAutomaticPractice = createAutomaticPracticePreparer((_error, id, path) => {
+    if (course.value?.id === id && video.value?.path === path && !practice.state.open)
+      showToast('课后练习暂未生成，可在练习中重试。')
+  })
   function preparePractice(id: string, target: VideoEntry) {
     if (practice.state.open && course.value?.id === id && practice.state.path === target.path) return
     const transcript = transcripts.get(id, target.path)
     if (transcript.status !== 'ready' || !guide.configured.value) return
-    void generateAutomaticPractice(id, target.path, target.title, transcript.segments, guide.state.settings).catch(
-      (error) => showToast(`课后练习未生成：${String(error)}`),
-    )
+    void prepareAutomaticPractice(id, target.path, target.title, transcript.segments, guide.state.settings)
   }
   const stopTranscriptReady = onTranscriptReady(preparePractice)
   onBeforeUnmount(stopTranscriptReady)
@@ -115,6 +117,12 @@ export function provideCourseWorkspace() {
         course.value?.id,
         video.value?.path,
         guide.configured.value,
+        guide.state.settings.provider,
+        guide.state.settings.contextWindow,
+        guide.state.settings.baseUrl,
+        guide.state.settings.model,
+        guide.state.settings.apiKey,
+        guide.state.settings.timeoutMinutes,
         practice.state.open,
         course.value && video.value ? transcripts.get(course.value.id, video.value.path).status : '',
       ] as const,
@@ -151,7 +159,7 @@ export function provideCourseWorkspace() {
     (value, previous) => {
       if (currentView.value !== 'player' || !course.value || !video.value) return
       if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2])
-        rightTab.value = 'notion'
+        rightTab.value = 'notes'
     },
     { immediate: true },
   )
@@ -450,7 +458,7 @@ export function provideCourseWorkspace() {
     segment.dismiss()
     await leaveFullscreen()
     rightPanelOpen.value = true
-    rightTab.value = 'notion'
+    rightTab.value = 'notes'
   }
 
   function selectGuideVideo(path: string, seconds?: number) {

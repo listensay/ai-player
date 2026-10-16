@@ -22,7 +22,7 @@ registerHooks({
     return next(specifier, context)
   },
 })
-const { completionUrl, requestGuideJson } = await import('../app/utils/guideAi.ts')
+const { completionUrl, requestGuideJson, requestAiText } = await import('../app/utils/guideAi.ts')
 const { emptyAiSettings, restoreAiSettings, validateAiProfile } = await import('../app/utils/aiSettings.ts')
 const { useAiSettings } = await import('../app/composables/useAiSettings.ts')
 
@@ -44,6 +44,29 @@ const openaiReply = (overrides = {}) => ({
 })
 const call = (overrides = {}, signal = new AbortController().signal) =>
   requestGuideJson({ ...settings, ...overrides }, conversation, signal)
+
+test('笔记 AI 复用两种模型协议，保留普通文字与自己的任务指令', async () => {
+  for (const provider of ['openai', 'anthropic']) {
+    const answer = '## 学习要点\n这是正常的 Markdown 回答。'
+    const calls = transport(
+      provider === 'anthropic'
+        ? nativeReply({ content: [{ type: 'text', text: answer }] })
+        : openaiReply({ message: { content: answer } }),
+    )
+    const result = await requestAiText(
+      { ...settings, provider },
+      [{ role: 'user', content: '整理笔记' }],
+      new AbortController().signal,
+      '请整理学习笔记。',
+    )
+    assert.equal(result, answer)
+    assert.equal(
+      provider === 'anthropic' ? calls[0].body.system : calls[0].body.messages[0].content,
+      '请整理学习笔记。',
+    )
+    assert.equal(calls[0].body.model, 'test-model')
+  }
+})
 function transport(body, status = 200) {
   const calls = []
   globalThis.aiServiceIO = {

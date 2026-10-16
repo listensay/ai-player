@@ -1,3 +1,5 @@
+mod affine;
+mod affine_server;
 mod asr;
 mod companion;
 mod db;
@@ -16,6 +18,8 @@ mod notion_user_agent_macos;
 mod programming;
 mod programming_process;
 mod reminder_links;
+#[cfg(target_os = "macos")]
+mod webview_cursor_macos;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::{
@@ -161,6 +165,7 @@ pub fn run() {
     #[cfg(feature = "desktop-smoke")]
     let builder = builder.plugin(desktop_smoke::init());
     builder
+        .manage(affine::AffineState::default())
         .manage(asr::AsrManager::default())
         .manage(programming::ProgrammingManager::default())
         .manage(reminder_links::ReminderLinks::default())
@@ -170,7 +175,28 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
+        .on_menu_event(|app, event| {
+            #[cfg(debug_assertions)]
+            if event.id().as_ref() == "inspect-notes" {
+                if let Some(view) = app.get_webview(affine::LABEL) {
+                    view.open_devtools();
+                }
+            }
+            let _ = (app, event);
+        })
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            if let Some(menu) = app.menu() {
+                let inspect = tauri::menu::MenuItem::with_id(
+                    app,
+                    "inspect-notes",
+                    "检查笔记",
+                    true,
+                    Some("CmdOrCtrl+Shift+I"),
+                )?;
+                let submenu = tauri::menu::Submenu::with_items(app, "开发", true, &[&inspect])?;
+                menu.append(&submenu)?;
+            }
             #[cfg(not(feature = "desktop-smoke"))]
             let directory = app.path().app_data_dir()?;
             #[cfg(not(feature = "desktop-smoke"))]
@@ -203,6 +229,8 @@ pub fn run() {
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_report,
             #[cfg(feature = "desktop-smoke")]
+            desktop_smoke::desktop_smoke_affine,
+            #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_notion,
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_notion_popup,
@@ -218,6 +246,13 @@ pub fn run() {
             programming::cancel_programming,
             frontend_ready,
             finish_close,
+            affine::affine_prepare,
+            affine::affine_layout,
+            affine::affine_ai_request,
+            affine::affine_ai_cancel,
+            affine::affine_ai_response,
+            affine::affine_save_export,
+            affine::affine_lesson_context,
             notion::notion_prepare,
             notion::notion_layout,
             notion::notion_action,

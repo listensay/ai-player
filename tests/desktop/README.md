@@ -1,40 +1,13 @@
 # Native desktop regression
 
-Run `npm run test:desktop` for the unattended suite. It uses a separate app identity,
-fixture database and local Notion substitute; it does not edit the installed app's
-notes or log in to Notion.
+Run `npm run notes:build` with Node 22 configured through `AFFINE_NODE`, then `npm run test:desktop` with Node 24.
+The suite uses a separate app identity, temporary course database and a per-run local AFFiNE origin. Two process launches verify real local note edits, per-lesson bindings and restart persistence, native view geometry, tab/sidebar/dialog/fullscreen hiding, denial of direct database access from the note view, programming execution/cancellation, and lesson feedback persistence.
 
-For the lesson completion flow alone, run `AI_PLAYER_SMOKE_LESSON_ONLY=1 npm run test:desktop`.
-This uses the same isolated app and two native launches to verify that playback continues as wall time advances and pauses do not prompt
-feedback, actual video completion opens practice, closing practice prompts one lesson state, and
-replaying the lesson (including after restarting) preserves that single state. It does not require
-the native Notion fixture to load.
+On macOS, it also checks cursor ownership at five points across the note view and the exposed host toolbar, plus attachment to the host's tracking-area observer. Covered host regions must reject cursor updates while notes are visible and regain ownership when hidden, including workspace navigation, resizing, fullscreen, and restart. These are native hit-test checks, not frame-by-frame recordings of the system cursor. For manual pointer-motion verification, launch the isolated `desktop-smoke` build with `AI_PLAYER_CURSOR_TRACE=1` to log filtered host events and native cursor changes. This tracing is excluded from production builds. Coordinate clicks do not establish continuous pointer-motion behavior.
 
-## Interactive Chinese input check
+Note editing uses the real AFFiNE document model and IndexedDB persistence. It does not synthesize typing or establish Chinese IME behavior. Keyboard and visual checks are performed separately in the Notes Check app.
 
-Run `AI_PLAYER_SMOKE_IME=1 npm run test:desktop` on macOS. This builds the isolated
-**AI Player Smoke.app** and pauses at the local Notion fixture for up to ten minutes.
+The old Notion login-popup and imitation-editor checks were replaced because the player now uses local AFFiNE notes without login. The legacy native Notion unit coverage and stored page links remain, but Notion is no longer the player note surface.
 
-1. Activate the test window and select a Chinese input method.
-2. Type `nihaoshijie` in **Native note**, then commit the Chinese candidates to
-   produce `你好世界`. Repeat in **Rich note** (a `contenteditable` editor).
-3. Do not paste or set the field values: the check also requires real
-   `compositionstart` and `compositionend` events in both editors.
-4. Once both fields match, the remaining desktop/restart checks run automatically.
-   Restore your previous input source after testing.
-
-The report at `.cache/desktop-smoke-report.json` includes the browser user agent, a bounded input-event
-trace (including input type and text snapshots) and, on macOS, the focused view's input-context/source diagnostics. These
-are read-only; the harness does not change system input sources or synthesize keys.
-Snapshots are read directly from the loopback fixture rather than transported in
-document titles, which can truncate the JSON once the input trace grows. Both
-the native URL check and the in-page origin check restrict reads to that fixture.
-
-Passing this check confirms the native input path for these simple editors only.
-It does **not** establish that Notion's own editor works, or that a Notion-specific
-input bug is fixed. Test the affected Notion field separately before claiming a fix.
-
-The unattended suite checks that macOS Notion views are identified as Safari,
-without Chromium/Electron tokens. This protects the browser-compatibility profile,
-not the behavior of Notion’s remote editor. The Safari version comes from the
-installed Safari bundle, falling back to 16.6 (the app’s minimum macOS 13.5).
+The lesson-only subset remains available with `AI_PLAYER_SMOKE_LESSON_ONLY=1 npm run test:desktop`.
+Reports are written to `.cache/desktop-smoke-report.json`. No production application database or installed application is changed.

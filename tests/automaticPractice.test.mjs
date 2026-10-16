@@ -40,7 +40,8 @@ registerHooks({
     return next(specifier, context)
   },
 })
-const { generateAutomaticPractice, automaticPracticeRevision } = await import('../app/utils/automaticPractice.ts')
+const { generateAutomaticPractice, automaticPracticeRevision, createAutomaticPracticePreparer } =
+  await import('../app/utils/automaticPractice.ts')
 const { restorePractice } = await import('../app/utils/practice.ts')
 const settings = { baseUrl: 'https://example.test/v1', model: 'test', apiKey: '', timeoutMinutes: 1 }
 const cues = [
@@ -167,6 +168,77 @@ test('AI 或保存失败不会留下伪完成记录，之后可重试', async ()
   globalThis.autoPracticeIO.requestGuideJson = request
   await generateAutomaticPractice('d', 'd.mp4', '列表', cues, settings)
   assert.equal(h.saved.get('d')['d.mp4'].length, 1)
+})
+
+test('字幕与页面重复触发仅提示一次，关闭重开不自动重发，显式重试仍可成功', async () => {
+  const h = fixture()
+  const original = globalThis.autoPracticeIO.requestGuideJson
+  let requests = 0
+  const errors = []
+  globalThis.autoPracticeIO.requestGuideJson = async () => {
+    requests++
+    throw Error('offline')
+  }
+  const prepare = createAutomaticPracticePreparer((error, id, path) => errors.push([error.message, id, path]))
+  const args = ['duplicate-error', 'a.mp4', '协程介绍', cues, settings]
+  const first = prepare(...args)
+  assert.equal(prepare(...args), first)
+  await first
+  await prepare(...structuredClone(args))
+  assert.equal(requests, 1)
+  assert.deepEqual(errors, [['offline', 'duplicate-error', 'a.mp4']])
+  globalThis.autoPracticeIO.requestGuideJson = original
+  await generateAutomaticPractice(...args)
+  assert.equal(h.saved.get('duplicate-error')['a.mp4'].length, 1)
+})
+
+test('自动准备按课节隔离，材料或配置变更后可重新尝试', async () => {
+  const calls = [],
+    errors = []
+  const prepare = createAutomaticPracticePreparer(
+    (error, id, path) => errors.push([error.message, id, path]),
+    async (...args) => {
+      calls.push(args)
+      throw Error('offline')
+    },
+  )
+  const args = ['changed', 'a.mp4', '协程介绍', cues, settings]
+  await prepare(...args)
+  await prepare('other-course', ...args.slice(1))
+  await prepare('changed', 'b.mp4', ...args.slice(2))
+  await prepare(...args.slice(0, 4), { ...settings, model: 'new-model' })
+  await prepare(...args.slice(0, 3), [{ ...cues[0], text: cues[0].text + '修正' }], settings)
+  assert.equal(calls.length, 5)
+  assert.equal(errors.length, 5)
+})
+
+test('配置在请求中变化时等待旧任务结束，只执行最新快照并抑制旧失败提示', async () => {
+  let rejectFirst
+  const calls = [],
+    errors = []
+  const prepare = createAutomaticPracticePreparer(
+    (error) => errors.push(error.message),
+    async (...args) => {
+      calls.push(args)
+      if (calls.length === 1)
+        await new Promise((_, reject) => {
+          rejectFirst = reject
+        })
+    },
+  )
+  const first = prepare('pending', 'a.mp4', '协程介绍', cues, settings)
+  await new Promise((resolve) => setImmediate(resolve))
+  const submitted = { ...settings, model: 'latest-model' }
+  const middle = prepare('pending', 'a.mp4', '协程介绍', cues, { ...settings, model: 'intermediate-model' })
+  const latest = prepare('pending', 'a.mp4', '协程介绍', cues, submitted)
+  submitted.model = 'edited-after-submission'
+  rejectFirst(Error('old failure'))
+  await Promise.all([first, middle, latest])
+  assert.deepEqual(errors, [])
+  assert.deepEqual(
+    calls.map((args) => args[4].model),
+    [settings.model, 'latest-model'],
+  )
 })
 test('未配置 AI 不发送请求，也不写入空练习', async () => {
   const h = fixture()

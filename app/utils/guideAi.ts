@@ -116,6 +116,24 @@ export async function requestGuideJson(
   signal: AbortSignal,
   options: { imagePurpose?: 'learning' } = {},
 ): Promise<unknown> {
+  return parseAiJson(await requestCompletion(settings, messages, signal, { ...options, system: GUIDE_SYSTEM_PROMPT }))
+}
+
+export async function requestAiText(
+  settings: GuideSettings,
+  messages: GuideMessage[],
+  signal: AbortSignal,
+  system: string,
+): Promise<string> {
+  return requestCompletion(settings, messages, signal, { system, imagePurpose: 'learning' })
+}
+
+async function requestCompletion(
+  settings: GuideSettings,
+  messages: GuideMessage[],
+  signal: AbortSignal,
+  options: { imagePurpose?: 'learning'; system: string },
+): Promise<string> {
   const provider = settings.provider ?? 'openai'
   const endpoint = completionUrl(settings.baseUrl, provider)
   if (!settings.model.trim()) throw new Error('请先填写 AI 模型 ID。')
@@ -162,8 +180,8 @@ export async function requestGuideJson(
       body: JSON.stringify({
         model: settings.model.trim(),
         ...(provider === 'anthropic'
-          ? { max_tokens: ANTHROPIC_MAX_TOKENS, system: GUIDE_SYSTEM_PROMPT, messages: payloadMessages }
-          : { messages: [{ role: 'system', content: GUIDE_SYSTEM_PROMPT }, ...payloadMessages] }),
+          ? { max_tokens: ANTHROPIC_MAX_TOKENS, system: options.system, messages: payloadMessages }
+          : { messages: [{ role: 'system', content: options.system }, ...payloadMessages] }),
       }),
     }
     let response = await platformFetch(endpoint, requestInit)
@@ -188,7 +206,7 @@ export async function requestGuideJson(
     }
     const raw: unknown = await response.json()
     requestSignal.throwIfAborted()
-    if (provider === 'anthropic') return parseAiJson(anthropicContent(raw))
+    if (provider === 'anthropic') return anthropicContent(raw)
     if (!isRecord(raw) || !Array.isArray(raw.choices) || !isRecord(raw.choices[0]))
       throw new Error('AI 服务返回格式不兼容。')
     const choice = raw.choices[0]
@@ -200,7 +218,7 @@ export async function requestGuideJson(
     ) {
       throw new Error('AI 未返回可用的内容，请重试。')
     }
-    return parseAiJson(choice.message.content)
+    return choice.message.content
   } catch (err) {
     if (signal.aborted) throw new DOMException('已取消', 'AbortError')
     if (timeout.signal.aborted)
