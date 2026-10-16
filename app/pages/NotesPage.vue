@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AffineWorkspace from '~/components/AffineWorkspace.vue'
 import { usePageTitle } from '~/composables/usePageTitle'
-usePageTitle('笔记 · AI Player')
+usePageTitle('笔记 · Study Helper')
 </script>
 
 <template>

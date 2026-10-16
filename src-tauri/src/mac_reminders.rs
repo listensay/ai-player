@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn sync_snapshot_roundtrips_and_old_links_require_an_update() {
         let old: ReminderLink = serde_json::from_value(
-            json!({"identifier":"system-id", "calendar":"AI Player", "exportedAt":123}),
+            json!({"identifier":"system-id", "calendar":"Study Helper", "exportedAt":123}),
         )
         .unwrap();
         assert!(old.snapshot.is_none());
@@ -447,7 +447,7 @@ mod macos {
                 EKAuthorizationStatus::FullAccess => return Ok(()),
                 EKAuthorizationStatus::Denied | EKAuthorizationStatus::Restricted => {
                     return Err(
-                        "请在系统设置 → 隐私与安全性 → 提醒事项中允许 AI Player 访问。".into(),
+                        "请在系统设置 → 隐私与安全性 → 提醒事项中允许 Study Helper 访问。".into(),
                     )
                 }
                 _ => {}
@@ -464,7 +464,7 @@ mod macos {
                 .is_none()
             {
                 return Err(
-                    "当前启动方式缺少提醒事项权限说明，请打开打包后的 AI Player 客户端再试。"
+                    "当前启动方式缺少提醒事项权限说明，请打开打包后的 Study Helper 客户端再试。"
                         .into(),
                 );
             }
@@ -496,8 +496,10 @@ mod macos {
     fn calendar(store: &EKEventStore) -> db::Result<Retained<EKCalendar>> {
         unsafe {
             for calendar in store.calendarsForEntityType(EKEntityType::Reminder) {
-                if calendar.title().to_string() == "AI Player"
-                    && calendar.allowsContentModifications()
+                if matches!(
+                    calendar.title().to_string().as_str(),
+                    "Study Helper" | "AI Player"
+                ) && calendar.allowsContentModifications()
                 {
                     return Ok(calendar);
                 }
@@ -510,12 +512,15 @@ mod macos {
                 .ok_or("默认提醒列表没有可用账户，请在提醒事项中检查账户设置。")?;
             let calendar =
                 EKCalendar::calendarForEntityType_eventStore(EKEntityType::Reminder, store);
-            calendar.setTitle(&NSString::from_str("AI Player"));
+            calendar.setTitle(&NSString::from_str("Study Helper"));
             calendar.setSource(Some(&source));
             store
                 .saveCalendar_commit_error(&calendar, true)
                 .map_err(|e| {
-                    format!("创建 AI Player 提醒列表失败：{}", e.localizedDescription())
+                    format!(
+                        "创建 Study Helper 提醒列表失败：{}",
+                        e.localizedDescription()
+                    )
                 })?;
             Ok(calendar)
         }
@@ -683,7 +688,12 @@ mod macos {
                         store
                             .calendarsForEntityType(EKEntityType::Reminder)
                             .into_iter()
-                            .find(|c| c.title().to_string() == "AI Player")
+                            .find(|c| {
+                                matches!(
+                                    c.title().to_string().as_str(),
+                                    "Study Helper" | "AI Player"
+                                )
+                            })
                     });
                 let Some(target) = target else {
                     let mut link = previous.unwrap().clone();
@@ -737,7 +747,9 @@ mod macos {
                 store
                     .calendarsForEntityType(EKEntityType::Reminder)
                     .into_iter()
-                    .find(|c| c.title().to_string() == "AI Player")
+                    .find(|c| {
+                        matches!(c.title().to_string().as_str(), "Study Helper" | "AI Player")
+                    })
             });
             let Some(target) = target else {
                 return Ok(());

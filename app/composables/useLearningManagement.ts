@@ -103,7 +103,6 @@ export function provideLearningManagement() {
     sourceError = ref(''),
     calendarError = ref(''),
     calendarUrl = ref('')
-  const reward = ref('')
   const pendingFlow = ref<Omit<FlowCheckIn, 'mood'> | null>(null)
   async function checkFlow(mood: FlowMood) {
     const pending = pendingFlow.value
@@ -176,13 +175,12 @@ export function provideLearningManagement() {
   async function rate(id: string, recall: Recall) {
     const day = localDayKey()
     date.value = day
-    let earned = false
+    let completed = false
     const saved = await store.mutate((data) => {
-      earned = recordReview(data, courses.value, id, recall, Date.now())
+      completed = recordReview(data, courses.value, id, recall, Date.now())
     })
-    if (saved && earned) {
-      reward.value = day
-      store.state.notice = '今日复习完成，Karen 亲密度 +5'
+    if (saved && completed) {
+      store.state.notice = '今日复习完成'
     }
     return saved
   }
@@ -237,7 +235,6 @@ export function provideLearningManagement() {
     sourceError,
     due,
     rate,
-    reward,
     pendingFlow,
     checkFlow,
     refresh: () => {

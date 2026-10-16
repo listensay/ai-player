@@ -385,7 +385,7 @@ test('心流按时段和课程聚合，读取材料端点拒绝非法外部记�
   assert.deepEqual(parseLearningSources(sources()), sources())
   assert.throws(() => parseLearningSources({ notes: [{ content: 42 }], summaries: [], practices: [] }))
 })
-test('保存失败不提交状态，并发操作按成功保存的状态继续，复习奖励不会重复', async () => {
+test('保存失败不提交状态，并发操作按成功保存的状态继续，同一天复习不会重复提交', async () => {
   let fail = true,
     persisted = null
   const store = createLearningManagement({
@@ -412,8 +412,8 @@ test('保存失败不提交状态，并发操作按成功保存的状态继续�
   assert.equal(recordReview(data, [course()], 'card', 'remembered', now), true)
   assert.throws(() => recordReview(data, [course()], 'card', 'remembered', now + 1000))
   data.cards.push({ ...card(), id: 'later' })
-  assert.equal(recordReview(data, [course()], 'later', 'remembered', now + 2000), false)
-  assert.equal(data.rewardDays.length, 1)
+  assert.equal(recordReview(data, [course()], 'later', 'remembered', now + 2000), true)
+  assert.ok(data.cards.every((card) => card.reviewedAt >= now))
 })
 test('重复同步保留外部对生成区域的编辑，新的笔记修改仍可合并', () => {
   const c = course(),
@@ -460,4 +460,13 @@ test('首页恢复保留计划创建时间；减负保留未来实践总时间�
   const weekend = adaptivePlan(c, today, 10, 'weekend')
   assert.ok(calculateDayBudget({ ...c.context, plan: weekend.plan }, '2026-10-10').video > 0)
   assert.equal(calculateDayBudget({ ...c.context, plan: weekend.plan }, '2026-10-04').video, 0)
+})
+
+test('读取旧学习管理数据时清除奖励字段，保留复习与设置', () => {
+  const original = { ...emptyLearningManagement(), rewardDays: ['2026-10-16'] }
+  original.cards = [card()]
+  const restored = parseLearningManagement(original)
+  assert.equal('rewardDays' in restored, false)
+  assert.deepEqual(restored.cards, original.cards)
+  assert.deepEqual(restored.preferences, original.preferences)
 })

@@ -31,7 +31,7 @@ function templateCopy(file) {
 
 test('学习管理删除冗余统计说明文案，保留核心数据展示与操作', () => {
   const copy = templateCopy('components/StudyInsightsPanel.vue')
-  for (const phrase of ['可能重叠', '5,000', '覆盖 3 天', '不等于桌宠运行天数', '夜间勋章', '发送至已配置的 AI 服务']) {
+  for (const phrase of ['可能重叠', '5,000', '覆盖 3 天', '夜间勋章', '发送至已配置的 AI 服务']) {
     assert.ok(!copy.source.includes(phrase), `冗余文案已清除: ${phrase}`)
   }
   assert.doesNotMatch(copy.summaries, /统计说明/)
@@ -86,9 +86,6 @@ test('打卡日历、练习与导学弹窗清除免责与规则文案', () => {
 
   const adjustment = templateCopy('components/PlanAdjustment.vue')
   assert.doesNotMatch(adjustment.source, /保留每日投入，自动顺延阶段和结束日期/)
-
-  const pet = templateCopy('components/CompanionPet.vue')
-  assert.doesNotMatch(pet.source, /课程继续播放/)
 
   const knowledge = templateCopy('components/LessonKnowledgePanel.vue')
   assert.doesNotMatch(knowledge.source, /音频在本地处理|发送至所选 AI/)

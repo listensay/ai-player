@@ -1,4 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 fn main() {
-    ai_player_lib::run();
+    study_helper_lib::run();
 }

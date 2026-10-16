@@ -1,7 +1,6 @@
 mod affine;
 mod affine_server;
 mod asr;
-mod companion;
 mod db;
 #[cfg(feature = "desktop-smoke")]
 mod desktop_smoke;
@@ -107,7 +106,7 @@ async fn export_study_digest(
         let safe_name = PathBuf::from(name)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("Karen-report.{format}"));
+            .unwrap_or_else(|| format!("Study Helper-report.{format}"));
         let Some(path) = app
             .dialog()
             .file()
@@ -136,7 +135,7 @@ async fn export_performance_report(app: tauri::AppHandle, content: String) -> db
             .dialog()
             .file()
             .set_title("导出本地性能报告")
-            .set_file_name("AI-Player-performance.json")
+            .set_file_name("Study-Helper-performance.json")
             .add_filter("JSON", &["json"])
             .blocking_save_file()
         else {
@@ -170,7 +169,6 @@ pub fn run() {
         .manage(programming::ProgrammingManager::default())
         .manage(reminder_links::ReminderLinks::default())
         .manage(learning_integrations::CalendarServer::default())
-        .manage(companion::CompanionHitState::default())
         .manage(notion::NotionState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
@@ -256,12 +254,6 @@ pub fn run() {
             notion::notion_prepare,
             notion::notion_layout,
             notion::notion_action,
-            companion::open_companion,
-            companion::close_companion,
-            companion::companion_is_open,
-            companion::set_companion_hit_regions,
-            companion::set_companion_fullscreen,
-            companion::reveal_learning_window,
             database_request,
             export_learning_plan,
             export_study_digest,
@@ -289,7 +281,7 @@ pub fn run() {
             files::fs_write
         ])
         .build(tauri::generate_context!())
-        .expect("启动 AI Player 失败")
+        .expect("启动 Study Helper 失败")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { ref urls } = event {

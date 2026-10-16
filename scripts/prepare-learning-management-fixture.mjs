@@ -182,7 +182,6 @@ for (let i = 1; i <= 7; i++) {
 setting('learning-management:v1', {
   version: 1,
   cards: [],
-  rewardDays: [],
   contracts: [],
   works: [],
   protections: [],

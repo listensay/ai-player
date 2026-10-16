@@ -1,11 +1,11 @@
 {
   "identifier": "app.aiplayer.regression",
-  "productName": "AI Player Regression",
+  "productName": "Study Helper Regression",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AI Player Regression",
+        "title": "Study Helper Regression",
         "width": 1280,
         "height": 900,
         "minWidth": 860,

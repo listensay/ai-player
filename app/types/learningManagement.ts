@@ -57,7 +57,6 @@ export interface StreakProtection {
 export interface LearningManagementData {
   version: 1
   cards: ReviewCard[]
-  rewardDays: string[]
   flows: FlowCheckIn[]
   contracts: LearningContract[]
   works: PortfolioWork[]

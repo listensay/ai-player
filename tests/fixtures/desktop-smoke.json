@@ -1,6 +1,6 @@
 {
   "identifier": "app.aiplayer.smoke",
-  "productName": "AI Player Smoke",
+  "productName": "Study Helper Smoke",
   "build": {
     "beforeBuildCommand": "npm run smoke:frontend",
     "frontendDist": "../.cache/desktop-smoke-dist"
@@ -10,7 +10,7 @@
       {
         "label": "main",
         "backgroundThrottling": "disabled",
-        "title": "AI Player Smoke",
+        "title": "Study Helper Smoke",
         "width": 1280,
         "height": 900,
         "minWidth": 860,

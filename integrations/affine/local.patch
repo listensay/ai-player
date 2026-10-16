@@ -709,7 +709,7 @@ index 0000000..57d5025
 +function bridge(): Bridge {
 +  const api = (globalThis as unknown as { __TAURI__?: { core: Bridge } })
 +    .__TAURI__?.core;
-+  if (!api) throw new Error('请在 AI Player 中使用笔记 AI');
++  if (!api) throw new Error('请在 Study Helper 中使用笔记 AI');
 +  return api;
 +}
 +
@@ -1472,7 +1472,7 @@ index ddf69c0..9cc6884 100644
 +      {
 +        id: 'ai-player-active',
 +        name: '当前学习模型',
-+        category: 'AI Player',
++        category: 'Study Helper',
 +        version: '',
 +        available: true,
 +      },
@@ -1846,7 +1846,7 @@ index 9cd736b..86d5270 100644
 -                  },
 -                ]
 -              : [];
-+// AI Player provides a single local workspace environment, without a cloud account.
++// Study Helper provides a single local workspace environment, without a cloud account.
 +export const LOCAL_CONFIG: ServerConfig = {
 +  serverName: '学习笔记',
 +  features: [ServerFeature.LocalWorkspace, ServerFeature.Copilot],

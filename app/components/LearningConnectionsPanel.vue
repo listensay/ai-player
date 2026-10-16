@@ -39,7 +39,7 @@ async function exportCalendar() {
       Number(preferences.calendarDays),
     )
     await desktopInvoke('export_study_digest', {
-      name: 'Karen-学习日程.ics',
+      name: 'Study Helper-学习日程.ics',
       format: 'ics',
       bytes: Array.from(new TextEncoder().encode(content)),
     })

@@ -5,7 +5,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: () => import('./pages/HomePage.vue') },
     { path: '/notes', name: 'notes', component: () => import('./pages/NotesPage.vue') },
-    ...(['settings', 'study'] as const).map((dialog) => ({
+    ...(['settings', 'study', 'versions'] as const).map((dialog) => ({
       path: `/${dialog}`,
       redirect: (to: import('vue-router').RouteLocation) => ({ path: '/', query: { ...to.query, dialog } }),
     })),

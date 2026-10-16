@@ -29,7 +29,6 @@ const {
   guideOpen,
   guideTab,
   reminderLinks,
-  companion,
   currentView,
   toast,
   course,
@@ -67,15 +66,13 @@ watch(
         :total="stats.total"
         :done="stats.done"
         :current-view="currentView"
-        :companion-active="companion.miniOpen.value"
-        :companion-busy="companion.opening.value"
         @settings="appDialogs.open('settings')"
         @study="appDialogs.open('study')"
         @back="router.push(course ? `/courses/${course.id}` : '/')"
         @help="helpOpen = true"
         @close="router.push('/')"
         @guide="openGuide()"
-        @companion="companion.toggleMini()"
+        @versions="appDialogs.open('versions')"
         @notes="router.push('/notes')"
       >
         <template v-if="course && currentView === 'player'" #center>
@@ -83,13 +80,6 @@ watch(
         </template>
       </AppTopBar>
 
-      <p
-        v-if="companion.error.value"
-        role="alert"
-        class="border-b border-linen bg-pure-white px-5 py-3 text-body-sm text-error"
-      >
-        {{ companion.error.value }}
-      </p>
       <aside
         v-if="reminderLinks.error.value"
         role="alert"

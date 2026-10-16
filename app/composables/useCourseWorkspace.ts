@@ -7,7 +7,6 @@ import { useLessonPractice } from '~/composables/useLessonPractice'
 import { useKnowledgePreparation } from '~/composables/useKnowledgePreparation'
 import { useLessonKnowledge } from '~/composables/useLessonKnowledge'
 import { useDailyPractice } from '~/composables/useDailyPractice'
-import { useCompanion } from '~/composables/useCompanion'
 import { useLessonCompletion } from '~/composables/useLessonCompletion'
 import { useLearningAssistant } from '~/composables/useLearningAssistant'
 import { usePlayer } from '~/composables/usePlayer'
@@ -16,7 +15,6 @@ import { useProgress } from '~/composables/useProgress'
 import { useSegmentReminder } from '~/composables/useSegmentReminder'
 import { useShortcuts } from '~/composables/useShortcuts'
 import { useStudyCheckIn } from '~/composables/useStudyCheckIn'
-import { provideDesktopSettings } from './useDesktopSettings'
 import { provideStudyTools } from '~/composables/useStudyTools'
 import { provideLearningManagement } from '~/composables/useLearningManagement'
 import type { ReviewCard } from '~/types/learningManagement'
@@ -44,7 +42,6 @@ export function provideCourseWorkspace() {
   const store = useCourseStore()
   const studyTools = provideStudyTools()
   const learning = provideLearningManagement()
-  const desktopSettings = provideDesktopSettings()
   const { stats } = store
   const player = usePlayer()
   watch(appDialogs.isOpen, (open) => {
@@ -230,30 +227,6 @@ export function provideCourseWorkspace() {
     },
     { flush: 'sync' },
   )
-  const companion = useCompanion({
-    ask: () => assistant.open('ask'),
-    learning,
-    desktopSettings,
-    player,
-    course,
-    video,
-    knowledge,
-    concepts: computed(() => guide.state.plan?.lessons.find((l) => l.path === video.value?.path)?.concepts ?? []),
-    today: computed(() => guide.state.today),
-    todayReady: computed(() => guide.guideReady.value && guide.recordsReady.value),
-    dailyFinished: daily.finished,
-    dailyKey: computed(() => daily.records.value[0]?.path ?? ''),
-    dailyReady: computed(() => daily.practice.state.historyReady),
-    checkedAt: computed(() => checkIn.justCheckedIn.value?.checkedAt ?? null),
-    blocked: computed(
-      () =>
-        appDialogs.isOpen.value ||
-        helpOpen.value ||
-        guideOpen.value ||
-        practice.state.open ||
-        daily.practice.state.open,
-    ),
-  })
   const lessonCompletion = useLessonCompletion(learning, {
     context: () =>
       currentView.value === 'player' && course.value && video.value
@@ -278,7 +251,6 @@ export function provideCourseWorkspace() {
   function onVideoSample(sample: import('~/types/practice').PlaybackSample) {
     lessonCompletion.sample(sample)
     daily.sample(sample)
-    companion.sample(sample)
     segment.sample(sample)
     const completed = segment.reminder.value?.item
     if (completed && !guide.state.today?.items.find((i) => i.id === completed.id)?.done)
@@ -691,7 +663,6 @@ export function provideCourseWorkspace() {
   })
   const workspace = {
     appDialogs,
-    companion,
     reminderLinks,
     store,
     stats,

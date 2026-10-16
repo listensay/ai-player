@@ -40,8 +40,8 @@ const metadata = JSON.parse(
   }),
 )
 const executable = bundleForIme
-  ? join(metadata.target_directory, 'debug/bundle/macos/AI Player Smoke.app/Contents/MacOS/ai-player')
-  : join(metadata.target_directory, 'debug', process.platform === 'win32' ? 'ai-player.exe' : 'ai-player')
+  ? join(metadata.target_directory, 'debug/bundle/macos/Study Helper Smoke.app/Contents/MacOS/study-helper')
+  : join(metadata.target_directory, 'debug', process.platform === 'win32' ? 'study-helper.exe' : 'study-helper')
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
 await prepareDesktopSmoke(data)
 const reports = []

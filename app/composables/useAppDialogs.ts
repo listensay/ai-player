@@ -1,6 +1,6 @@
 import { computed, inject, provide, ref, type InjectionKey } from 'vue'
 
-export type AppDialogKind = 'settings' | 'study'
+export type AppDialogKind = 'settings' | 'study' | 'versions'
 export interface AppDialogEntry {
   kind: AppDialogKind
   section?: string
@@ -8,9 +8,10 @@ export interface AppDialogEntry {
 export const APP_DIALOG_TITLES: Record<AppDialogKind, string> = {
   settings: '设置',
   study: '学习管理',
+  versions: '版本日志',
 }
 export function isAppDialogKind(value: unknown): value is AppDialogKind {
-  return value === 'settings' || value === 'study'
+  return value === 'settings' || value === 'study' || value === 'versions'
 }
 
 export function createAppDialogs() {

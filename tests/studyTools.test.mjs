@@ -115,7 +115,7 @@ test('延后至次日且超过当日提醒时间时合并发送，避免连续�
 const { macReminderSnapshot, macReminderStatus } = await import('../app/utils/studyTools.ts')
 const macLink = (r) => ({
   identifier: 'native-id',
-  calendar: 'AI Player',
+  calendar: 'Study Helper',
   exportedAt: 123,
   snapshot: macReminderSnapshot(r),
 })

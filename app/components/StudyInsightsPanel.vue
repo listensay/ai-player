@@ -3,7 +3,6 @@ import { toRef } from 'vue'
 import type { HomeCourse } from '~/utils/learningHome'
 import { useStudyInsights } from '~/composables/useStudyInsights'
 import UiButton from './UiButton.vue'
-import PlayboMascot from './PlayboMascot.vue'
 import PracticeText from './PracticeText.vue'
 const props = defineProps<{ courses: HomeCourse[]; today: string; loading: boolean; error: string }>()
 const emit = defineEmits<{ refresh: [] }>()
@@ -19,20 +18,11 @@ function refresh() {
   <section aria-label="学习成长与复盘" class="space-y-5">
     <header class="flex flex-wrap items-center justify-between gap-4">
       <div class="flex min-w-0 flex-1 items-center gap-4">
-        <PlayboMascot :size="88" :bond-level="data.growth.level" class="shrink-0" />
         <div class="min-w-0">
-          <p class="text-caption font-bold text-deep-indigo">
-            Karen<template v-if="ready && !loading && !error">
-              · Lv.{{ data.growth.level }} {{ data.growth.label }}</template
-            >
-          </p>
           <h2 class="mt-1 text-heading">学习成长与复盘</h2>
           <template v-if="ready && !loading && !error">
             <p class="mt-2 text-caption text-stone">
-              累计学习 {{ data.growth.days }} 天 · 累计投入 {{ (data.growth.totalSeconds / 3600).toFixed(1) }} 小时
-            </p>
-            <p class="mt-1 text-caption text-stone">
-              亲密度 {{ data.growth.points }}{{ data.growth.next ? ` / ${data.growth.next}` : ' · 当前最高等级' }}
+              累计学习 {{ data.activity.days }} 天 · 累计投入 {{ (data.activity.totalSeconds / 3600).toFixed(1) }} 小时
             </p>
           </template>
         </div>

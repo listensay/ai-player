@@ -102,7 +102,6 @@ db.prepare('INSERT INTO app_settings VALUES (?,?,?)').run(
   'true',
   now,
 )
-db.prepare('INSERT INTO app_settings VALUES (?,?,?)').run('desktop-auto-open-companion', 'false', now)
 db.prepare('INSERT INTO notes VALUES (?,?,?,?)').run(
   id,
   lessonPath(0),

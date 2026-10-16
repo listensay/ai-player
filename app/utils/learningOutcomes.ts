@@ -290,9 +290,9 @@ export function learningCalendar(courses: HomeCourse[], today: string, time: str
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//AI Player//Learning//ZH',
+    'PRODID:-//Study Helper//Learning//ZH',
     'CALSCALE:GREGORIAN',
-    'X-WR-CALNAME:Karen 学习计划',
+    'X-WR-CALNAME:Study Helper 学习计划',
     'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
   ]
   // Simulate progress in a copy so tomorrow advances instead of repeating today's lessons.

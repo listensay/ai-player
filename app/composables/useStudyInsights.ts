@@ -8,10 +8,8 @@ import { requestGuideJson } from '~/utils/guideAi'
 import { isRecord } from '~/utils/guide'
 import { localDayKey } from '~/utils/learningFeedback'
 import { exportStudyDigest } from '~/utils/studyDigestExport'
-import { useOptionalLearningManagement } from './useLearningManagement.ts'
 
 export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>) {
-  const learning = useOptionalLearningManagement()
   const ai = useAiSettings()
   const kind = ref<'week' | 'month'>('week'),
     offset = ref<0 | -1>(0)
@@ -27,9 +25,7 @@ export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>)
     controller: AbortController | undefined,
     disposed = false
   const period = computed(() => digestPeriod(kind.value, offset.value, today.value))
-  const data = computed(() =>
-    buildStudyInsights(courses.value, evidence.value, period.value, today.value, learning?.state.data.rewardDays),
-  )
+  const data = computed(() => buildStudyInsights(courses.value, evidence.value, period.value, today.value))
   const markdown = computed(() => digestMarkdown(data.value, reflection.value))
   function invalidate() {
     version++
@@ -101,7 +97,11 @@ export function useStudyInsights(courses: Ref<HomeCourse[]>, today: Ref<string>)
     error.value = ''
     notice.value = ''
     try {
-      const saved = await exportStudyDigest(markdown.value, `Karen-${period.value.start}-${period.value.end}`, format)
+      const saved = await exportStudyDigest(
+        markdown.value,
+        `Study Helper-${period.value.start}-${period.value.end}`,
+        format,
+      )
       if (!disposed) notice.value = saved ? '报告已导出。' : '已取消导出。'
     } catch {
       if (!disposed) error.value = '报告导出失败，请检查目标位置并重试。'

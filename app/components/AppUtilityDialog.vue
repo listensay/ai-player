@@ -7,6 +7,7 @@ import UiButton from './UiButton.vue'
 const dialogs = useAppDialogs()
 const panels = {
   settings: defineAsyncComponent(() => import('./SettingsPanel.vue')),
+  versions: defineAsyncComponent(() => import('./ReleaseNotesPanel.vue')),
   study: defineAsyncComponent(() => import('./StudyManagementPanel.vue')),
 }
 const title = computed(() => (dialogs.current.value ? APP_DIALOG_TITLES[dialogs.current.value.kind] : ''))

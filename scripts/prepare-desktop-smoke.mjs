@@ -75,7 +75,6 @@ export async function prepareDesktopSmoke(directory) {
     const learning = {
       version: 1,
       cards: [],
-      rewardDays: [],
       flows: [],
       contracts: [],
       works: [],
@@ -88,7 +87,6 @@ export async function prepareDesktopSmoke(directory) {
       },
     }
     setting.run('learning-management:v1', JSON.stringify(learning), now)
-    setting.run('desktop-auto-open-companion', 'false', now)
     db.prepare('INSERT INTO notes VALUES (?,?,?,?)').run(id, 'lesson-0.mp4', '# Native note\n\nOriginal fixture', now)
     const record = {
       id: 'smoke-code',

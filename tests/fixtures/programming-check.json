@@ -1,11 +1,11 @@
 {
   "identifier": "app.aiplayer.programming-check",
-  "productName": "AI Player Programming Check",
+  "productName": "Study Helper Programming Check",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AI Player Programming Check",
+        "title": "Study Helper Programming Check",
         "width": 1380,
         "height": 940,
         "minWidth": 860,

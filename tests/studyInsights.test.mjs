@@ -25,8 +25,8 @@ test('跨课程打卡按日期去重，连续天数不中断地跨月计算', ()
   }
   const data = buildStudyInsights([course(days), course(days)], evidence, period, '2026-10-01')
   assert.equal(data.checked, 21)
-  assert.equal(data.growth.days, 21)
-  assert.equal(data.growth.points, 210)
+  assert.equal(data.activity.days, 21)
+  assert.equal(data.activity.totalSeconds, 21 * 1200)
   assert.equal(data.seconds, 21 * 1200)
 })
 test('倍速完成安排和实践达标的打卡计入周回顾，真实用时不被补足到目标', () => {

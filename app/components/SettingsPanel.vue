@@ -4,22 +4,22 @@ import { buildInfo, diagnosticsReport } from '~/utils/diagnostics'
 import { performanceReport } from '~/utils/performance'
 import { desktopInvoke } from '~/utils/platform'
 import PageSectionNav from '~/components/PageSectionNav.vue'
-import { useDesktopSettings } from '~/composables/useDesktopSettings'
+import { useAppDialogs } from '~/composables/useAppDialogs'
+import { currentRelease } from '~/utils/releases'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
 import ProgrammingSettingsPanel from '~/components/ProgrammingSettingsPanel.vue'
 import UiButton from '~/components/UiButton.vue'
-const settings = useDesktopSettings()
+const dialogs = useAppDialogs()
 const props = defineProps<{ initialSection?: string }>()
-const activeSection = ref<'companion' | 'ai' | 'about' | 'programming'>('companion')
+const activeSection = ref<'ai' | 'about' | 'programming'>('ai')
 watch(
   () => props.initialSection,
   (section) => {
-    activeSection.value = section === 'ai' || section === 'about' || section === 'programming' ? section : 'companion'
+    activeSection.value = section === 'ai' || section === 'about' || section === 'programming' ? section : 'ai'
   },
   { immediate: true },
 )
 const sections = [
-  { id: 'companion', title: '桌宠设置', icon: 'pip' },
   { id: 'ai', title: 'AI 服务设置', icon: 'sparkles' },
   { id: 'programming', title: '编程环境', icon: 'keyboard' },
   { id: 'about', title: '关于与诊断', icon: 'clock' },
@@ -61,33 +61,16 @@ async function exportReport() {
     <div class="mx-auto max-w-5xl px-5 py-8">
       <div class="grid items-start gap-8 sm:grid-cols-[minmax(0,1fr)_168px]">
         <div class="min-w-0">
-          <section v-show="activeSection === 'companion'" id="settings-companion" aria-labelledby="companion-heading">
-            <h2 id="companion-heading" class="text-heading-sm">桌宠设置</h2>
-            <div class="pane mt-5 p-5">
-              <VSwitch
-                :model-value="settings.state.autoOpenCompanion"
-                :disabled="!settings.state.ready || settings.state.saving"
-                label="启动时自动打开桌宠"
-                color="secondary"
-                hide-details
-                @update:model-value="settings.setAutoOpenCompanion($event === true)"
-              />
-              <p class="mt-2 text-caption text-stone">下次启动时生效。</p>
-              <p v-if="settings.state.error" role="alert" class="mt-3 text-body-sm text-error">
-                {{ settings.state.error }}
-                <UiButton v-if="!settings.state.ready" size="sm" variant="text" @click="settings.load">重试</UiButton>
-              </p>
-            </div>
-          </section>
           <section v-if="activeSection === 'about'" id="settings-about" aria-labelledby="about-heading">
             <h2 id="about-heading" class="text-heading-sm">关于与诊断</h2>
             <div class="pane mt-5 space-y-4 p-5">
-              <p class="text-body font-bold">AI Player {{ buildInfo.version }}</p>
+              <p class="text-body font-bold">Study Helper {{ currentRelease.version }}</p>
               <p class="text-caption text-stone">
                 构建 {{ buildInfo.commit }}{{ buildInfo.dirty ? ' · 包含本地修改' : '' }}<br />{{
                   buildInfo.builtAt ? new Date(buildInfo.builtAt).toLocaleString() : '开发环境'
                 }}
               </p>
+              <UiButton size="sm" variant="text" @click="dialogs.open('versions')">查看版本日志</UiButton>
               <div class="flex flex-wrap items-center gap-2">
                 <UiButton size="sm" variant="ghost" @click="metrics = performanceReport()">刷新耗时</UiButton>
                 <UiButton size="sm" :disabled="exporting" @click="exportReport">{{

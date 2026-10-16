@@ -6,7 +6,7 @@
   <array>
     <dict>
       <key>CFBundleURLName</key>
-      <string>AI Player 学习提醒</string>
+      <string>Study Helper 学习提醒</string>
       <key>CFBundleURLSchemes</key>
       <array><string>aiplayer-study</string><string>aiplayer</string></array>
     </dict>

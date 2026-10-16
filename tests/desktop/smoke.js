@@ -197,8 +197,8 @@ void (async () => {
         await click('成长与复盘')
         const growth = await until(() => document.querySelector('[aria-label="学习成长与复盘"]'), 'growth panel')
         expect(
-          growth.firstElementChild.tagName === 'HEADER' && growth.firstElementChild.textContent.includes('Karen'),
-          'Karen must appear at the top',
+          growth.firstElementChild.tagName === 'HEADER' && growth.firstElementChild.textContent.includes('累计学习'),
+          'Learning activity must appear at the top',
         )
         const health = await until(
           () => [...growth.querySelectorAll('h3')].find((node) => node.textContent === '计划健康度'),
@@ -210,7 +210,7 @@ void (async () => {
         )
         expect(
           getComputedStyle(growth.firstElementChild).backgroundColor === 'rgba(0, 0, 0, 0)',
-          'Only the Karen header must be transparent',
+          'The activity header must be transparent',
         )
         expect(
           growth.querySelectorAll('.pane').length === 4 &&
@@ -334,9 +334,28 @@ void (async () => {
         await click('关闭练习')
       })
       await checkLessonEndFlow()
+      await step('study-helper-version-log', async () => {
+        location.hash = '/?dialog=versions'
+        const page = await until(() => document.querySelector('[aria-label="项目版本日志"]'), 'version log')
+        expect(page.textContent.includes('0.0.1'), 'Current release is visible')
+        expect(page.textContent.includes('2026-10-16'), 'Release date is visible')
+        expect(page.textContent.includes('新增') && page.textContent.includes('移除'), 'Changes are grouped')
+        expect(document.querySelector('[aria-label="Study Helper 首页"]'), 'New application name is visible')
+        expect(!document.querySelector('[aria-label="桌面挂件"]'), 'Companion entry is removed')
+        await click('关闭版本日志')
+        await until(() => !document.querySelector('[aria-label="项目版本日志"]'), 'close version log')
+        location.hash = '/?dialog=settings&section=about'
+        await until(() => visible(document.querySelector('#settings-about')), 'about panel')
+        await click('查看版本日志')
+        await until(() => visible(document.querySelector('[aria-label="项目版本日志"]')), 'open release from about')
+        await click('返回设置')
+        await until(() => visible(document.querySelector('#settings-about')), 'return to about')
+        expect(!document.querySelector('#settings-companion'), 'Companion settings are removed')
+        await click('关闭设置')
+      })
       await step('legacy-note-features-removed', async () => {
         location.hash = '/?dialog=settings'
-        await until(() => document.body.textContent.includes('桌宠设置'), 'settings panel')
+        await until(() => document.querySelector('#settings-ai'), 'settings panel')
         expect(!document.body.textContent.includes('备份与恢复'), 'Backup settings must be removed')
         expect(!document.querySelector('[aria-label="里程碑勋章"]'), 'Medals entry must be removed')
         let blocked = false

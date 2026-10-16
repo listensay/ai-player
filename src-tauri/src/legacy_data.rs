@@ -12,7 +12,11 @@ pub fn clear(directory: &Path, connection: &mut Connection) -> db::Result<()> {
         .execute_batch(
             "DELETE FROM note_images;
              DELETE FROM notes;
-             DELETE FROM app_settings WHERE key = 'milestones:v1' OR key GLOB 'pomodoro:*';
+             DELETE FROM app_settings WHERE key = 'milestones:v1' OR key GLOB 'pomodoro:*'
+               OR key = 'desktop-auto-open-companion';
+             UPDATE app_settings SET value_json = json_remove(value_json, '$.rewardDays')
+             WHERE key = 'learning-management:v1' AND CASE WHEN json_valid(value_json)
+               THEN json_type(value_json, '$.rewardDays') IS NOT NULL ELSE 0 END;
              UPDATE app_settings
              SET value_json = json_remove(value_json, '$.preferences.quietFocus', '$.preferences.shortcut')
              WHERE key = 'learning-management:v1' AND CASE WHEN json_valid(value_json)
@@ -46,7 +50,7 @@ pub fn clear(directory: &Path, connection: &mut Connection) -> db::Result<()> {
         } else {
             fs::remove_file(entry.path())
         };
-        result.map_err(|e| format!("旧笔记数据清理失败（{name}）：{e}"))?;
+        result.map_err(|e| format!("旧功能数据清理失败（{name}）：{e}"))?;
     }
     connection
         .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
@@ -57,6 +61,81 @@ pub fn clear(directory: &Path, connection: &mut Connection) -> db::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removes_companion_settings_and_rewards_preserving_other_learning_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut connection = db::open(&directory.path().join("ai-player.db")).unwrap();
+        let original = serde_json::json!({
+            "version": 1,
+            "rewardDays": ["2026-10-16"],
+            "cards": [{"id": "review", "reviewedAt": 123}],
+            "flows": [{"id": "flow"}],
+            "preferences": {"flowPrompt": true}
+        });
+        connection
+            .execute(
+                "INSERT INTO app_settings VALUES ('learning-management:v1', ?1, 123)",
+                [original.to_string()],
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO app_settings VALUES ('desktop-auto-open-companion','true',1);
+             INSERT INTO app_settings VALUES ('ai_settings','{}',1);
+             INSERT INTO app_settings VALUES ('notion-page:lesson','{}',1);
+             INSERT INTO video_progress VALUES ('course','lesson',90,100,0.9,1,1);",
+            )
+            .unwrap();
+        let mut expected = original;
+        expected.as_object_mut().unwrap().remove("rewardDays");
+        for _ in 0..2 {
+            clear(directory.path(), &mut connection).unwrap();
+            let stored: String = connection
+                .query_row(
+                    "SELECT value_json FROM app_settings WHERE key='learning-management:v1'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&stored).unwrap(),
+                expected
+            );
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM app_settings", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                3
+            );
+            assert_eq!(
+                connection
+                    .query_row("SELECT time FROM video_progress", [], |row| row
+                        .get::<_, f64>(0))
+                    .unwrap(),
+                90.0
+            );
+        }
+        connection
+            .execute(
+                "UPDATE app_settings SET value_json='invalid' WHERE key='learning-management:v1'",
+                [],
+            )
+            .unwrap();
+        clear(directory.path(), &mut connection).unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT value_json FROM app_settings WHERE key='learning-management:v1'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "invalid"
+        );
+        assert!(!directory.path().join("backups").exists());
+    }
 
     #[test]
     fn removes_retired_timer_settings_and_history_preserving_learning_data() {

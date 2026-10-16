@@ -21,7 +21,8 @@ export function useNoteAiBridge(settings: GuideSettings) {
         const controller = new AbortController()
         pending.set(payload.id, controller)
         try {
-          if (!settings.baseUrl?.trim() || !settings.model?.trim()) throw new Error('请先在 AI Player 设置中选择模型')
+          if (!settings.baseUrl?.trim() || !settings.model?.trim())
+            throw new Error('请先在 Study Helper 设置中选择模型')
           const text = await requestAiText({ ...settings }, payload.messages, controller.signal, payload.prompt)
           if (!controller.signal.aborted) await desktopInvoke('affine_ai_response', { id: payload.id, text })
         } catch (reason) {

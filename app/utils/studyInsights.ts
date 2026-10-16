@@ -40,15 +40,13 @@ export function buildStudyInsights(
   evidence: StudyEvidence,
   period: { start: string; end: string; label: string },
   today = localDayKey(),
-  reviewDays: string[] = [],
 ) {
   const within = (day: string) => validDate(day) && day >= period.start && day <= period.end
   const atPeriod = (at: number) => within(localDayKey(new Date(at)))
   const checkDays = new Set<string>(),
     activeDays = new Set<string>()
   let totalSeconds = 0,
-    seconds = 0,
-    stageTasks = 0
+    seconds = 0
   const courseRows: Array<{ name: string; minutes: number; watchCompleted: boolean }> = []
   const mastered: string[] = [],
     needsReview: string[] = []
@@ -75,7 +73,6 @@ export function buildStudyInsights(
       totalSeconds += record.minutes * 60
       if (record.minutes > 0) activeDays.add(record.date)
       if (within(record.date)) courseSeconds += record.minutes * 60
-      if (record.done) stageTasks++
     }
     seconds += courseSeconds
     const done = Object.values(entry.context.progress).filter((p) => p.done).length
@@ -97,9 +94,6 @@ export function buildStudyInsights(
       .map((p) => [JSON.stringify([p.courseId, p.id]), p]),
   )
   const solved = [...solid.values()].filter((p) => atPeriod(p.solidAt!)).length
-  const points =
-    checkDays.size * 10 + stageTasks * 5 + new Set(reviewDays.filter((d) => validDate(d) && d <= today)).size * 5
-  const level = points >= 300 ? 3 : points >= 70 ? 2 : 1
   return {
     period,
     seconds,
@@ -109,18 +103,14 @@ export function buildStudyInsights(
     needsReview: [...new Set(needsReview)].slice(0, 20),
     updatedCharacters,
     solved,
-    growth: {
+    activity: {
       days: activeDays.size,
       totalSeconds,
-      points,
-      level,
-      label: ['初级陪伴', '进阶陪伴', '高级陪伴'][level - 1]!,
-      next: level === 1 ? 70 : level === 2 ? 300 : null,
     },
     incomplete: courses.some((c) => !!c.error),
   }
 }
 export type StudyInsights = ReturnType<typeof buildStudyInsights>
 export function digestMarkdown(data: StudyInsights, reflection = '') {
-  return `# Karen 学习${data.period.label.includes('周') ? '周报' : '月报'}\n\n> ${data.period.start} — ${data.period.end} · ${data.period.label}\n\n## 学习概况\n\n- 学习投入：${(data.seconds / 3600).toFixed(1)} 小时\n- 达标打卡：${data.checked} 天\n- 标记已掌握：${data.mastered.length} 个知识点\n- 练习达标：${data.solved} 道题\n\n## 课程学习记录\n\n${data.courseRows.map((c) => `- ${c.name.replace(/[\r\n]/g, ' ')}：${c.minutes} 分钟${c.watchCompleted ? '（已学完）' : ''}`).join('\n') || '本期暂无学习记录。'}\n\n## 复盘与建议\n\n${reflection || (data.needsReview.length ? `待强化知识点：${data.needsReview.join('、')}。` : '本期暂无待强化知识点。')}\n${data.incomplete ? '\n> 提示：部分课程读取失败，统计可能不完整。\n' : ''}`
+  return `# Study Helper 学习${data.period.label.includes('周') ? '周报' : '月报'}\n\n> ${data.period.start} — ${data.period.end} · ${data.period.label}\n\n## 学习概况\n\n- 学习投入：${(data.seconds / 3600).toFixed(1)} 小时\n- 达标打卡：${data.checked} 天\n- 标记已掌握：${data.mastered.length} 个知识点\n- 练习达标：${data.solved} 道题\n\n## 课程学习记录\n\n${data.courseRows.map((c) => `- ${c.name.replace(/[\r\n]/g, ' ')}：${c.minutes} 分钟${c.watchCompleted ? '（已学完）' : ''}`).join('\n') || '本期暂无学习记录。'}\n\n## 复盘与建议\n\n${reflection || (data.needsReview.length ? `待强化知识点：${data.needsReview.join('、')}。` : '本期暂无待强化知识点。')}\n${data.incomplete ? '\n> 提示：部分课程读取失败，统计可能不完整。\n' : ''}`
 }

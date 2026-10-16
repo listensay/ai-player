@@ -1,5 +1,5 @@
 {
-  "name": "ai-player",
+  "name": "study-helper",
   "type": "module",
   "private": true,
   "scripts": {
@@ -17,7 +17,7 @@
     "format:check": "prettier --check .",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "benchmark": "node scripts/benchmark.mjs",
-    "test:ui": "node --test tests/playerLayout.test.mjs tests/playerDirectory.test.mjs tests/notion.test.mjs tests/companion-interactions.test.mjs",
+    "test:ui": "node --test tests/playerLayout.test.mjs tests/playerDirectory.test.mjs tests/notion.test.mjs",
     "ui:prepare": "node scripts/prepare-ui-fixture.mjs",
     "ui:build": "tauri build --debug --bundles app --config tests/fixtures/ui-regression.json",
     "smoke:frontend": "node scripts/desktop-frontend.mjs smoke",
@@ -64,7 +64,7 @@
     "vite": "^8.3.0",
     "vue-tsc": "^3.1.8"
   },
-  "version": "0.1.0",
+  "version": "0.0.1",
   "engines": {
     "node": "24.x"
   }

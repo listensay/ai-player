@@ -4,8 +4,6 @@ import UiButton from '~/components/UiButton.vue'
 import { RouterLink } from 'vue-router'
 /** 应用导航、课程进度与学习工具。 */
 defineProps<{
-  companionActive?: boolean
-  companionBusy?: boolean
   courseName?: string
   total?: number
   done?: number
@@ -14,7 +12,6 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  companion: []
   help: []
   close: []
   back: []
@@ -22,6 +19,7 @@ const emit = defineEmits<{
   study: []
   guide: []
   notes: []
+  versions: []
 }>()
 </script>
 
@@ -31,9 +29,9 @@ const emit = defineEmits<{
     :class="{ 'player-header': currentView === 'player' && $slots.center }"
   >
     <div class="flex min-w-0 items-center gap-3 overflow-hidden">
-      <RouterLink to="/" aria-label="AI Player 首页" class="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
+      <RouterLink to="/" aria-label="Study Helper 首页" class="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
         <span class="h-3.5 w-3.5 rounded-full bg-brand-orange" aria-hidden="true" />
-        <span class="text-body font-bold tracking-[-0.03em] text-charcoal-ink">AI Player</span>
+        <span class="text-body font-bold tracking-[-0.03em] text-charcoal-ink">Study Helper</span>
       </RouterLink>
     </div>
 
@@ -85,17 +83,8 @@ const emit = defineEmits<{
         >
           <AppIcon name="settings" :size="18" /><span class="hidden 2xl:inline">设置</span>
         </UiButton>
-        <UiButton
-          variant="text"
-          size="sm"
-          :title="companionActive ? '关闭桌面挂件' : '打开桌面挂件'"
-          :aria-pressed="!!companionActive"
-          :disabled="companionBusy"
-          aria-label="桌面挂件"
-          class="companion-toggle max-sm:h-8 max-sm:w-8 max-sm:p-0"
-          @click="emit('companion')"
-        >
-          <AppIcon name="pip" :size="18" /><span class="hidden 2xl:inline">桌面挂件</span>
+        <UiButton variant="text" size="sm" title="版本日志" aria-label="版本日志" @click="emit('versions')">
+          <AppIcon name="clock" :size="18" /><span class="hidden 2xl:inline">版本日志</span>
         </UiButton>
         <UiButton
           variant="text"
@@ -123,11 +112,5 @@ const emit = defineEmits<{
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
   }
-}
-
-.companion-toggle.ui-button.v-btn[aria-pressed='true'] {
-  background: var(--color-page-cream);
-  color: var(--color-deep-indigo);
-  border-color: var(--color-deep-indigo);
 }
 </style>

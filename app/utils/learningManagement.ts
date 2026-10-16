@@ -16,7 +16,6 @@ export function emptyLearningManagement(): LearningManagementData {
   return {
     version: 1,
     cards: [],
-    rewardDays: [],
     flows: [],
     contracts: [],
     works: [],
@@ -37,7 +36,7 @@ const recall = (v: unknown) => ['remembered', 'uncertain', 'forgotten'].includes
 export function parseLearningManagement(raw: unknown): LearningManagementData {
   if (raw == null) return emptyLearningManagement()
   if (!isRecord(raw) || raw.version !== 1) throw Error('学习管理记录版本无法读取。')
-  const arrays = ['cards', 'rewardDays', 'flows', 'contracts', 'works', 'protections'] as const
+  const arrays = ['cards', 'flows', 'contracts', 'works', 'protections'] as const
   for (const key of arrays) if (!Array.isArray(raw[key])) throw Error('学习管理记录不完整。')
   const data = raw as unknown as LearningManagementData
   const unique = (values: { id: string }[]) => new Set(values.map((v) => v.id)).size === values.length
@@ -68,7 +67,6 @@ export function parseLearningManagement(raw: unknown): LearningManagementData {
         (c.reviewedAt !== null && !number(c.reviewedAt)) ||
         typeof c.weak !== 'boolean',
     ) ||
-    data.rewardDays.some((d) => !validDate(d)) ||
     data.flows.some(
       (f) =>
         !isRecord(f) ||
@@ -132,7 +130,12 @@ export function parseLearningManagement(raw: unknown): LearningManagementData {
   )
     throw Error('学习管理设置无效。')
   return structuredClone({
-    ...data,
+    version: data.version,
+    cards: data.cards,
+    flows: data.flows,
+    contracts: data.contracts,
+    works: data.works,
+    protections: data.protections,
     preferences: {
       flowPrompt: p.flowPrompt,
       calendarTime: p.calendarTime,
@@ -340,11 +343,7 @@ export function recordReview(
   const index = data.cards.findIndex((c) => c.id === id)
   if (index < 0 || !dueReviewCards(data, courses, day).some((c) => c.id === id)) throw Error('这张卡片今天已复习。')
   data.cards[index] = rateReview(data.cards[index]!, recall, now)
-  if (!dueReviewCards(data, courses, day).length && !data.rewardDays.includes(day)) {
-    data.rewardDays.push(day)
-    return true
-  }
-  return false
+  return !dueReviewCards(data, courses, day).length
 }
 export function canMakeUp(course: HomeCourse, date: string, today: string) {
   if (date >= today || date < addDays(today, -30) || course.days[date]?.checkedAt != null) return false

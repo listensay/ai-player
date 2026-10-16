@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { usePageTitle } from '~/composables/usePageTitle'
 import LearningHome from '~/components/LearningHome.vue'
-usePageTitle('首页 · AI Player')
+usePageTitle('首页 · Study Helper')
 </script>
 
 <template>

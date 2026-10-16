@@ -6,13 +6,13 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 当前版本的 462 项前端测试、55 项 Rust 测试、格式、Clippy（含桌面测试特性）、类型检查、正式构建及包检查通过。独立 `app.aiplayer.smoke` 应用两次启动通过：笔记四角及中心的指针归属与 observer 关联、主工具栏、独立工作区与课节面板切换、缩放、侧栏/页签/弹窗/全屏显隐、回到首页和重启恢复。测试窗口与正式窗口一样禁用后台节流。日志见 `.cache/cursor-observer-frontend-check.log`、`.cache/cursor-observer-rust-check.log`、`.cache/cursor-observer-smoke-clippy.log`、`.cache/cursor-observer-desktop-check.log` 和 `.cache/cursor-observer-release-build.log`。
 
-实际指针运动单独验收：用户在“AI Player Smoke”的“全部”按钮上轻移鼠标后明确更正反馈为“没有频繁切换了，我点错了”。同期日志记录 1,570 次覆盖区域的主网页 `mouseMoved:` 被拦截，并有连续数百次移动期间不再设置箭头的区段。证据见 `.cache/cursor-observer-manual-check.json` 和 `.cache/cursor-observer-after.log`。自动命中检查及坐标点击不等同于实际鼠标运动；没有进行系统指针逐帧录像。
+实际指针运动单独验收：用户在“Study Helper Smoke”的“全部”按钮上轻移鼠标后明确更正反馈为“没有频繁切换了，我点错了”。同期日志记录 1,570 次覆盖区域的主网页 `mouseMoved:` 被拦截，并有连续数百次移动期间不再设置箭头的区段。证据见 `.cache/cursor-observer-manual-check.json` 和 `.cache/cursor-observer-after.log`。自动命中检查及坐标点击不等同于实际鼠标运动；没有进行系统指针逐帧录像。
 
-12:04 将签名的 macOS arm64 0.1.0 修复版安装至 `/Applications/AI Player.app`，安装前后学习数据库内容校验一致。旧应用、学习数据库、完整 WebKit 笔记存储及本机端口配置备份位于 `/Users/od23/Library/Caches/ai-player-backups/20261016-120428-cursor-observer-install/`；15 个 WebKit SQLite 备份逐库比对模式与所有行。源码基准提交、可执行文件 SHA-256 与安装记录见 `.cache/cursor-observer-install.json`。正式包不包含原生指针诊断钩子。
+12:04 将签名的 macOS arm64 0.1.0 修复版安装至 `/Applications/Study Helper.app`，安装前后学习数据库内容校验一致。旧应用、学习数据库、完整 WebKit 笔记存储及本机端口配置备份位于 `/Users/od23/Library/Caches/ai-player-backups/20261016-120428-cursor-observer-install/`；15 个 WebKit SQLite 备份逐库比对模式与所有行。源码基准提交、可执行文件 SHA-256 与安装记录见 `.cache/cursor-observer-install.json`。正式包不包含原生指针诊断钩子。
 
-本次更新前、安装后及再次退出重启，正式应用均恢复工作区 `hQ89Xew6uvlRuTaNiXD1i`（端口 63536），两篇示例文档编号与内容预览一致，笔记显示菜单正常打开，首页两门课程及学习进度一致。系统签名校验通过，实际运行路径为 `/Applications/AI Player.app/Contents/MacOS/ai-player`。
+本次更新前、安装后及再次退出重启，正式应用均恢复工作区 `hQ89Xew6uvlRuTaNiXD1i`（端口 63536），两篇示例文档编号与内容预览一致，笔记显示菜单正常打开，首页两门课程及学习进度一致。系统签名校验通过，实际运行路径为 `/Applications/Study Helper.app/Contents/MacOS/ai-player`。
 
-前一次 11:12 安装仍有独立的存储验收限制：更新前工作区编号为 `dAe76guZaOzaaJdR0_3bz`，更新后出现新的默认工作区 `hQ89Xew6uvlRuTaNiXD1i`；后者普通重启能恢复。旧工作区未在本机 AI Player WebKit 存储中找到，重置原因未确定。那次备份仅含旧应用和学习 SQLite 数据库，不含升级前 WebKit 笔记快照。用户已确认当时只有默认示例，没有个人笔记需要恢复；不能据此把那次跨版本笔记数据保留记为通过。前次安装记录保留在 `.cache/cursor-install.json`。
+前一次 11:12 安装仍有独立的存储验收限制：更新前工作区编号为 `dAe76guZaOzaaJdR0_3bz`，更新后出现新的默认工作区 `hQ89Xew6uvlRuTaNiXD1i`；后者普通重启能恢复。旧工作区未在本机 Study Helper WebKit 存储中找到，重置原因未确定。那次备份仅含旧应用和学习 SQLite 数据库，不含升级前 WebKit 笔记快照。用户已确认当时只有默认示例，没有个人笔记需要恢复；不能据此把那次跨版本笔记数据保留记为通过。前次安装记录保留在 `.cache/cursor-install.json`。
 
 ## AFFiNE 本机工作区（2026-10-16）
 
@@ -22,7 +22,7 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 独立桌面回归两阶段通过：新建课节文档、写入、切课返回、侧栏调整、页签/弹窗/全屏隐藏和恢复、笔记视图不能直接读取主数据库、退出重启后的正文与课节关联恢复；播放、编程练习与课节反馈检查同时通过。日志为 `.cache/affine-desktop-continued.log`，报告为 `.cache/desktop-smoke-report.json`。
 
-真实 `AI Player Notes Check` 窗口确认中文粘贴编辑、文档切换白板、Markdown 导出、工作区快照重新导入后中文正文完整，以及新建文档立即进入备份。快照压缩包完整性检查通过并包含附件。取消导出不再误报成功；样例为 `.cache/affine-qa/affine-continued.md`、`affine-workspace-continued.bs.zip` 和 `affine-fresh-document.bs.zip`。
+真实 `Study Helper Notes Check` 窗口确认中文粘贴编辑、文档切换白板、Markdown 导出、工作区快照重新导入后中文正文完整，以及新建文档立即进入备份。快照压缩包完整性检查通过并包含附件。取消导出不再误报成功；样例为 `.cache/affine-qa/affine-continued.md`、`affine-workspace-continued.bs.zip` 和 `affine-fresh-document.bs.zip`。
 
 笔记 AI 使用本机模拟模型，确认请求复用主程序配置、窗口显示回答、重启后通过历史入口恢复问答。未调用真实付费模型，未验证中文输入法候选词组合、Windows/Linux 或全部 AFFiNE 导入格式。462 项前端测试、55 项 Rust 测试、3 项笔记 AI 专项测试、静态检查、格式、类型检查、构建和主前端包体检查通过。存储和功能边界见 [AFFiNE 集成说明](affine-integration.md)。
 
@@ -38,13 +38,13 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 ## 移除番茄钟（2026-10-15）
 
-删除计时器、设置入口、播放器自动暂停联动、阶段提示音、桌宠阶段消息与倒计时、专注快捷指令及相关统计。旧设置、历史和专注偏好直接清理，不创建备份；保留课程进度、打卡、课后学习状态、日历和桌宠日常交互。
+删除计时器、设置入口、播放器自动暂停联动、阶段提示音、专注快捷指令及相关统计。旧设置、历史和专注偏好直接清理，不创建备份；保留课程进度、打卡、课后学习状态、日历。
 
 前端完整检查通过（455 项测试），Rust 格式、Clippy 和测试通过（53 项）。独立桌面课后流程两次启动通过：推进时钟后播放仍继续，手动暂停不触发课后反馈，视频结束、练习、单次学习状态及重启保留正常。此次未重跑完整 Notion 桌面回归。正式 0.1.0 macOS arm64 应用已更新并重新打开，实测设置导航、成长与复盘、学习偏好均无旧入口。清理 14 个本机应用数据库，逐库比对确认其他数据一致；删除旧番茄钟测试应用与专用测试文件。安装与清理核验记录位于 `.cache/remove-timer-install.json` 和 `.cache/remove-timer-data-check.json`。
 
 ## 学习契约白色卡片（2026-10-09）
 
-已签订的学习契约卡片改用白色背景，保留原圆角、边框、内容与修改入口。在独立 `app.aiplayer.regression` 的 1280×900 窗口中新建合成学习目标，确认保存后卡片正常显示白色；未修改正式契约内容。前端完整检查通过（460 项测试），本次未修改 Rust 源码，未重跑已记录存在 Notion 超时的完整桌面 smoke。签名发布版更新前保留了可回退应用副本，安装记录见 `.cache/resume-install-record.json`，归档为 `.cache/AI-Player-2026-10-09-white-contract-card.zip`。
+已签订的学习契约卡片改用白色背景，保留原圆角、边框、内容与修改入口。在独立 `app.aiplayer.regression` 的 1280×900 窗口中新建合成学习目标，确认保存后卡片正常显示白色；未修改正式契约内容。前端完整检查通过（460 项测试），本次未修改 Rust 源码，未重跑已记录存在 Notion 超时的完整桌面 smoke。签名发布版更新前保留了可回退应用副本，安装记录见 `.cache/resume-install-record.json`，归档为 `.cache/Study-Helper-2026-10-09-white-contract-card.zip`。
 
 ## 日期选择弹层布局（2026-10-09）
 
@@ -52,17 +52,17 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 在独立 `app.aiplayer.regression` 的 1280×900 原生窗口中实测学习契约日期字段：弹层无右侧大块留白，自动向上展开后仍完整可见；取消后保留 2027-09-29，重新选择并确认后正确显示 2027-09-27，最后取消整个表单。前端完整检查通过（460 项测试），签名发布版已更新；Rust 源码未修改，沿用本日已通过的 52 项检查。完整桌面 smoke 两次均在 Notion 切页隐藏原生视图处超时，未将其记为通过，也未修改或跳过相关断言。
 
-安装与验证记录见 `.cache/resume-install-record.json`，本次归档为 `.cache/AI-Player-2026-10-09-date-picker-fix.zip`，更新前的应用副本已保留。
+安装与验证记录见 `.cache/resume-install-record.json`，本次归档为 `.cache/Study-Helper-2026-10-09-date-picker-fix.zip`，更新前的应用副本已保留。
 
 ## 学习契约、复习入口与成长布局（2026-10-09）
 
-独立 `app.aiplayer.smoke` 两次原生运行通过：契约新建、修改后保留原 ID 与签订时间；抗遗忘复习保留错题与薄弱项并移除闪卡队列；Karen 位于复盘页顶部；Notion 切换与重启、编程执行与取消、播放控制继续通过。
+独立 `app.aiplayer.smoke` 两次原生运行通过：契约新建、修改后保留原 ID 与签订时间；抗遗忘复习保留错题与薄弱项并移除闪卡队列；学习统计位于复盘页顶部；Notion 切换与重启、编程执行与取消、播放控制继续通过。
 
-正式应用实测确认错误契约已清空，新建整门课程契约时交付目标为空，错题与针对性补练仍可访问，减负按钮同排对齐。按用户后续确认，仅 Karen 顶部区域采用透明背景；计划健康度、连续学习、心流时段、学习报告恢复白色卡片，报告预览也使用白色背景。前端完整检查通过（460 项测试），Rust 检查通过（52 项测试），签名后的 0.1.0 Apple Silicon 应用已安装；旧应用与清理契约前的数据副本已保留。
+正式应用实测确认错误契约已清空，新建整门课程契约时交付目标为空，错题与针对性补练仍可访问，减负按钮同排对齐。按用户后续确认，仅 Study Helper 顶部区域采用透明背景；计划健康度、连续学习、心流时段、学习报告恢复白色卡片，报告预览也使用白色背景。前端完整检查通过（460 项测试），Rust 检查通过（52 项测试），签名后的 0.1.0 Apple Silicon 应用已安装；旧应用与清理契约前的数据副本已保留。
 
-白色卡片版原生回归首次在 Notion 侧栏恢复处超时；未修改代码重跑后，两次进程运行全部通过。最终样式检查覆盖 Karen 顶部透明以及五块内容卡片的实际白色背景。
+白色卡片版原生回归首次在 Notion 侧栏恢复处超时；未修改代码重跑后，两次进程运行全部通过。最终样式检查覆盖 学习统计顶部透明以及五块内容卡片的实际白色背景。
 
-本次安装记录保存在 `.cache/resume-install-record.json`，包含 Git 基准提交、未提交改动标记、平台、应用归档 SHA-256、二进制校验和、回退路径与回归报告。构建归档为 `.cache/AI-Player-2026-10-09-interface-fixes.zip`。
+本次安装记录保存在 `.cache/resume-install-record.json`，包含 Git 基准提交、未提交改动标记、平台、应用归档 SHA-256、二进制校验和、回退路径与回归报告。构建归档为 `.cache/Study-Helper-2026-10-09-interface-fixes.zip`。
 
 ## 增量刷新、按需语言与备份恢复（2026-10-07）
 
@@ -72,52 +72,51 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 ## 学习管理扩展（2026-10-05）
 
-独立构建 **AI Player Learning Check**（`app.aiplayer.learning-management-check`），使用 `scripts/prepare-learning-management-fixture.mjs` 的合成课程。未替换正式安装应用或写入正式数据库。
+独立构建 **Study Helper Learning Check**（`app.aiplayer.learning-management-check`），使用 `scripts/prepare-learning-management-fixture.mjs` 的合成课程。未替换正式安装应用或写入正式数据库。
 
 真实 macOS 窗口验证了首页待复习数量、闪卡翻面与评价后进入下一张、重启保留复习进度、作品登记保存、健康度与心流时段、减负预览及保存、跨课程撤销、防断卡能量扣减和连续天数增加。在 1280×900 与 860×700 下检查了学习管理布局，导航、筛选和主要操作无横向溢出。修复了首页恢复计划重置创建时间导致减负保存误判冲突的问题；保存时保留原始路线和对话，未来预算调整不改动既有投入。
 
 通过真实目录选择器选择 `.cache/learning-management-vault`，成功生成带 Frontmatter、知识总结、练习记录与播放器链接的 Markdown；修改文件内的课程笔记后再次同步，独立 SQLite 记录确认外部文字已回传。启用自动更新后生成了本机 WebCal 地址，实际 HTTP 请求取得有效 ICS；样例文件保存在 `.cache/learning-management-calendar.ics`。
 
-自动检查包含前端 428 项测试与 Rust 38 项测试，覆盖旧库默认值、异常数据、保存失败、复习重复领奖、跨天间隔、减负历史保护及实践时间、日历按日推进、UTF-8 折行、三方合并、AI 取消与迟到响应、Notion 内容冲突、原生文件边界和条件写入。
+自动检查包含前端 428 项测试与 Rust 38 项测试，覆盖旧库默认值、异常数据、保存失败、复习重复复习、跨天间隔、减负历史保护及实践时间、日历按日推进、UTF-8 折行、三方合并、AI 取消与迟到响应、Notion 内容冲突、原生文件边界和条件写入。
 
-真实 AI 模型、Notion 账号写入、Apple / Google 日历客户端订阅导入、macOS 快捷指令及全屏桌宠倒计时未进行外部环境验收；相关输入校验、网络失败、计算和状态切换由自动测试覆盖。使用方式与实现范围见 [学习管理扩展](learning-management.md)。
+真实 AI 模型、Notion 账号写入、Apple / Google 日历客户端订阅导入、macOS 快捷指令未进行外部环境验收；相关输入校验、网络失败、计算和状态切换由自动测试覆盖。使用方式与实现范围见 [学习管理扩展](learning-management.md)。
 
 ## 独立样例
 
 `node scripts/prepare-ui-fixture.mjs` 创建 8 节一分钟的合成视频、字幕、笔记和一份已完成第一天的学习计划。应用标识固定为 `app.aiplayer.regression`，不访问正式应用数据库；回归数据库已存在时脚本拒绝覆盖。关闭测试应用后可手动归档其整个数据目录，再重新准备。
 
-运行 `npm run tauri -- build --debug --bundles app --config tests/fixtures/ui-regression.json`，打开构建输出中的 **AI Player Regression**。样例不设置 AI 密钥，不需要调用外部服务。
+运行 `npm run tauri -- build --debug --bundles app --config tests/fixtures/ui-regression.json`，打开构建输出中的 **Study Helper Regression**。样例不设置 AI 密钥，不需要调用外部服务。
 
 ## 固定检查
 
-| 场景     | 操作                         | 应有结果                                     |
-| -------- | ---------------------------- | -------------------------------------------- |
-| 进入课程 | 首页继续播放                 | 视频、原笔记可用；顶部只有一组工具           |
-| 侧栏     | 左右分别收起，再展开         | 视频填满释放空间；笔记实例及页签保留         |
-| 边缘入口 | 鼠标到左右边缘上、中、下位置 | 显示对应小箭头；离开隐藏；不遮挡视频         |
-| 控制栏   | 查看下一节右侧               | 课后练习与下一节在同一控制栏                 |
-| 窄窗口   | 将窗口缩至 860px             | 目录抽屉可打开、关闭；控件不横向溢出         |
-| 续学     | 点击继续学习下一天           | 第二天任务加入，原日巩固仍可使用             |
-| 进度     | 完成追加的一节，再切课       | 已学课程仍在今日列表，未学内容不无故消失     |
-| 笔记     | 编辑后收起侧栏、切课再返回   | 编辑内容保留；重启后仍存在                   |
-| 全屏     | 进入并退出全屏               | 视频正常，工具可用；桌宠恢复显示             |
-| 桌宠     | 打开挂件、摸摸、拖动、双击   | 动画、交互和播放控制正常；关闭挂件不停止课程 |
+| 场景     | 操作                         | 应有结果                                 |
+| -------- | ---------------------------- | ---------------------------------------- |
+| 进入课程 | 首页继续播放                 | 视频、原笔记可用；顶部只有一组工具       |
+| 侧栏     | 左右分别收起，再展开         | 视频填满释放空间；笔记实例及页签保留     |
+| 边缘入口 | 鼠标到左右边缘上、中、下位置 | 显示对应小箭头；离开隐藏；不遮挡视频     |
+| 控制栏   | 查看下一节右侧               | 课后练习与下一节在同一控制栏             |
+| 窄窗口   | 将窗口缩至 860px             | 目录抽屉可打开、关闭；控件不横向溢出     |
+| 续学     | 点击继续学习下一天           | 第二天任务加入，原日巩固仍可使用         |
+| 进度     | 完成追加的一节，再切课       | 已学课程仍在今日列表，未学内容不无故消失 |
+| 笔记     | 编辑后收起侧栏、切课再返回   | 编辑内容保留；重启后仍存在               |
+| 全屏     | 进入并退出全屏               | 视频正常，工具可用                       |
 
 至少在 1280px 和 860px 宽度执行侧栏、控制栏、笔记检查。保留截图或录屏，并记录实际执行范围；组件渲染测试不能代替像素布局、原生事件或动画时序验证。
 
 ## 自动覆盖
 
-`tests/playerLayout.test.mjs` 编译实际页面模板，验证侧栏独立切换、笔记实例保留、逐字稿状态和顶部入口。视频与编辑器内部使用边界替身。`playerDirectory`、`noteLoading`、`studyContinuation`、`knowledge` 和 `companion` 测试继续覆盖响应式状态、异步竞态与学习业务规则。
+`tests/playerLayout.test.mjs` 编译实际页面模板，验证侧栏独立切换、笔记实例保留、逐字稿状态和顶部入口。视频与编辑器内部使用边界替身。`playerDirectory`、`noteLoading`、`studyContinuation`、`knowledge` 测试继续覆盖响应式状态、异步竞态与学习业务规则。
 
 ## 练习弹窗回归（2026-10-01）
 
-在独立应用 **AI Player Practice Check**（`app.aiplayer.practice-check`）中，用合成题目验证了多选、单选和判断题，不配置 AI 密钥、不发送外部请求。1100 × 900 窗口中确认选项控件与文字居中、有明确间距，长选项正常换行；逐题提交后通过底部“下一题”切换，末题显示 100 / 100 分，点击“完成”关闭弹窗，重新打开仍保留成绩。缩至 860 × 740 后总分与底部完成按钮仍可见。
+在独立应用 **Study Helper Practice Check**（`app.aiplayer.practice-check`）中，用合成题目验证了多选、单选和判断题，不配置 AI 密钥、不发送外部请求。1100 × 900 窗口中确认选项控件与文字居中、有明确间距，长选项正常换行；逐题提交后通过底部“下一题”切换，末题显示 100 / 100 分，点击“完成”关闭弹窗，重新打开仍保留成绩。缩至 860 × 740 后总分与底部完成按钮仍可见。
 
 `tests/practice.test.mjs` 使用真实练习状态与编译后的弹窗模板，覆盖末题汇总、关闭与恢复、重新提交重算、未答计零、生成分组保存恢复，以及不同组与旧记录的隔离。该次前端类型检查、构建、ESLint 和全部 285 项测试通过；独立 Tauri 调试应用构建通过。
 
 ## 大数据模式
 
-运行 `npm run ui:prepare -- --large`，再使用 `tests/fixtures/ui-regression-large.json` 构建独立的 **AI Player Large Regression**。它使用不同的应用标识和数据库，含 2,000 节合成课程、20 个文件夹，以及第一课的 10,000 句字幕。视频使用本地硬链接共享样例数据，不复制数千份视频内容。
+运行 `npm run ui:prepare -- --large`，再使用 `tests/fixtures/ui-regression-large.json` 构建独立的 **Study Helper Large Regression**。它使用不同的应用标识和数据库，含 2,000 节合成课程、20 个文件夹，以及第一课的 10,000 句字幕。视频使用本地硬链接共享样例数据，不复制数千份视频内容。
 
 额外检查：完整目录全部展开后滚动到末尾，搜索 `lesson-1999` 并播放；返回第一课，搜索字幕中的“末尾检索目标”，验证最后一句可见、搜索前后切换和恢复当前句；收起右栏后继续播放不滚动外层页面。设置的“关于与诊断”应显示当前构建信息，导出的 JSON 仅包含声明的统计字段。
 
@@ -126,8 +125,6 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 移除应用顶部“正在转写：课节 · 等待处理/进度”的整条任务提示，保留逐字稿页签中的转写状态与面板操作，转写队列逻辑不变。`npm run check` 通过（301 项测试），覆盖等待转写时逐字稿页签仍显示状态和顶部模板不再渲染任务条。独立测试应用构建通过，实际播放器布局检查正常，截图 `.cache/remove-transcript-banner.png`；该次桌面检查未启动新转写任务。
 
 ## 视频页面 header 精简与居中（2026-10-01）
-
-视频详情页右侧仅一个“返回”按钮，回到同课程的视频信息页；信息页顶部操作仅“AI 导学”和“返回首页”，移除概览/播放器切换器与其他工具。首页继续保留学习管理、设置、桌面挂件和快捷键入口。
 
 完整 `npm run check` 通过（301 项测试）；模板回归覆盖两个页面与首页的精确操作集合、按钮事件及按钮布局。独立应用构建通过，1100 / 860 宽度下确认右侧单按钮，实际点击返回进入视频信息页且只见两个顶部操作，再点击返回首页恢复首页工具。截图 `.cache/simplify-header/`。未替换正式安装版，未修改正式数据库。
 
@@ -139,9 +136,9 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 ## 学习成长与复盘（2026-10-02）
 
-独立测试应用 构建通过，未替换正式安装版。实际窗口验证成长仪表板、周报/月报及上一完整周期切换、空周期报告、跨日至 10 月 2 日、勋章/Karen 卡片与原学习提醒共存。原生保存对话框成功导出 Markdown 和 PNG，检查长图文字换行与完整性。修复保存对话框返回触发课程刷新而清空复盘的问题：仅统计内容实际变化时失效，不按课程数组对象身份清空。
+独立测试应用 构建通过，未替换正式安装版。实际窗口验证成长仪表板、周报/月报及上一完整周期切换、空周期报告、跨日至 10 月 2 日、勋章/Study Helper 卡片与原学习提醒共存。原生保存对话框成功导出 Markdown 和 PNG，检查长图文字换行与完整性。修复保存对话框返回触发课程刷新而清空复盘的问题：仅统计内容实际变化时失效，不按课程数组对象身份清空。
 
-截图 `.cache/study-insights/`，导出样例 `.cache/study-insights-preview.md`、`.cache/study-insights-preview.png`。测试应用未配置外部 AI；未发送付费模型请求，AI 成功/失败/取消/迟到响应及格式校验通过模拟测试验证。尚未人工验证桌宠高等级动画和真实 AI 文案质量；旧小时级播放数据不可回填。
+截图 `.cache/study-insights/`，导出样例 `.cache/study-insights-preview.md`、`.cache/study-insights-preview.png`。测试应用未配置外部 AI；未发送付费模型请求，AI 成功/失败/取消/迟到响应及格式校验通过模拟测试验证。尚未人工验证真实 AI 文案质量；旧小时级播放数据不可回填。
 
 `npm run check` 通过（313 项测试，含新统计边界与 AI 流程）；`npm run check:rust` 通过（30 项 Rust 测试），包括聚合端点不泄漏笔记/题目/答案、同题首次 solid 时间。独立 Tauri 应用构建通过。既有大分块提示仍存在，不影响构建。
 
@@ -151,7 +148,7 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 ### 独立样例
 
-运行 `node scripts/prepare-programming-fixture.mjs`，再运行 `npm run tauri -- build --debug --bundles app --config tests/fixtures/programming-check.json`。样例应用 **AI Player Programming Check** 使用 `app.aiplayer.programming-check` 标识和单独数据库，包含代码补全、功能实现及选择题；已有样例数据库时拒绝覆盖。不会替换正式安装版。
+运行 `node scripts/prepare-programming-fixture.mjs`，再运行 `npm run tauri -- build --debug --bundles app --config tests/fixtures/programming-check.json`。样例应用 **Study Helper Programming Check** 使用 `app.aiplayer.programming-check` 标识和单独数据库，包含代码补全、功能实现及选择题；已有样例数据库时拒绝覆盖。不会替换正式安装版。
 
 ### 本轮验证
 
@@ -179,7 +176,7 @@ macOS 下过滤被笔记覆盖的主网页鼠标事件，避免底层网页将�
 
 自动回归：`programmingWorkspace.test.mjs` 编译真实工作台模板，确认无选择控件与用例预览、点击“测试”仅发出一次无参数执行事件；`programming.test.mjs` 覆盖 3–12 用例下限和出题提示中的多样性、展示位置要求；`practice.test.mjs` 覆盖运行自动执行全部用例及提交、保存、恢复流程。
 
-完整前端检查通过（371 项 Node 测试、类型检查、ESLint、格式和构建）。本轮未构建桌面样例、未做真实窗口像素检查（沙箱无 Rust 工具链与桌面环境）；请在 Mac 上重建 AI Player Programming Check 后复查：题目区无选择框与用例预览，点击“测试”自动跑完全部用例，结果区可查看各用例输入，旧单用例运行记录仍可显示。
+完整前端检查通过（371 项 Node 测试、类型检查、ESLint、格式和构建）。本轮未构建桌面样例、未做真实窗口像素检查（沙箱无 Rust 工具链与桌面环境）；请在 Mac 上重建 Study Helper Programming Check 后复查：题目区无选择框与用例预览，点击“测试”自动跑完全部用例，结果区可查看各用例输入，旧单用例运行记录仍可显示。
 
 ## 课后练习全屏与题目区宽度调整（2026-10-04）
 

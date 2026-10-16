@@ -1,11 +1,11 @@
 {
   "identifier": "app.aiplayer.affine-check",
-  "productName": "AI Player Notes Check",
+  "productName": "Study Helper Notes Check",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AI Player Notes Check",
+        "title": "Study Helper Notes Check",
         "width": 1440,
         "height": 960,
         "minWidth": 860,

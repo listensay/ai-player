@@ -45,7 +45,7 @@ function bindStage(instance: unknown) {
 }
 const panel = ref<HTMLElement | null>(null)
 const panelWidth = useLearningPanelWidth(panel)
-usePageTitle(() => `${video.value?.title ?? '播放器'} · AI Player`)
+usePageTitle(() => `${video.value?.title ?? '播放器'} · Study Helper`)
 </script>
 
 <template>

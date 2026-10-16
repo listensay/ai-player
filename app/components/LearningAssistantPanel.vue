@@ -78,7 +78,7 @@ function saveCode(code: string, language: string) {
   <section class="assistant-panel scroll-soft min-h-0 flex-1 overflow-y-auto p-4" aria-label="AI 随堂助教">
     <div class="assistant-toolbar">
       <header class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="font-bold">Karen 随堂助教</h2>
+        <h2 class="font-bold">Study Helper 随堂助教</h2>
         <UiButton variant="text" size="sm" @click="workspace.openGuide('settings')">AI 设置</UiButton>
       </header>
       <nav class="mb-4 flex flex-wrap gap-1.5" aria-label="学习工具">

@@ -148,7 +148,7 @@ export function provideStudyTools() {
               .filter((r) => !studiedForReminder(r, studied, localDayKey()))
               .map((r) =>
                 desktopInvoke('plugin:notification|notify', {
-                  options: { title: '学习提醒 · AI Player', body: r.title },
+                  options: { title: '学习提醒 · Study Helper', body: r.title },
                 }),
               ),
           )
@@ -166,7 +166,7 @@ export function provideStudyTools() {
       try {
         const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
         if (!(await isPermissionGranted()) && (await requestPermission()) !== 'granted') {
-          state.notice = '系统通知未获授权，请在系统设置中允许 AI Player 发送通知。软件内提醒仍可使用。'
+          state.notice = '系统通知未获授权，请在系统设置中允许 Study Helper 发送通知。软件内提醒仍可使用。'
           return false
         }
       } catch {

@@ -265,7 +265,7 @@ server.headersTimeout = 60_000
 server.listen(PORT, HOST, () => {
   const port = server.address().port
   if (TOKEN) console.log(JSON.stringify({ event: 'listening', port }))
-  log(`AI Player 语音转文字服务已启动：http://${HOST}:${port}`)
+  log(`Study Helper 语音转文字服务已启动：http://${HOST}:${port}`)
   log(`模型目录：${MODEL_DIR}`)
   void prepare()
 })

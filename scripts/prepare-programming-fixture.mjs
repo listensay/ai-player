@@ -48,7 +48,6 @@ db.prepare(
   'INSERT INTO recent_courses (id,name,video_count,last_opened_at,last_video_path,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
 ).run(id, 'JavaScript 编程练习', 1, now, 'lesson-0.mp4', now, now)
 db.prepare('INSERT INTO course_locations VALUES (?,?)').run(id, directory)
-db.prepare('INSERT INTO app_settings VALUES (?,?,?)').run('desktop-auto-open-companion', 'false', now)
 db.prepare('INSERT INTO notes VALUES (?,?,?,?)').run(id, 'lesson-0.mp4', material, now)
 const implementation = structuredClone(programmingQuestion)
 implementation.programming.mode = 'implementation'

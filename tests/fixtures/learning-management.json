@@ -1,11 +1,11 @@
 {
   "identifier": "app.aiplayer.learning-management-check",
-  "productName": "AI Player Learning Check",
+  "productName": "Study Helper Learning Check",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AI Player Learning Check",
+        "title": "Study Helper Learning Check",
         "width": 1280,
         "height": 900,
         "minWidth": 860,

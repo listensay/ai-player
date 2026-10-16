@@ -347,7 +347,7 @@ pub async fn confirm_asr_quit(app: tauri::AppHandle) -> bool {
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .message("仍有转写任务正在进行。退出将停止未完成任务，已保存的字幕和笔记会保留。")
-            .title("退出 AI Player")
+            .title("退出 Study Helper")
             .buttons(MessageDialogButtons::OkCancelCustom(
                 "停止并退出".into(),
                 "继续转写".into(),

@@ -17,7 +17,7 @@
 
 ## 复习与持久化
 
-采用固定间隔 SRS（1、2、4、7、15、30 天），不声称实现 FSRS。复习评价按本地日期推进；同一张卡当天只能评价一次；每日队列完成后亲密度增加 5，重启和重复提交不会重复领奖。暂停、归档课程保留历史，但不加入今日队列。
+采用固定间隔 SRS（1、2、4、7、15、30 天），不声称实现 FSRS。复习评价按本地日期推进；同一张卡当天只能评价一次。暂停、归档课程保留历史，但不加入今日队列。
 
 新增 `learning-management:v1` 设置记录，首次读取旧库时使用默认值；未知版本和损坏记录报错并暂停覆盖。原笔记、练习、导学和打卡表继续使用原结构。`learning-sources` 只读取相关材料，不返回其他设置或服务密钥。卡片使用来源稳定标识，修改笔记不会重置已记录的间隔。
 
@@ -31,7 +31,7 @@
 
 ## 验证
 
-`tests/learningManagement.test.mjs` 覆盖旧库默认值与损坏记录、复习间隔、重复领奖、保存失败、并发写入、错题来源、补卡条件、减负的历史保护、日历推进和 UTF-8 折行、知识库三方合并、成果验收与心流统计。Rust 测试覆盖学习材料聚合范围、笔记条件写入、日历私有路径、文件原子更新、符号链接越界和播放器链接校验。
+`tests/learningManagement.test.mjs` 覆盖旧库默认值与损坏记录、复习间隔、重复复习、保存失败、并发写入、错题来源、补卡条件、减负的历史保护、日历推进和 UTF-8 折行、知识库三方合并、成果验收与心流统计。Rust 测试覆盖学习材料聚合范围、笔记条件写入、日历私有路径、文件原子更新、符号链接越界和播放器链接校验。
 
 独立桌面样例：
 
@@ -40,6 +40,6 @@ node scripts/prepare-learning-management-fixture.mjs
 npm run tauri -- build --debug --bundles app --config tests/fixtures/learning-management.json
 ```
 
-应用名称 **AI Player Learning Check**，标识 `app.aiplayer.learning-management-check`。脚本遇到已有测试数据库会拒绝覆盖。样例使用合成课程、错题、笔记和心流记录，不配置外部服务密钥。实际回归情况记录在 `docs/ui-regression.md`。
+应用名称 **Study Helper Learning Check**，标识 `app.aiplayer.learning-management-check`。脚本遇到已有测试数据库会拒绝覆盖。样例使用合成课程、错题、笔记和心流记录，不配置外部服务密钥。实际回归情况记录在 `docs/ui-regression.md`。
 
 真实 AI 服务、Notion 账号、系统快捷指令和外部日历客户端仍需使用各自配置进行集成验收；本地文件同步和日历服务可独立验证。
