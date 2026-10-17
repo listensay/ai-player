@@ -4,6 +4,15 @@
   "description": "Local learning window. Files are restricted by native commands to selected course directories.",
   "windows": ["main"],
   "permissions": [
+    "allow-initialize-data-storage",
+    "allow-data-storage-info",
+    "allow-choose-data-directory",
+    "allow-cancel-data-directory",
+    "allow-data-storage-flush",
+    "allow-notes-storage-info",
+    "allow-choose-notes-directory",
+    "allow-notes-storage-flush",
+
     "core:default",
     "notification:default",
     "core:window:allow-set-fullscreen",
@@ -27,6 +36,7 @@
     },
     "allow-desktop-smoke-report",
     "allow-desktop-smoke-affine",
+    "allow-desktop-smoke-notes-directory",
     "allow-desktop-smoke-notion",
     "allow-desktop-smoke-notion-popup",
     "allow-confirm-asr-quit",

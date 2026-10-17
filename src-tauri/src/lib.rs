@@ -1,6 +1,7 @@
 mod affine;
 mod affine_server;
 mod asr;
+mod data_storage;
 mod db;
 #[cfg(feature = "desktop-smoke")]
 mod desktop_smoke;
@@ -9,6 +10,7 @@ mod learning_integrations;
 mod legacy_data;
 mod mac_reminders;
 mod media_duration;
+mod notes_storage;
 mod notion;
 #[cfg(target_os = "macos")]
 mod notion_popup_macos;
@@ -208,18 +210,9 @@ pub fn run() {
             };
             #[cfg(feature = "desktop-smoke")]
             let directory = desktop_smoke::directory().map_err(std::io::Error::other)?;
-            std::fs::create_dir_all(&directory)?;
-            let mut conn =
-                db::open(&directory.join("ai-player.db")).map_err(std::io::Error::other)?;
-            legacy_data::clear(&directory, &mut conn).map_err(std::io::Error::other)?;
-            let roots = files::saved_roots(&conn).map_err(std::io::Error::other)?;
-            for root in &roots {
-                app.asset_protocol_scope().allow_directory(root, true)?;
-            }
-            app.manage(AppState {
-                db: Mutex::new(conn),
-                roots: Mutex::new(roots),
-                frontend_ready: AtomicBool::new(false),
+            app.manage(data_storage::StorageStartup {
+                directory,
+                gate: Mutex::new(()),
             });
             Ok(())
         })
@@ -228,6 +221,8 @@ pub fn run() {
             desktop_smoke::desktop_smoke_report,
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_affine,
+            #[cfg(feature = "desktop-smoke")]
+            desktop_smoke::desktop_smoke_notes_directory,
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_notion,
             #[cfg(feature = "desktop-smoke")]
@@ -244,6 +239,19 @@ pub fn run() {
             programming::cancel_programming,
             frontend_ready,
             finish_close,
+            data_storage::initialize_data_storage,
+            data_storage::data_storage_info,
+            data_storage::choose_data_directory,
+            data_storage::cancel_data_directory,
+            data_storage::data_storage_flush,
+            notes_storage::notes_storage_info,
+            notes_storage::choose_notes_directory,
+            notes_storage::notes_storage_boot,
+            notes_storage::notes_storage_commit,
+            notes_storage::notes_storage_abort,
+            notes_storage::notes_store_request,
+            notes_storage::notes_storage_flush,
+            notes_storage::notes_storage_flush_result,
             affine::affine_prepare,
             affine::affine_layout,
             affine::affine_ai_request,
@@ -294,9 +302,8 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
                 if code.is_none()
                     && app
-                        .state::<AppState>()
-                        .frontend_ready
-                        .load(Ordering::SeqCst)
+                        .try_state::<AppState>()
+                        .is_some_and(|state| state.frontend_ready.load(Ordering::SeqCst))
                 {
                     api.prevent_exit();
                     let _ = app.emit("desktop-quit-requested", ());

@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { spawn, execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, cp, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
@@ -8,6 +8,7 @@ import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
 const root = resolve(import.meta.dirname, '..')
 const interactiveIme = process.env.AI_PLAYER_SMOKE_IME === '1'
 const lessonOnly = process.env.AI_PLAYER_SMOKE_LESSON_ONLY === '1'
+const notesStorageOnly = process.argv.includes('--notes-storage') || process.argv.includes('--data-storage')
 const bundleForIme = interactiveIme && process.platform === 'darwin'
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
@@ -57,12 +58,30 @@ const fixtureServer = createServer((_request, response) => {
 await new Promise((resolve) => fixtureServer.listen(0, '127.0.0.1', resolve))
 const fixtureUrl = `http://127.0.0.1:${fixtureServer.address().port}`
 try {
-  for (const phase of lessonOnly ? ['lessons', 'lesson-restart'] : ['first', 'second']) {
+  const phases = notesStorageOnly
+    ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
+    : lessonOnly
+      ? ['lessons', 'lesson-restart']
+      : ['first', 'second']
+  for (const phase of phases) {
+    let phaseData = data
+    if (phase === 'storage-other-computer') {
+      phaseData = await mkdtemp(join(tmpdir(), 'study-helper-other-computer-'))
+      await prepareDesktopSmoke(phaseData)
+      const config = JSON.parse(await readFile(join(data, 'data-storage.json'), 'utf8'))
+      const copied = join(phaseData, 'synced', 'Study Helper Data')
+      await mkdir(join(phaseData, 'synced'))
+      await cp(config.active, copied, { recursive: true })
+      await writeFile(
+        join(phaseData, 'data-storage.json'),
+        JSON.stringify({ active: null, pending: { path: copied, migration: null } }),
+      )
+    }
     try {
       await run(executable, [], {
         env: {
           ...process.env,
-          AI_PLAYER_SMOKE_DATA: data,
+          AI_PLAYER_SMOKE_DATA: phaseData,
           AI_PLAYER_SMOKE_PHASE: phase,
           AI_PLAYER_NOTION_SMOKE_URL: fixtureUrl,
         },
@@ -70,7 +89,7 @@ try {
       })
     } finally {
       const report = JSON.parse(
-        await readFile(join(data, `${phase}.json`), 'utf8').catch(() =>
+        await readFile(join(phaseData, `${phase}.json`), 'utf8').catch(() =>
           JSON.stringify({ success: false, error: 'Native process did not produce a report' }),
         ),
       )
@@ -88,6 +107,7 @@ try {
   }
   for (const report of reports) {
     if (!report.success) throw Error(`Native desktop regression failed: ${report.phase}`)
+    if (notesStorageOnly) continue
     for (const name of Object.keys(limits)) {
       if (!report.metrics?.some((metric) => metric.name === `ai-player:${name}`))
         throw Error(`Missing native performance metric: ${name}`)
@@ -101,10 +121,6 @@ try {
   console.log(`Native desktop regression passed: ${reports.flatMap((report) => report.steps).join(', ')}.`)
 } finally {
   fixtureServer.close()
-  await mkdir(join(root, '.cache'), { recursive: true })
-  await writeFile(
-    join(root, '.cache/desktop-smoke-report.json'),
-    JSON.stringify({ dataDirectory: data, reports }, null, 2),
-  )
+  await writeFile(join(data, 'desktop-smoke-report.json'), JSON.stringify({ dataDirectory: data, reports }, null, 2))
   console.log(`Regression data and reports: ${data}`)
 }

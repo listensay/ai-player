@@ -48,6 +48,504 @@ index a638a87..f118b62 100644
  export const UNTITLED_WORKSPACE_NAME = 'Untitled';
  
  export const DEFAULT_SORT_KEY = 'updatedDate';
+diff --git a/packages/common/nbstore/package.json b/packages/common/nbstore/package.json
+index 618bdeb..817f182 100644
+--- a/packages/common/nbstore/package.json
++++ b/packages/common/nbstore/package.json
+@@ -8,6 +8,8 @@
+     ".": "./src/index.ts",
+     "./worker/client": "./src/worker/client.ts",
+     "./worker/consumer": "./src/worker/consumer.ts",
++    "./ai-player": "./src/impls/ai-player/index.ts",
++    "./ai-player/transport": "./src/impls/ai-player/transport.ts",
+     "./idb": "./src/impls/idb/index.ts",
+     "./broadcast-channel": "./src/impls/broadcast-channel/index.ts",
+     "./idb/v1": "./src/impls/idb/v1/index.ts",
+diff --git a/packages/common/nbstore/src/impls/ai-player/index.ts b/packages/common/nbstore/src/impls/ai-player/index.ts
+new file mode 100644
+index 0000000..d2dd6ee
+--- /dev/null
++++ b/packages/common/nbstore/src/impls/ai-player/index.ts
+@@ -0,0 +1,155 @@
++import { AutoReconnectConnection, share } from '../../connection';
++import {
++  BlobStorageBase,
++  DocStorageBase,
++  type BlobRecord,
++  type ListedBlobRecord,
++  type DocRecord,
++  type DocUpdate,
++  type DocStorageOptions,
++} from '../../storage';
++import { nativeRequest } from './transport';
++export * from './transport';
++type Options = DocStorageOptions & { flavour: string; type: string };
++const space = (opts: Options) => `${opts.flavour}:${opts.type}:${opts.id}`;
++type RecordRow = { docId: string; bin: number[]; at: number };
++const record = (row: RecordRow): DocRecord => ({
++  docId: row.docId,
++  bin: new Uint8Array(row.bin),
++  timestamp: new Date(row.at),
++});
++class NativeConnection extends AutoReconnectConnection<BroadcastChannel> {
++  constructor(private readonly space: string) {
++    super();
++  }
++  override get shareId() {
++    return `native:${this.space}`;
++  }
++  protected override async doConnect() {
++    return new BroadcastChannel(this.shareId);
++  }
++  protected override doDisconnect(channel: BroadcastChannel) {
++    channel.close();
++  }
++}
++export class NativeDocStorage extends DocStorageBase<Options> {
++  static readonly identifier = 'NativeDocStorage';
++  readonly connection = share(new NativeConnection(space(this.options)));
++  private request<T>(op: string, args: Record<string, unknown> = {}) {
++    return nativeRequest<T>({ op, space: space(this.options), ...args });
++  }
++  override async pushDocUpdate(update: DocUpdate, origin?: string) {
++    const at = await this.request<number>('push', {
++      id: update.docId,
++      bin: Array.from(update.bin),
++    });
++    const result = { ...update, timestamp: new Date(at) };
++    this.emit('update', result, origin);
++    this.connection.inner.postMessage({ update: result, origin });
++    return { docId: update.docId, timestamp: result.timestamp };
++  }
++  override subscribeDocUpdate(
++    callback: (update: DocRecord, origin?: string) => void
++  ) {
++    const channel = this.connection.inner;
++    const listener = (event: MessageEvent) =>
++      callback(event.data.update, event.data.origin);
++    channel.addEventListener('message', listener);
++    const off = super.subscribeDocUpdate(callback);
++    return () => {
++      off();
++      channel.removeEventListener('message', listener);
++    };
++  }
++  protected override async getDocSnapshot(id: string) {
++    const row = await this.request<RecordRow | null>('snapshot', { id });
++    return row ? record(row) : null;
++  }
++  protected override setDocSnapshot(doc: DocRecord) {
++    return this.request<boolean>('setSnapshot', {
++      id: doc.docId,
++      bin: Array.from(doc.bin),
++      at: doc.timestamp.getTime(),
++    });
++  }
++  protected override async getDocUpdates(id: string) {
++    return (await this.request<RecordRow[]>('updates', { id })).map(record);
++  }
++  protected override markUpdatesMerged(id: string, updates: DocRecord[]) {
++    return this.request<number>('merge', {
++      id,
++      times: updates.map(u => u.timestamp.getTime()),
++    });
++  }
++  override async getDocTimestamp(id: string) {
++    const at = await this.request<number | null>('clock', { id });
++    return at === null ? null : { docId: id, timestamp: new Date(at) };
++  }
++  override async getDocTimestamps(after?: Date) {
++    return Object.fromEntries(
++      (
++        await this.request<{ id: string; at: number }[]>('clocks', {
++          after: after?.getTime() ?? 0,
++        })
++      ).map(row => [row.id, new Date(row.at)])
++    );
++  }
++  override async deleteDoc(id: string) {
++    await this.request('deleteDoc', { id });
++  }
++}
++export class NativeBlobStorage extends BlobStorageBase {
++  static readonly identifier = 'NativeBlobStorage';
++  readonly isReadonly = false;
++  readonly connection;
++  constructor(private readonly options: Options) {
++    super();
++    this.connection = share(new NativeConnection(space(options)));
++  }
++  private request<T>(op: string, args: Record<string, unknown> = {}) {
++    return nativeRequest<T>({ op, space: space(this.options), ...args });
++  }
++  override async get(id: string): Promise<BlobRecord | null> {
++    const row = await this.request<{
++      key: string;
++      data: number[];
++      mime: string;
++      at: number;
++    } | null>('blobGet', { id });
++    return row
++      ? {
++          key: row.key,
++          data: new Uint8Array(row.data),
++          mime: row.mime,
++          createdAt: new Date(row.at),
++        }
++      : null;
++  }
++  override async set(blob: BlobRecord) {
++    await this.request('blobSet', {
++      id: blob.key,
++      data: Array.from(blob.data),
++      mime: blob.mime,
++      at: blob.createdAt?.getTime(),
++    });
++  }
++  override async delete(id: string, permanently: boolean) {
++    await this.request('blobDelete', { id, permanently });
++  }
++  override async release() {
++    await this.request('blobRelease');
++  }
++  override async list(): Promise<ListedBlobRecord[]> {
++    return (
++      await this.request<
++        { key: string; mime: string; size: number; at: number }[]
++      >('blobList')
++    ).map(row => ({
++      key: row.key,
++      mime: row.mime,
++      size: row.size,
++      createdAt: new Date(row.at),
++    }));
++  }
++}
++export const nativeStorages = [NativeDocStorage, NativeBlobStorage];
+diff --git a/packages/common/nbstore/src/impls/ai-player/transport.test.ts b/packages/common/nbstore/src/impls/ai-player/transport.test.ts
+new file mode 100644
+index 0000000..8e1b98c
+--- /dev/null
++++ b/packages/common/nbstore/src/impls/ai-player/transport.test.ts
+@@ -0,0 +1,115 @@
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import {
++  nativeRequest,
++  nativeKV,
++  flushNativeRequests,
++  registerNotesFlush,
++  flushNoteEngines,
++} from './transport';
++
++test('native writes keep their order and the flush waits for the last write', async () => {
++  const calls: string[] = [];
++  (globalThis as any).__TAURI__ = {
++    core: {
++      invoke: async (_command: string, { request }: any) => {
++        if (request.value === 'first')
++          await new Promise(resolve => setTimeout(resolve, 20));
++        calls.push(request.value);
++      },
++    },
++  };
++  const first = nativeRequest({
++    op: 'kvSet',
++    space: 'meta',
++    id: 'a',
++    value: 'first',
++  });
++  const second = nativeRequest({
++    op: 'kvSet',
++    space: 'meta',
++    id: 'a',
++    value: 'second',
++  });
++  await flushNativeRequests();
++  await Promise.all([first, second]);
++  assert.deepEqual(calls, ['first', 'second']);
++});
++
++test('a failed edit is retried without discarding a subsequent CRDT update', async () => {
++  let offline = true;
++  const saved: number[] = [];
++  (globalThis as any).__TAURI__ = {
++    core: {
++      invoke: async (_command: string, { request }: any) => {
++        if (offline) throw new Error('offline');
++        saved.push(request.bin[0]);
++      },
++    },
++  };
++  await assert.rejects(
++    nativeRequest({ op: 'push', space: 's', id: 'd', bin: [1] })
++  );
++  offline = false;
++  await nativeRequest({ op: 'push', space: 's', id: 'd', bin: [2] });
++  await flushNativeRequests();
++  assert.deepEqual(saved, [2, 1]);
++});
++
++test('a newer metadata deletion supersedes an older failed set', async () => {
++  let offline = true;
++  const saved: string[] = [];
++  (globalThis as any).__TAURI__ = {
++    core: {
++      invoke: async (_command: string, { request }: any) => {
++        if (offline) throw new Error('offline');
++        saved.push(request.op);
++      },
++    },
++  };
++  await assert.rejects(nativeKV.set('metadata', 'lesson', { id: 'obsolete' }));
++  offline = false;
++  await nativeKV.set('metadata', 'lesson', undefined);
++  await flushNativeRequests();
++  assert.deepEqual(saved, ['kvDelete']);
++});
++
++test('flush waits for open editors and unregisters disposed editors', async () => {
++  let saved = false;
++  const dispose = registerNotesFlush(async () => {
++    await new Promise(resolve => setTimeout(resolve, 10));
++    saved = true;
++  });
++  await flushNoteEngines();
++  assert.equal(saved, true);
++  dispose();
++  saved = false;
++  await flushNoteEngines();
++  assert.equal(saved, false);
++});
++
++test('successful reads retain failed metadata and attachment writes for retry', async () => {
++  for (const [write, read] of [
++    ['kvSet', 'kvGet'],
++    ['blobSet', 'blobGet'],
++  ]) {
++    let offline = true;
++    const saved: string[] = [];
++    (globalThis as any).__TAURI__ = {
++      core: {
++        invoke: async (_command: string, { request }: any) => {
++          if (request.op === read) return null;
++          if (offline) throw new Error('offline');
++          saved.push(request.op);
++        },
++      },
++    };
++    await assert.rejects(
++      nativeRequest({ op: write, space: 's', id: 'pending' })
++    );
++    await nativeRequest({ op: read, space: 's', id: 'pending' });
++    offline = false;
++    await flushNativeRequests();
++    assert.deepEqual(saved, [write]);
++  }
++});
+diff --git a/packages/common/nbstore/src/impls/ai-player/transport.ts b/packages/common/nbstore/src/impls/ai-player/transport.ts
+new file mode 100644
+index 0000000..a19ccac
+--- /dev/null
++++ b/packages/common/nbstore/src/impls/ai-player/transport.ts
+@@ -0,0 +1,180 @@
++type Bridge = {
++  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
++};
++export const nativeBridge = () =>
++  (globalThis as unknown as { __TAURI__?: { core: Bridge } }).__TAURI__?.core;
++let enabled = false;
++export const nativeNotesEnabled = () => enabled;
++export const enableNativeNotes = () => {
++  enabled = true;
++};
++const CHANNEL = 'ai-player-native-notes';
++let workerChannel: BroadcastChannel | undefined;
++const pending = new Map<
++  string,
++  {
++    resolve: (v: unknown) => void;
++    reject: (e: Error) => void;
++    timer: ReturnType<typeof setTimeout>;
++  }
++>();
++const writes = new Set<Promise<unknown>>();
++const engines = new Set<() => Promise<void>>();
++export function registerNotesFlush(flush: () => Promise<void>) {
++  engines.add(flush);
++  return () => {
++    engines.delete(flush);
++  };
++}
++export async function flushNoteEngines() {
++  await Promise.all([...engines].map(flush => flush()));
++}
++const failed = new Map<string, () => Promise<unknown>>();
++let queue = Promise.resolve<unknown>(undefined);
++export function track<T>(promise: Promise<T>): Promise<T> {
++  writes.add(promise);
++  void promise
++    .catch(e => {
++      if (typeof window !== 'undefined')
++        window.dispatchEvent(
++          new CustomEvent('ai-player-storage-error', {
++            detail: e instanceof Error ? e.message : String(e),
++          })
++        );
++    })
++    .finally(() => writes.delete(promise));
++  return promise;
++}
++export async function flushNativeRequests() {
++  while (writes.size) await Promise.all([...writes]);
++  for (const retry of [...failed.values()]) await retry();
++  while (writes.size) await Promise.all([...writes]);
++}
++export function nativeRequest<T = unknown>(
++  request: Record<string, unknown>,
++  retryKey?: string
++): Promise<T> {
++  const bridge = nativeBridge();
++  if (bridge) {
++    const task = queue.then(() =>
++      bridge.invoke<T>('notes_store_request', { request })
++    );
++    const op = String(request.op);
++    const isWrite =
++      /^(push|import|setSnapshot|merge|deleteDoc|blobSet|blobDelete|blobRelease|kvSet|kvDelete)$/.test(
++        op
++      );
++    const group = op.startsWith('kv')
++      ? 'kv'
++      : op.startsWith('blob')
++        ? 'blob'
++        : 'doc';
++    const prefix = JSON.stringify([group, request.space, request.id]);
++    const key =
++      retryKey ??
++      (op === 'push' || op === 'import'
++        ? `${prefix}:${crypto.randomUUID()}`
++        : `${prefix}:${group === 'doc' ? op : 'value'}`);
++    const checked = task.then(
++      value => {
++        if (isWrite) failed.delete(key);
++        if (op === 'deleteDoc')
++          for (const pendingKey of failed.keys())
++            if (pendingKey.startsWith(prefix + ':')) failed.delete(pendingKey);
++        return value;
++      },
++      error => {
++        if (isWrite) failed.set(key, () => nativeRequest(request, key));
++        throw error;
++      }
++    );
++    queue = checked.catch(() => {});
++    return track(checked);
++  }
++  if (!workerChannel) {
++    workerChannel = new BroadcastChannel(CHANNEL);
++    workerChannel.onmessage = event => {
++      const reply = event.data;
++      if (reply.type !== 'result') return;
++      const entry = pending.get(reply.id);
++      if (!entry) return;
++      pending.delete(reply.id);
++      clearTimeout(entry.timer);
++      if (reply.error) entry.reject(new Error(reply.error));
++      else entry.resolve(reply.value);
++    };
++  }
++  return new Promise<T>((resolve, reject) => {
++    const id = crypto.randomUUID();
++    const timer = setTimeout(() => {
++      pending.delete(id);
++      reject(new Error('笔记保存超时'));
++    }, 20000);
++    pending.set(id, {
++      resolve: resolve as (v: unknown) => void,
++      reject,
++      timer,
++    });
++    workerChannel!.postMessage({ type: 'request', id, request });
++  });
++}
++export function serveNativeRequests() {
++  const channel = new BroadcastChannel(CHANNEL);
++  channel.onmessage = event => {
++    const data = event.data;
++    if (data.type !== 'request' || typeof data.id !== 'string') return;
++    void nativeRequest(data.request).then(
++      value => channel.postMessage({ type: 'result', id: data.id, value }),
++      error =>
++        channel.postMessage({
++          type: 'result',
++          id: data.id,
++          error: String(error.message || error),
++        })
++    );
++  };
++}
++export const nativeKV = {
++  async get<T>(space: string, id: string): Promise<T | undefined> {
++    const value = await nativeRequest<string | null>({
++      op: 'kvGet',
++      space,
++      id,
++    });
++    return value === null ? undefined : (JSON.parse(value) as T);
++  },
++  async set(space: string, id: string, value: unknown) {
++    await nativeRequest(
++      value === undefined
++        ? { op: 'kvDelete', space, id }
++        : { op: 'kvSet', space, id, value: JSON.stringify(value) }
++    );
++  },
++  async all<T>(space: string): Promise<Record<string, T>> {
++    const values = await nativeRequest<Record<string, string>>({
++      op: 'kvList',
++      space,
++    });
++    return Object.fromEntries(
++      Object.entries(values).map(([k, v]) => [k, JSON.parse(v) as T])
++    );
++  },
++};
++
++export function trackNoteWrite<T>(
++  key: string,
++  write: () => Promise<T>
++): Promise<T> {
++  return track(
++    write().then(
++      value => {
++        failed.delete(key);
++        return value;
++      },
++      error => {
++        failed.set(key, () => trackNoteWrite(key, write));
++        throw error;
++      }
++    )
++  );
++}
+diff --git a/packages/common/nbstore/src/impls/index.ts b/packages/common/nbstore/src/impls/index.ts
+index 5ac4d9b..121210c 100644
+--- a/packages/common/nbstore/src/impls/index.ts
++++ b/packages/common/nbstore/src/impls/index.ts
+@@ -1,3 +1,4 @@
++import type { nativeStorages } from './ai-player';
+ import type { Storage } from '../storage';
+ import type { broadcastChannelStorages } from './broadcast-channel';
+ import type { cloudStorages } from './cloud';
+@@ -12,6 +13,7 @@ export type StorageConstructor = {
+ };
+ 
+ type Storages =
++  | typeof nativeStorages
+   | typeof cloudStorages
+   | typeof idbV1Storages
+   | typeof idbStorages
 diff --git a/packages/frontend/apps/web/src/ai-player-courses.ts b/packages/frontend/apps/web/src/ai-player-courses.ts
 new file mode 100644
 index 0000000..74836b1
@@ -144,8 +642,192 @@ index 0000000..74836b1
 +  });
 +  void refresh();
 +}
+diff --git a/packages/frontend/apps/web/src/ai-player-storage.ts b/packages/frontend/apps/web/src/ai-player-storage.ts
+new file mode 100644
+index 0000000..9ae344c
+--- /dev/null
++++ b/packages/frontend/apps/web/src/ai-player-storage.ts
+@@ -0,0 +1,178 @@
++import { openDB } from 'idb';
++import { IndexedDBDocStorage, IndexedDBBlobStorage } from '@affine/nbstore/idb';
++import {
++  IndexedDBV1DocStorage,
++  IndexedDBV1BlobStorage,
++} from '@affine/nbstore/idb/v1';
++import {
++  nativeBridge,
++  nativeRequest,
++  nativeKV,
++  enableNativeNotes,
++  serveNativeRequests,
++  flushNativeRequests,
++  flushNoteEngines,
++} from '@affine/nbstore/ai-player/transport';
++
++export async function prepareNotesStorage() {
++  try {
++    await initializeNotesStorage();
++  } catch (error) {
++    await nativeBridge()?.invoke('notes_storage_abort');
++    // Bootstrap failed before an editor opened; existing data is untouched.
++    (window as any).__AI_PLAYER_NOTES_FLUSH__ = async () => {};
++    throw error;
++  }
++}
++async function initializeNotesStorage() {
++  const bridge = nativeBridge();
++  if (!bridge) return;
++  const state = await bridge.invoke<{ enabled: boolean; importing: boolean }>(
++    'notes_storage_boot'
++  );
++  if (state.enabled) {
++    serveNativeRequests();
++    if (state.importing) {
++      const databases = new Set(
++        (await indexedDB.databases()).map(db => db.name)
++      );
++      const ids = new Set<string>();
++      for (const key of [
++        'affine-local-workspace',
++        'workspace-engine:local-workspace-ids:v1',
++      ]) {
++        const value = JSON.parse(localStorage.getItem(key) ?? '[]');
++        if (Array.isArray(value))
++          for (const id of value) if (typeof id === 'string') ids.add(id);
++      }
++      for (const name of databases)
++        if (name?.startsWith('local:workspace:'))
++          ids.add(name.slice('local:workspace:'.length));
++      for (const id of ids) {
++        const opts = {
++          id,
++          flavour: 'local',
++          type: 'workspace',
++          readonlyMode: true,
++        };
++        const space = `local:workspace:${id}`;
++        // Old storage is read-only until the complete import is committed.
++        const docs = [
++          new IndexedDBV1DocStorage(opts),
++          ...(databases.has(space) ? [new IndexedDBDocStorage(opts)] : []),
++        ];
++        for (const storage of docs) {
++          storage.connection.connect();
++          try {
++            await storage.connection.waitForConnected(
++              AbortSignal.timeout(20000)
++            );
++            for (const docId of Object.keys(await storage.getDocTimestamps())) {
++              const doc = await storage.getDoc(docId);
++              if (doc)
++                await nativeRequest({
++                  op: 'import',
++                  space,
++                  id: docId,
++                  bin: Array.from(doc.bin),
++                  at: doc.timestamp.getTime(),
++                });
++            }
++          } finally {
++            storage.connection.disconnect();
++          }
++        }
++        const blobs = [
++          new IndexedDBV1BlobStorage(opts),
++          ...(databases.has(space) ? [new IndexedDBBlobStorage(opts)] : []),
++        ];
++        for (const storage of blobs) {
++          storage.connection.connect();
++          try {
++            await storage.connection.waitForConnected(
++              AbortSignal.timeout(20000)
++            );
++            for (const item of await storage.list()) {
++              const blob = await storage.get(item.key);
++              if (!blob) throw new Error('笔记附件读取失败');
++              await nativeRequest({
++                op: 'blobSet',
++                space,
++                id: blob.key,
++                data: Array.from(blob.data),
++                mime: blob.mime,
++                at: blob.createdAt?.getTime(),
++              });
++            }
++          } finally {
++            storage.connection.disconnect();
++          }
++        }
++      }
++      for (const key of Object.keys(localStorage)) {
++        await nativeRequest({
++          op: 'kvSet',
++          space: 'localStorage',
++          id: key,
++          value: localStorage.getItem(key),
++        });
++      }
++      for (const [name, table, key] of [
++        ['global-storage', 'global-state', 'key'],
++        ['ai-player-note-conversations', 'sessions', 'sessionId'],
++      ]) {
++        if (!databases.has(name)) continue;
++        const db = await openDB(name);
++        try {
++          for (const value of await db.getAll(table)) {
++            await nativeKV.set(
++              name,
++              value[key],
++              name === 'global-storage' ? value.value : value
++            );
++          }
++        } finally {
++          db.close();
++        }
++      }
++      await flushNativeRequests();
++      await bridge.invoke('notes_storage_commit');
++    }
++    const values = await nativeRequest<Record<string, string>>({
++      op: 'kvList',
++      space: 'localStorage',
++    });
++    localStorage.clear();
++    for (const [key, value] of Object.entries(values))
++      localStorage.setItem(key, value);
++    const original = {
++      set: Storage.prototype.setItem,
++      remove: Storage.prototype.removeItem,
++      clear: Storage.prototype.clear,
++    };
++    const save = (op: string, id: string, value?: string) => {
++      void nativeRequest({ op, space: 'localStorage', id, value }).catch(
++        () => {}
++      );
++    };
++    Storage.prototype.setItem = function (key: string, value: string) {
++      original.set.call(this, key, value);
++      if (this === localStorage) save('kvSet', String(key), String(value));
++    };
++    Storage.prototype.removeItem = function (key: string) {
++      original.remove.call(this, key);
++      if (this === localStorage) save('kvDelete', String(key));
++    };
++    Storage.prototype.clear = function () {
++      if (this === localStorage)
++        for (const key of Object.keys(localStorage)) save('kvDelete', key);
++      original.clear.call(this);
++    };
++    enableNativeNotes();
++  }
++  (window as any).__AI_PLAYER_NOTES_FLUSH__ = async () => {
++    window.dispatchEvent(new Event('ai-player-flush-notes'));
++    await flushNoteEngines();
++    await flushNativeRequests();
++  };
++}
 diff --git a/packages/frontend/apps/web/src/app.tsx b/packages/frontend/apps/web/src/app.tsx
-index 6b91cb6..7f509c3 100644
+index 6b91cb6..d8e11c4 100644
 --- a/packages/frontend/apps/web/src/app.tsx
 +++ b/packages/frontend/apps/web/src/app.tsx
 @@ -1,3 +1,4 @@
@@ -153,7 +835,25 @@ index 6b91cb6..7f509c3 100644
  import { AffineContext } from '@affine/core/components/context';
  import { AppContainer } from '@affine/core/desktop/components/app-container';
  import { router } from '@affine/core/desktop/router';
-@@ -88,6 +89,7 @@ framework.impl(PopupWindowProvider, {
+@@ -43,6 +44,17 @@ setTelemetryTransport(storeManagerClient.telemetry);
+ window.addEventListener('beforeunload', () => {
+   storeManagerClient.dispose();
+ });
++window.addEventListener('ai-player-flush-notes', () =>
++  storeManagerClient.resume()
++);
++window.addEventListener('ai-player-storage-error', event => {
++  void import('@affine/component').then(({ notify }) =>
++    notify.error({
++      title: '笔记保存失败',
++      message: (event as CustomEvent<string>).detail,
++    })
++  );
++});
+ window.addEventListener('focus', () => {
+   storeManagerClient.resume();
+ });
+@@ -88,6 +100,7 @@ framework.impl(PopupWindowProvider, {
    },
  });
  const frameworkProvider = framework.provider();
@@ -162,22 +862,65 @@ index 6b91cb6..7f509c3 100644
  // setup application lifecycle events, and emit application start event
  window.addEventListener('focus', () => {
 diff --git a/packages/frontend/apps/web/src/index.tsx b/packages/frontend/apps/web/src/index.tsx
-index 01a9436..8515ddf 100644
+index 01a9436..2f31f8e 100644
 --- a/packages/frontend/apps/web/src/index.tsx
 +++ b/packages/frontend/apps/web/src/index.tsx
-@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
- import { App } from './app';
+@@ -1,12 +1,15 @@
+ import './setup';
  
- function mountApp() {
+-import { Telemetry } from '@affine/core/components/telemetry';
+ import { StrictMode } from 'react';
+ import { createRoot } from 'react-dom/client';
+ 
+-import { App } from './app';
++import { prepareNotesStorage } from './ai-player-storage';
+ 
+-function mountApp() {
++async function mountApp() {
++  await prepareNotesStorage();
++  const { App } = await import('./app');
++  const { Telemetry } = await import('@affine/core/components/telemetry');
 +  void navigator.storage?.persist?.().catch(() => false);
    // oxlint-disable-next-line typescript/no-non-null-assertion
    const root = document.getElementById('app')!;
    createRoot(root).render(
+@@ -17,8 +20,16 @@ function mountApp() {
+   );
+ }
+ 
+-try {
+-  mountApp();
+-} catch (err) {
+-  console.error('Failed to bootstrap app', err);
+-}
++void mountApp().catch(err => {
++  const root = document.getElementById('app');
++  if (!root) return;
++  root.replaceChildren();
++  const message = document.createElement('p');
++  message.textContent = `笔记未能打开：${err instanceof Error ? err.message : String(err)}`;
++  const retry = document.createElement('button');
++  retry.textContent = '重新打开';
++  retry.onclick = () => location.reload();
++  root.style.cssText =
++    'padding:32px;font:14px system-ui;background:white;color:#2d2c2b';
++  root.append(message, retry);
++});
 diff --git a/packages/frontend/apps/web/src/nbstore.worker.ts b/packages/frontend/apps/web/src/nbstore.worker.ts
-index caea0d8..30698d4 100644
+index caea0d8..963a540 100644
 --- a/packages/frontend/apps/web/src/nbstore.worker.ts
 +++ b/packages/frontend/apps/web/src/nbstore.worker.ts
-@@ -14,7 +14,6 @@ const consumer = new StoreManagerConsumer([
+@@ -1,4 +1,5 @@
+ import '@affine/core/bootstrap/browser';
++import { nativeStorages } from '@affine/nbstore/ai-player';
+ 
+ import { broadcastChannelStorages } from '@affine/nbstore/broadcast-channel';
+ import { cloudStorages } from '@affine/nbstore/cloud';
+@@ -11,10 +12,10 @@ import {
+ import { type MessageCommunicapable, OpConsumer } from '@toeverything/infra/op';
+ 
+ const consumer = new StoreManagerConsumer([
++  ...nativeStorages,
    ...idbStorages,
    ...idbV1Storages,
    ...broadcastChannelStorages,
@@ -522,10 +1265,14 @@ index 0000000..71046b0
 +});
 diff --git a/packages/frontend/core/src/blocksuite/ai/runtime/request/ai-player-local.ts b/packages/frontend/core/src/blocksuite/ai/runtime/request/ai-player-local.ts
 new file mode 100644
-index 0000000..57d5025
+index 0000000..2bc7ba0
 --- /dev/null
 +++ b/packages/frontend/core/src/blocksuite/ai/runtime/request/ai-player-local.ts
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,353 @@
++import {
++  nativeNotesEnabled,
++  nativeKV,
++} from '@affine/nbstore/ai-player/transport';
 +import * as gql from '@affine/graphql';
 +import type {
 +  CopilotChatHistoryFragment,
@@ -537,25 +1284,44 @@ index 0000000..57d5025
 +import type { Workspace } from '@affine/core/modules/workspace';
 +import type { AIActionId, AIActionOptions } from './action-definitions';
 +
-+const database = openDB('ai-player-note-conversations', 1, {
-+  upgrade(db) {
-+    db.createObjectStore('sessions', { keyPath: 'sessionId' });
-+  },
-+});
++let legacyDatabase: ReturnType<typeof openDB> | undefined;
++const database = () =>
++  nativeNotesEnabled()
++    ? Promise.resolve({
++        get: (_table: string, id: string) =>
++          nativeKV.get<Session>('ai-player-note-conversations', id),
++        put: (_table: string, session: Session) =>
++          nativeKV.set(
++            'ai-player-note-conversations',
++            session.sessionId,
++            session
++          ),
++        delete: (_table: string, id: string) =>
++          nativeKV.set('ai-player-note-conversations', id, undefined),
++        getAll: async (_table: string) =>
++          Object.values(
++            await nativeKV.all<Session>('ai-player-note-conversations')
++          ),
++      })
++    : (legacyDatabase ??= openDB('ai-player-note-conversations', 1, {
++        upgrade(db) {
++          db.createObjectStore('sessions', { keyPath: 'sessionId' });
++        },
++      }));
 +type Session = CopilotChatHistoryFragment;
 +type Message = Session['messages'][number];
 +const now = () => new Date().toISOString();
 +const id = () => crypto.randomUUID();
 +async function save(session: Session) {
-+  await (await database).put('sessions', session);
++  await (await database()).put('sessions', session);
 +}
 +async function read(sessionId: string): Promise<Session> {
-+  const value = await (await database).get('sessions', sessionId);
++  const value = await (await database()).get('sessions', sessionId);
 +  if (!value) throw new Error('找不到这段对话');
 +  return value as Session;
 +}
 +async function list(workspaceId: string): Promise<Session[]> {
-+  return ((await (await database).getAll('sessions')) as Session[])
++  return ((await (await database()).getAll('sessions')) as Session[])
 +    .filter(s => s.workspaceId === workspaceId)
 +    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 +}
@@ -616,7 +1382,7 @@ index 0000000..57d5025
 +    await save(session);
 +    result = { updateCopilotSession: session };
 +  } else if (query === gql.cleanupCopilotSessionMutation) {
-+    const db = await database;
++    const db = await database();
 +    for (const sessionId of input.sessionIds ?? []) {
 +      const session = await read(sessionId);
 +      if (session.workspaceId === input.workspaceId)
@@ -1426,7 +2192,7 @@ index 1b9e266..6d6c336 100644
        ) : (
          <>
 diff --git a/packages/frontend/core/src/modules/ai-button/services/models.ts b/packages/frontend/core/src/modules/ai-button/services/models.ts
-index ddf69c0..9cc6884 100644
+index ddf69c0..204c4dd 100644
 --- a/packages/frontend/core/src/modules/ai-button/services/models.ts
 +++ b/packages/frontend/core/src/modules/ai-button/services/models.ts
 @@ -66,41 +66,16 @@ export class AIModelService extends Service {
@@ -1651,7 +2417,7 @@ index 91c5bbb..4e60daa 100644
 -};
 +export const OpenInAppCard = () => null;
 diff --git a/packages/frontend/core/src/modules/cloud/constant.ts b/packages/frontend/core/src/modules/cloud/constant.ts
-index 9cd736b..86d5270 100644
+index 9cd736b..ad17bac 100644
 --- a/packages/frontend/core/src/modules/cloud/constant.ts
 +++ b/packages/frontend/core/src/modules/cloud/constant.ts
 @@ -1,193 +1,19 @@
@@ -2304,6 +3070,151 @@ index 7a134e3..7711beb 100644
    );
  });
  
+diff --git a/packages/frontend/core/src/modules/storage/impls/storage.ts b/packages/frontend/core/src/modules/storage/impls/storage.ts
+index c90d04d..a5c8c7a 100644
+--- a/packages/frontend/core/src/modules/storage/impls/storage.ts
++++ b/packages/frontend/core/src/modules/storage/impls/storage.ts
+@@ -1,3 +1,7 @@
++import {
++  nativeNotesEnabled,
++  nativeKV,
++} from '@affine/nbstore/ai-player/transport';
+ import type { AsyncMemento, Memento } from '@toeverything/infra';
+ import EventEmitter2 from 'eventemitter2';
+ import { type IDBPDatabase, openDB } from 'idb';
+@@ -129,6 +133,7 @@ export class AsyncStorageMemento implements AsyncMemento {
+   }
+ 
+   async get<T>(key: string): Promise<T | undefined> {
++    if (nativeNotesEnabled()) return nativeKV.get<T>(this.dbName, key);
+     const db = await this.getDB();
+     const tx = db.transaction(this.table, 'readonly');
+     const store = tx.objectStore(this.table);
+@@ -172,14 +177,19 @@ export class AsyncStorageMemento implements AsyncMemento {
+   }
+ 
+   async set<T>(key: string, value: T | undefined): Promise<void> {
+-    const db = await this.getDB();
+-    const tx = db.transaction(this.table, 'readwrite');
+-    const store = tx.objectStore(this.table);
+-
+-    if (value === undefined) {
+-      await store.delete(key);
++    if (nativeNotesEnabled()) {
++      await nativeKV.set(this.dbName, key, value);
+     } else {
+-      await store.put({ key, value });
++      const db = await this.getDB();
++      const tx = db.transaction(this.table, 'readwrite');
++      const store = tx.objectStore(this.table);
++
++      if (value === undefined) {
++        await store.delete(key);
++      } else {
++        await store.put({ key, value });
++      }
++      await tx.done;
+     }
+ 
+     // Emit events
+@@ -188,10 +198,15 @@ export class AsyncStorageMemento implements AsyncMemento {
+   }
+ 
+   async del(key: string): Promise<void> {
+-    const db = await this.getDB();
+-    const tx = db.transaction(this.table, 'readwrite');
+-    const store = tx.objectStore(this.table);
+-    await store.delete(key);
++    if (nativeNotesEnabled()) {
++      await nativeKV.set(this.dbName, key, undefined);
++    } else {
++      const db = await this.getDB();
++      const tx = db.transaction(this.table, 'readwrite');
++      const store = tx.objectStore(this.table);
++      await store.delete(key);
++      await tx.done;
++    }
+ 
+     // Emit events
+     this.eventEmitter.emit(key, undefined);
+@@ -200,6 +215,10 @@ export class AsyncStorageMemento implements AsyncMemento {
+ 
+   async clear(): Promise<void> {
+     const keys = await this.keys();
++    if (nativeNotesEnabled()) {
++      for (const key of keys) await this.del(key);
++      return;
++    }
+     const db = await this.getDB();
+     const tx = db.transaction(this.table, 'readwrite');
+     const store = tx.objectStore(this.table);
+@@ -213,6 +232,8 @@ export class AsyncStorageMemento implements AsyncMemento {
+   }
+ 
+   async keys(): Promise<string[]> {
++    if (nativeNotesEnabled())
++      return Object.keys(await nativeKV.all(this.dbName));
+     const db = await this.getDB();
+     const tx = db.transaction(this.table, 'readonly');
+     const store = tx.objectStore(this.table);
+diff --git a/packages/frontend/core/src/modules/workspace-engine/impls/local.ts b/packages/frontend/core/src/modules/workspace-engine/impls/local.ts
+index 21104b7..a7da855 100644
+--- a/packages/frontend/core/src/modules/workspace-engine/impls/local.ts
++++ b/packages/frontend/core/src/modules/workspace-engine/impls/local.ts
+@@ -1,3 +1,8 @@
++import {
++  NativeDocStorage,
++  NativeBlobStorage,
++  nativeNotesEnabled,
++} from '@affine/nbstore/ai-player';
+ import { toArrayBuffer } from '@affine/core/utils/array-buffer';
+ import { DebugLogger } from '@affine/debug';
+ import {
+@@ -187,24 +192,30 @@ class LocalWorkspaceFlavourProvider implements WorkspaceFlavourProvider {
+     LOCAL_WORKSPACE_CHANGED_BROADCAST_CHANNEL_KEY
+   );
+ 
+-  DocStorageType =
+-    BUILD_CONFIG.isElectron || BUILD_CONFIG.isIOS || BUILD_CONFIG.isAndroid
++  DocStorageType = nativeNotesEnabled()
++    ? NativeDocStorage
++    : BUILD_CONFIG.isElectron || BUILD_CONFIG.isIOS || BUILD_CONFIG.isAndroid
+       ? SqliteDocStorage
+       : IndexedDBDocStorage;
+-  DocStorageV1Type = BUILD_CONFIG.isElectron
+-    ? SqliteV1DocStorage
+-    : BUILD_CONFIG.isWeb || BUILD_CONFIG.isMobileWeb
+-      ? IndexedDBV1DocStorage
+-      : undefined;
+-  BlobStorageType =
+-    BUILD_CONFIG.isElectron || BUILD_CONFIG.isIOS || BUILD_CONFIG.isAndroid
++  DocStorageV1Type = nativeNotesEnabled()
++    ? undefined
++    : BUILD_CONFIG.isElectron
++      ? SqliteV1DocStorage
++      : BUILD_CONFIG.isWeb || BUILD_CONFIG.isMobileWeb
++        ? IndexedDBV1DocStorage
++        : undefined;
++  BlobStorageType = nativeNotesEnabled()
++    ? NativeBlobStorage
++    : BUILD_CONFIG.isElectron || BUILD_CONFIG.isIOS || BUILD_CONFIG.isAndroid
+       ? SqliteBlobStorage
+       : IndexedDBBlobStorage;
+-  BlobStorageV1Type = BUILD_CONFIG.isElectron
+-    ? SqliteV1BlobStorage
+-    : BUILD_CONFIG.isWeb || BUILD_CONFIG.isMobileWeb
+-      ? IndexedDBV1BlobStorage
+-      : undefined;
++  BlobStorageV1Type = nativeNotesEnabled()
++    ? undefined
++    : BUILD_CONFIG.isElectron
++      ? SqliteV1BlobStorage
++      : BUILD_CONFIG.isWeb || BUILD_CONFIG.isMobileWeb
++        ? IndexedDBV1BlobStorage
++        : undefined;
+   DocSyncStorageType =
+     BUILD_CONFIG.isElectron || BUILD_CONFIG.isIOS || BUILD_CONFIG.isAndroid
+       ? SqliteDocSyncStorage
 diff --git a/packages/frontend/core/src/modules/workspace-engine/index.ts b/packages/frontend/core/src/modules/workspace-engine/index.ts
 index 8e5188b..7f8cced 100644
 --- a/packages/frontend/core/src/modules/workspace-engine/index.ts
@@ -2325,6 +3236,33 @@ index 8e5188b..7f8cced 100644
  }
  
  /**
+diff --git a/packages/frontend/core/src/modules/workspace/entities/engine.ts b/packages/frontend/core/src/modules/workspace/entities/engine.ts
+index 4d2560b..28e3e68 100644
+--- a/packages/frontend/core/src/modules/workspace/entities/engine.ts
++++ b/packages/frontend/core/src/modules/workspace/entities/engine.ts
+@@ -1,3 +1,7 @@
++import {
++  registerNotesFlush,
++  trackNoteWrite,
++} from '@affine/nbstore/ai-player/transport';
+ import type {
+   StoreClient,
+   WorkerInitOptions,
+@@ -80,6 +84,14 @@ export class WorkspaceEngine extends Entity<{
+     this.doc.addPriority(rootDoc.guid, 100);
+     this.indexer.addPriority(rootDoc.guid, 100);
+     this.doc.start();
++    const setBlob = this.blob.set.bind(this.blob);
++    this.blob.set = blob =>
++      trackNoteWrite(`blob:${rootDoc.guid}:${blob.key}`, () => setBlob(blob));
++    this.disposables.push(
++      registerNotesFlush(() =>
++        this.doc.waitForUpdated(undefined, AbortSignal.timeout(20000))
++      )
++    );
+     this.disposables.push(() => this.doc.stop());
+ 
+     // fully migrate blobs from v1 to v2, its won't do anything if v1 storage is not exist
 diff --git a/packages/frontend/i18n/src/resources/zh-Hans.json b/packages/frontend/i18n/src/resources/zh-Hans.json
 index 90232f5..e4d1aaf 100644
 --- a/packages/frontend/i18n/src/resources/zh-Hans.json

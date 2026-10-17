@@ -6,19 +6,22 @@ import { desktopInvoke } from '~/utils/platform'
 import PageSectionNav from '~/components/PageSectionNav.vue'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
 import ProgrammingSettingsPanel from '~/components/ProgrammingSettingsPanel.vue'
+import DataStoragePanel from '~/components/DataStoragePanel.vue'
 import UiButton from '~/components/UiButton.vue'
 const props = defineProps<{ initialSection?: string }>()
-const activeSection = ref<'ai' | 'about' | 'programming'>('ai')
+const activeSection = ref<'ai' | 'about' | 'programming' | 'storage'>('ai')
 watch(
   () => props.initialSection,
   (section) => {
-    activeSection.value = section === 'ai' || section === 'about' || section === 'programming' ? section : 'ai'
+    activeSection.value =
+      section === 'ai' || section === 'about' || section === 'programming' || section === 'storage' ? section : 'ai'
   },
   { immediate: true },
 )
 const sections = [
   { id: 'ai', title: 'AI 服务设置', icon: 'sparkles' },
   { id: 'programming', title: '编程环境', icon: 'keyboard' },
+  { id: 'storage', title: '数据存储', icon: 'folder' },
   { id: 'about', title: '关于与诊断', icon: 'clock' },
 ] as const
 const metrics = ref(performanceReport())
@@ -96,6 +99,7 @@ async function exportReport() {
               <p v-if="reportError" role="alert" class="text-body-sm text-error">{{ reportError }}</p>
             </div>
           </section>
+          <DataStoragePanel v-if="activeSection === 'storage'" />
           <ProgrammingSettingsPanel v-if="activeSection === 'programming'" />
           <AiSettingsPanel v-show="activeSection === 'ai'" id="settings-ai" />
         </div>

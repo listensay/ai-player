@@ -6,7 +6,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const source = resolve(process.env.AFFINE_SOURCE_DIR || resolve(root, '.cache/affine-source'))
 const result = spawnSync(
   process.env.AFFINE_NODE || process.execPath,
-  ['--import', 'tsx', '--test', 'packages/frontend/core/src/blocksuite/ai/runtime/request/ai-player-local.test.ts'],
+  [
+    '--import',
+    'tsx',
+    '--test',
+    'packages/frontend/core/src/blocksuite/ai/runtime/request/ai-player-local.test.ts',
+    'packages/common/nbstore/src/impls/ai-player/transport.test.ts',
+  ],
   { cwd: source, stdio: 'inherit' },
 )
 if (result.error) throw result.error

@@ -14,6 +14,7 @@ pub async fn desktop_smoke_affine(
     app: tauri::AppHandle,
     webview: tauri::Webview,
     text: Option<String>,
+    storage_action: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if webview.label() != "main" {
         return Err("Only the test host may inspect notes".into());
@@ -30,6 +31,20 @@ pub async fn desktop_smoke_affine(
       if (!doc) return {{ready:false}};
       const paragraphs = Array.from(doc.yBlocks.values()).map(block => block.get('prop:text')).filter(text => text && typeof text.insert === 'function');
       if (!paragraphs.length) return {{ready:false}};
+      const storageAction = {};
+      if (storageAction && !window.__NOTES_STORAGE_TEST__) {{
+        window.__NOTES_STORAGE_TEST__ = {{pending:true}};
+        (async () => {{
+          const invoke = window.__TAURI__.core.invoke;
+          if (storageAction === 'write') {{
+            await workspace.engine.blob.set({{key:'smoke-image',data:new Uint8Array([137,80,78,71,1,2,3]),mime:'image/png'}});
+            localStorage.setItem('ai-player:storage-test', 'metadata-value');
+          }}
+          const blob = await workspace.engine.blob.get('smoke-image');
+          await window.__AI_PLAYER_NOTES_FLUSH__();
+          window.__NOTES_STORAGE_TEST__ = {{pending:false, blob:Array.from(blob?.data || []), metadata:localStorage.getItem('ai-player:storage-test')}};
+        }})().catch(e => {{window.__NOTES_STORAGE_TEST__ = {{error:String(e.message || e)}};}});
+      }}
       const content = {};
       if (content !== null) doc.spaceDoc.transact(() => {{ const text = paragraphs[0]; text.delete(0,text.length); text.insert(0,content); }});
       if (window.__AI_PLAYER_PROBE_IPC__ === undefined) {{
@@ -38,9 +53,10 @@ pub async fn desktop_smoke_affine(
           .then(() => {{window.__AI_PLAYER_PROBE_IPC__ = false;}})
           .catch(() => {{window.__AI_PLAYER_PROBE_IPC__ = true;}});
       }}
-      return {{ready:true,docId,workspaceId:workspace.id,title:doc.meta?.title,text:paragraphs.map(text=>text.toString()).join('\n'),
+      return {{ready:true,storage:window.__NOTES_STORAGE_TEST__,docId,workspaceId:workspace.id,title:doc.meta?.title,text:paragraphs.map(text=>text.toString()).join('\n'),
         ipcBlocked:window.__AI_PLAYER_PROBE_IPC__ === true, hasLogin:!!document.querySelector('[data-testid="sidebar-user-avatar"]'), lesson:window.__AI_PLAYER_LESSON__ }};
     }})()"#,
+        serde_json::json!(storage_action),
         serde_json::json!(text)
     );
     let (tx, rx) = std::sync::mpsc::channel();
@@ -314,6 +330,10 @@ pub fn desktop_smoke_report(
         "library",
         "library-restart",
         "catalog",
+        "storage-legacy",
+        "storage-migrate",
+        "storage-move",
+        "storage-other-computer",
     ]
     .contains(&phase.as_str())
     {
@@ -346,14 +366,16 @@ pub fn init() -> TauriPlugin<Wry> {
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
             {
                 let phase = std::env::var("AI_PLAYER_SMOKE_PHASE").unwrap_or_default();
-                if !["first", "second", "lessons", "lesson-restart", "library", "library-restart", "catalog"].contains(&phase.as_str()) {
+                if !["first", "second", "lessons", "lesson-restart", "library", "library-restart", "catalog", "storage-legacy", "storage-migrate", "storage-move", "storage-other-computer"].contains(&phase.as_str()) {
                     return;
                 }
                 let script = format!(
                     "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {}; globalThis.__AI_PLAYER_SMOKE_IME__ = {};\n{}",
                     serde_json::json!(phase),
                     interactive_ime(),
-                    if phase == "catalog" {
+                    if phase.starts_with("storage-") {
+                        include_str!("../../tests/desktop/notesStorage.js")
+                    } else if phase == "catalog" {
                         include_str!("../../tests/desktop/courseCatalog.js")
                     } else if phase.starts_with("library") {
                         include_str!("../../tests/desktop/courseLibrary.js")
@@ -367,4 +389,19 @@ pub fn init() -> TauriPlugin<Wry> {
             }
         })
         .build()
+}
+
+#[tauri::command]
+pub fn desktop_smoke_notes_directory(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    next: bool,
+) -> Result<serde_json::Value, String> {
+    if webview.label() != "main" {
+        return Err("Invalid test host".into());
+    }
+    let parent = directory()?.with_extension(if next { "data-second" } else { "data-first" });
+    fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
+    app.state::<crate::data_storage::DataStorage>()
+        .choose(&parent, false)
 }

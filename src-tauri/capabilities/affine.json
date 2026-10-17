@@ -8,6 +8,12 @@
     "urls": ["http://127.0.0.1:*"]
   },
   "permissions": [
+    "allow-notes-storage-boot",
+    "allow-notes-storage-commit",
+    "allow-notes-storage-abort",
+    "allow-notes-store-request",
+    "allow-notes-storage-flush-result",
+
     "allow-affine-ai-request",
     "allow-affine-ai-cancel",
     "allow-affine-save-export",

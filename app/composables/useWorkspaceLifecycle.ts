@@ -16,9 +16,11 @@ export function useWorkspaceLifecycle(options: {
     try {
       if (options.activeJobs() && !(await desktopInvoke<boolean>('confirm_asr_quit'))) return
       await options.flush()
+      await desktopInvoke('notes_storage_flush')
+      await desktopInvoke('data_storage_flush')
       await desktopInvoke('finish_close')
     } catch (error) {
-      options.notify(`数据尚未保存，请重试后关闭窗口：${(error as Error).message}`)
+      options.notify(`数据尚未保存，请重试后关闭窗口：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       closing = false
     }
@@ -26,6 +28,8 @@ export function useWorkspaceLifecycle(options: {
   const unregisterFlush = registerWorkspaceFlush(async () => {
     if (options.activeJobs()) throw Error('请先完成或取消正在进行的任务。')
     await options.flush()
+    await desktopInvoke('notes_storage_flush')
+    await desktopInvoke('data_storage_flush')
   })
   onMounted(async () => {
     try {

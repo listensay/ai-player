@@ -22,6 +22,8 @@
     "ui:build": "tauri build --debug --bundles app --config tests/fixtures/ui-regression.json",
     "smoke:frontend": "node scripts/desktop-frontend.mjs smoke",
     "test:desktop": "node scripts/desktop-smoke.mjs",
+    "test:notes-storage": "node scripts/desktop-smoke.mjs --notes-storage",
+    "test:data-storage": "node scripts/desktop-smoke.mjs --data-storage",
     "benchmark:check": "node scripts/benchmark.mjs .cache/performance.json --check",
     "bundle:check": "node scripts/check-bundle.mjs",
     "notes:build": "node scripts/affine/build.mjs",

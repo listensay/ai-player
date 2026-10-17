@@ -6,8 +6,8 @@ use std::{
 #[cfg(not(feature = "desktop-smoke"))]
 use tauri::Manager;
 
-// This loopback endpoint serves bundled assets only. All user content stays in
-// the persistent WebView database, and privileged actions use scoped IPC.
+// This loopback endpoint serves bundled assets only. Notes and privileged
+// actions use the persistent storage adapters and scoped IPC.
 pub fn start(app: &tauri::AppHandle) -> Result<String, String> {
     #[cfg(not(feature = "desktop-smoke"))]
     let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
