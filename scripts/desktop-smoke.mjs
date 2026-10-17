@@ -1,4 +1,3 @@
-import { createServer } from 'node:http'
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, writeFile, cp, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,10 +5,8 @@ import { join, resolve } from 'node:path'
 import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
 
 const root = resolve(import.meta.dirname, '..')
-const interactiveIme = process.env.AI_PLAYER_SMOKE_IME === '1'
 const lessonOnly = process.env.AI_PLAYER_SMOKE_LESSON_ONLY === '1'
 const notesStorageOnly = process.argv.includes('--notes-storage') || process.argv.includes('--data-storage')
-const bundleForIme = interactiveIme && process.platform === 'darwin'
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
   const timeout = setTimeout(() => child.kill('SIGKILL'), options.timeout ?? 600000)
@@ -28,7 +25,7 @@ await run(process.execPath, [
   'node_modules/@tauri-apps/cli/tauri.js',
   'build',
   '--debug',
-  ...(bundleForIme ? ['--bundles', 'app'] : ['--no-bundle']),
+  '--no-bundle',
   '--features',
   'desktop-smoke',
   '--config',
@@ -40,23 +37,14 @@ const metadata = JSON.parse(
     cwd: root,
   }),
 )
-const executable = bundleForIme
-  ? join(metadata.target_directory, 'debug/bundle/macos/Study Helper Smoke.app/Contents/MacOS/study-helper')
-  : join(metadata.target_directory, 'debug', process.platform === 'win32' ? 'study-helper.exe' : 'study-helper')
+const executable = join(
+  metadata.target_directory,
+  'debug',
+  process.platform === 'win32' ? 'study-helper.exe' : 'study-helper',
+)
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
 await prepareDesktopSmoke(data)
 const reports = []
-const fixtureHtml = await readFile(join(root, 'tests/fixtures/notion.html'))
-const fixtureServer = createServer((_request, response) => {
-  response.writeHead(200, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'X-Frame-Options': 'SAMEORIGIN',
-    'Cache-Control': 'no-store',
-  })
-  response.end(fixtureHtml)
-})
-await new Promise((resolve) => fixtureServer.listen(0, '127.0.0.1', resolve))
-const fixtureUrl = `http://127.0.0.1:${fixtureServer.address().port}`
 try {
   const phases = notesStorageOnly
     ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
@@ -83,9 +71,8 @@ try {
           ...process.env,
           AI_PLAYER_SMOKE_DATA: phaseData,
           AI_PLAYER_SMOKE_PHASE: phase,
-          AI_PLAYER_NOTION_SMOKE_URL: fixtureUrl,
         },
-        timeout: interactiveIme ? 660000 : 180000,
+        timeout: 180000,
       })
     } finally {
       const report = JSON.parse(
@@ -120,7 +107,6 @@ try {
   }
   console.log(`Native desktop regression passed: ${reports.flatMap((report) => report.steps).join(', ')}.`)
 } finally {
-  fixtureServer.close()
   await writeFile(join(data, 'desktop-smoke-report.json'), JSON.stringify({ dataDirectory: data, reports }, null, 2))
   console.log(`Regression data and reports: ${data}`)
 }

@@ -5,12 +5,7 @@ import { registerHooks } from 'node:module'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import { createRenderer, reactive, ref, nextTick } from 'vue'
-import {
-  effectivePlaybackSeconds,
-  isMissedStudyDay,
-  restoreStudyDays,
-  studyPlanProgress,
-} from '../app/utils/checkIn.ts'
+import { effectivePlaybackSeconds, isMissedStudyDay, studyPlanProgress } from '../app/utils/checkIn.ts'
 import { localDayKey } from '../app/utils/learningFeedback.ts'
 import { addDays } from '../app/utils/studyProgram.ts'
 
@@ -217,7 +212,6 @@ test('四小时课程完成后打卡与日历显示 100%，保存和重载均保
   assert.equal(reopened.clock.seconds.value, seconds)
   assert.equal(reopened.clock.justCheckedIn.value, null)
   assert.equal(reopened.clock.current.value.checkedAt, saved.checkedAt)
-  assert.equal(restoreStudyDays({ version: 1, days: [saved] })[date].checkedAt, saved.checkedAt)
 })
 
 test('最后一项未完成时不提前打卡，完成事件触发后仍不增加真实用时', async (t) => {

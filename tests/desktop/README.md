@@ -7,7 +7,5 @@ On macOS, it also checks cursor ownership at five points across the note view an
 
 Note editing uses the real AFFiNE document model and IndexedDB persistence. It does not synthesize typing or establish Chinese IME behavior. Keyboard and visual checks are performed separately in the Notes Check app.
 
-The old Notion login-popup and imitation-editor checks were replaced because the player now uses local AFFiNE notes without login. The legacy native Notion unit coverage and stored page links remain, but Notion is no longer the player note surface.
-
 The lesson-only subset remains available with `AI_PLAYER_SMOKE_LESSON_ONLY=1 npm run test:desktop`.
 Reports are written to `.cache/desktop-smoke-report.json`. No production application database or installed application is changed.

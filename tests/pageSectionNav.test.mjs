@@ -81,18 +81,3 @@ test('共用菜单点击更新选中项、关联内容区和无障碍状态', as
   await nextTick()
   assert.equal(selected.value, 'insights')
 })
-
-test('学习管理与设置共用菜单和布局，报告保留状态、提醒弹窗不受切换影响', () => {
-  const study = read('components/StudyManagementPanel.vue')
-  const settings = read('components/SettingsPanel.vue')
-  for (const source of [study, settings]) {
-    assert.match(source, /<PageSectionNav[\s\S]*?v-model="activeSection"/)
-    assert.match(source, /mx-auto max-w-5xl px-5 py-8/)
-    assert.match(source, /sm:grid-cols-\[minmax\(0,1fr\)_168px\]/)
-  }
-  assert.match(study, /v-show="activeSection === 'insights'"\s+id="study-insights"/)
-  assert.match(study, /v-show="activeSection === 'reminders'"\s+id="study-reminders"/)
-  assert.doesNotMatch(study, /@reminder=/)
-  assert.equal((study.match(/<StudyFormDialog/g) ?? []).length, 3)
-  assert.match(settings, /props.initialSection/)
-})

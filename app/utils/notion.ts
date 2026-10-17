@@ -1,4 +1,3 @@
-export const NOTION_HOME = 'https://app.notion.com/'
 export interface NotionBounds {
   x: number
   y: number
@@ -10,55 +9,6 @@ export interface NotionTarget {
   key: string
   url: string
   bounds: NotionBounds
-}
-
-export function notionUrl(raw: string): string {
-  let url: URL
-  try {
-    url = new URL(raw.trim())
-  } catch {
-    throw Error('请填写完整的 Notion 页面链接。')
-  }
-  const host = url.hostname
-  if (
-    raw.length > 4096 ||
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.port ||
-    !(
-      ['notion.so', 'notion.site', 'notion.com', 'www.notion.com', 'app.notion.com'].includes(host) ||
-      host.endsWith('.notion.so') ||
-      host.endsWith('.notion.site')
-    )
-  )
-    throw Error('请使用 https 开头的 Notion 页面链接。')
-  return url.href
-}
-
-export function notionPageUrl(raw: string): string {
-  const url = new URL(notionUrl(raw))
-  if (url.pathname === '/' || /^\/(login|signup|desktop|settings|help|api)(\/|$)/u.test(url.pathname))
-    throw Error('请先在 Notion 中打开需要绑定的页面。')
-  return url.href
-}
-
-export function notionBindingKey(courseId: string, path: string) {
-  return `notion-page:${JSON.stringify([courseId, path])}`
-}
-
-export function parseNotionBinding(raw: unknown): string {
-  if (raw === null) return ''
-  if (
-    typeof raw !== 'object' ||
-    !raw ||
-    !('version' in raw) ||
-    raw.version !== 1 ||
-    !('url' in raw) ||
-    typeof raw.url !== 'string'
-  )
-    throw Error('Notion 页面设置无法读取。')
-  return raw.url ? notionPageUrl(raw.url) : ''
 }
 
 /** A native child view must never extend beyond the visible DOM slot. */
@@ -131,5 +81,5 @@ export function createNotionViewController(io: {
     })
     return running
   }
-  return { update, flush: () => running ?? Promise.resolve() }
+  return { update }
 }

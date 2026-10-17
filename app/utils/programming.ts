@@ -180,4 +180,3 @@ ${available.filter(usesFunctionInterface).join('、')} 使用函数接口：输�
 ${available.filter((language) => !usesFunctionInterface(language)).join('、') || '其他语言'} 使用完整单文件程序：从标准输入读取一行 JSON 位置参数数组 args，最后一行标准输出为一个 JSON 结果，之前的输出作为日志；提供包含完整输入解析和结果输出的初始骨架，只将业务逻辑留为 TODO。仅使用该语言标准库，不依赖额外包。Java 入口为 public class Main，Kotlin 文件为 Main.kt，C# 为 .NET 6+ 控制台程序。signature 必须明确参数类型和输入输出约定。代码最多 32000 字，接口最多 1500 字，提示 0–4 项每项最多 1000 字。
 提供 3–12 个输入互不重复的测试用例，同时覆盖正常情况和边界情况；边界用例要按题目适用的输入类型尽量多样，例如空数组或空字符串、负数、零、正负数混合、极值、重复值等。至少一个 example=true。全部用例在用户运行测试时自动执行，输入只在测试结果中展示，不要把具体用例的输入或预期值写进题干、接口和提示。每个用例 args 与 expected 合计最多 6000 字；id 最多 60 字、name 最多 160 字。对象按键值比较、数组按顺序比较。运行程序会独立执行参考实现校验，失败的题不会展示；不要声称已运行。参考代码和参考答案默认隐藏。criteria 包括核心功能和边界要求，给出与其一一对应、合计100的 criterionPoints。`
 }
-export const PROGRAMMING_PROMPT = programmingPrompt(['javascript'])

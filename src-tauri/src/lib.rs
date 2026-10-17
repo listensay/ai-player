@@ -11,11 +11,6 @@ mod legacy_data;
 mod mac_reminders;
 mod media_duration;
 mod notes_storage;
-mod notion;
-#[cfg(target_os = "macos")]
-mod notion_popup_macos;
-#[cfg(target_os = "macos")]
-mod notion_user_agent_macos;
 mod programming;
 mod programming_process;
 mod reminder_links;
@@ -171,7 +166,6 @@ pub fn run() {
         .manage(programming::ProgrammingManager::default())
         .manage(reminder_links::ReminderLinks::default())
         .manage(learning_integrations::CalendarServer::default())
-        .manage(notion::NotionState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
@@ -223,10 +217,6 @@ pub fn run() {
             desktop_smoke::desktop_smoke_affine,
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_notes_directory,
-            #[cfg(feature = "desktop-smoke")]
-            desktop_smoke::desktop_smoke_notion,
-            #[cfg(feature = "desktop-smoke")]
-            desktop_smoke::desktop_smoke_notion_popup,
             asr::confirm_asr_quit,
             asr::asr_start,
             asr::asr_stop,
@@ -259,16 +249,11 @@ pub fn run() {
             affine::affine_ai_response,
             affine::affine_save_export,
             affine::affine_lesson_context,
-            notion::notion_prepare,
-            notion::notion_layout,
-            notion::notion_action,
             database_request,
             export_learning_plan,
             export_study_digest,
             learning_integrations::publish_learning_calendar,
             learning_integrations::subscribe_learning_calendar,
-            learning_integrations::choose_knowledge_vault,
-            learning_integrations::knowledge_vault_document,
             learning_integrations::open_learning_resource,
             export_performance_report,
             mac_reminders::mac_reminders_status,

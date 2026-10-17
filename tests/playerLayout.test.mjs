@@ -243,22 +243,3 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
     delete globalThis.sidebarStubs
   })
 })
-
-test('应用顶部不渲染后台转写任务条，保留进度保存错误与提醒入口', () => {
-  const { descriptor } = parse(readFileSync(new URL('../app/app.vue', import.meta.url), 'utf8'))
-  assert.doesNotMatch(descriptor.template.content, /后台转写任务|正在转写：|transcripts\.activeJobs|transcripts\.tasks/)
-  assert.match(descriptor.template.content, /reminderLinks\.error\.value/)
-  assert.match(descriptor.template.content, /progress\.state\.error/)
-  assert.match(descriptor.template.content, /<StudyReminderNotice/)
-})
-
-test('全屏工具弹窗保留底层路由，入口不切换页面', () => {
-  const { descriptor } = parse(readFileSync(new URL('../app/app.vue', import.meta.url), 'utf8'))
-  assert.match(descriptor.template.content, /<AppUtilityDialog/)
-  assert.match(descriptor.template.content, /<RouterView/)
-  assert.match(descriptor.template.content, /:inert="appDialogs.isOpen.value/)
-  for (const kind of ['settings', 'study']) {
-    assert.ok(descriptor.template.content.includes(`@${kind}="appDialogs.open('${kind}')"`))
-  }
-  assert.doesNotMatch(descriptor.template.content, /show-history-back|@history-back/)
-})

@@ -7,7 +7,6 @@ import {
   validateProgrammingExercise,
   restoreProgrammingRun,
   equalJson,
-  PROGRAMMING_PROMPT,
   programmingPrompt,
 } from '../app/utils/programming.ts'
 import { verifyProgrammingExercise, runProgramming } from '../app/utils/programmingRunner.ts'
@@ -42,10 +41,10 @@ test('补全与实现题校验语言、接口、TODO、测试覆盖和重复用�
 })
 
 test('出题要求多样输入类型，并声明测试输入只在结果中展示', () => {
-  assert.match(PROGRAMMING_PROMPT, /3–12 个输入互不重复的测试用例/)
-  assert.match(PROGRAMMING_PROMPT, /正负数混合/)
-  assert.match(PROGRAMMING_PROMPT, /全部用例在用户运行测试时自动执行/)
-  assert.match(PROGRAMMING_PROMPT, /不要把具体用例的输入或预期值写进题干/)
+  assert.match(programmingPrompt(['javascript']), /3–12 个输入互不重复的测试用例/)
+  assert.match(programmingPrompt(['javascript']), /正负数混合/)
+  assert.match(programmingPrompt(['javascript']), /全部用例在用户运行测试时自动执行/)
+  assert.match(programmingPrompt(['javascript']), /不要把具体用例的输入或预期值写进题干/)
 })
 
 test('实际执行全部测试与选中示例，显示真实输出且各用例互相隔离', () => {

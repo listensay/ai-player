@@ -253,6 +253,3 @@ export function useLearningManagement() {
   if (!value) throw Error('Learning management provider is missing')
   return value
 }
-export function useOptionalLearningManagement() {
-  return inject(KEY, null)
-}

@@ -5,7 +5,6 @@ void (async () => {
   const invoke = (...args) => globalThis.__TAURI_INTERNALS__.invoke(...args)
   const read = (endpoint, query = {}) => invoke('database_request', { endpoint, method: 'GET', query, body: null })
   const steps = []
-  let ime = null
   const phase = globalThis.__AI_PLAYER_SMOKE_PHASE__
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   async function until(work, label, timeout = 25000) {
@@ -127,13 +126,14 @@ void (async () => {
     captured.filter((m) => m.name.startsWith('ai-player:')).map(({ name, duration }) => ({ name, duration }))
   try {
     await step('home-load', async () => {
-      await until(
-        () =>
-          document.querySelector('button,a') &&
-          (document.body.textContent.includes('桌面回归课程') || document.body.textContent.includes('查看课程')),
-        'course on home',
+      location.hash = '/courses'
+      await until(() => visible(document.querySelector('.course-card')), 'course in learning library')
+      const library = await read('library')
+      expect(library.length === 1 && library[0].id === 'smoke-course', 'Isolated library must have its fixture course')
+      expect(
+        document.querySelector('.course-card').textContent.includes(library[0].name),
+        'Library must display the saved course name',
       )
-      expect((await read('library')).length === 1, 'Isolated library must have one course')
     })
     if (phase === 'lessons' || phase === 'lesson-restart') {
       route('lesson-0.mp4')
@@ -307,8 +307,8 @@ void (async () => {
         location.hash = '/notes'
         await until(() => !document.querySelector('video'), 'standalone note workspace')
         await noteVisibility(false, 'standalone notes own their cursor region')
-        location.hash = '/'
-        await noteVisibility(true, 'home restores the host cursor')
+        location.hash = '/courses'
+        await noteVisibility(true, 'course library restores the host cursor')
         route('lesson-0.mp4')
         await noteVisibility(false, 'returning to the player restores note cursor routing')
       })
@@ -337,7 +337,10 @@ void (async () => {
       await step('study-helper-about', async () => {
         location.hash = '/?dialog=settings&section=about'
         await until(() => visible(document.querySelector('#settings-about')), 'about panel')
-        expect(document.querySelector('[aria-label="Study Helper 首页"]'), 'New application name is visible')
+        expect(
+          document.querySelector('[aria-label="主导航"] [aria-label="Study Helper"]'),
+          'Application name is visible',
+        )
         expect(!document.querySelector('[aria-label="桌面挂件"]'), 'Companion entry is removed')
         expect(
           document.querySelector('#settings-about').textContent.includes('Study Helper'),
@@ -380,13 +383,12 @@ void (async () => {
         )
       })
     }
-    await invoke('desktop_smoke_report', { result: { success: true, steps, ime, metrics: metrics() } })
+    await invoke('desktop_smoke_report', { result: { success: true, steps, metrics: metrics() } })
   } catch (error) {
     await invoke('desktop_smoke_report', {
       result: {
         success: false,
         steps,
-        ime,
         error: String(error),
         metrics: metrics(),
         visibleText: document.body.innerText.slice(-8000),

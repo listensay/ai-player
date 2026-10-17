@@ -1,29 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { registerHooks } from 'node:module'
-import { createRenderer, ref } from 'vue'
-import {
-  createNotionViewController,
-  notionUrl,
-  notionPageUrl,
-  notionBounds,
-  parseNotionBinding,
-  notionBindingKey,
-} from '../app/utils/notion.ts'
+import { createNotionViewController, notionBounds } from '../app/utils/notion.ts'
 
-registerHooks({
-  resolve(specifier, context, next) {
-    if (specifier === '~/utils/database')
-      return {
-        url: 'data:text/javascript,export const databaseRequest=(...args)=>globalThis.notionBindingIO(...args)',
-        shortCircuit: true,
-      }
-    if (specifier.startsWith('~/'))
-      return next(new URL(`../app/${specifier.slice(2)}.ts`, import.meta.url).href, context)
-    return next(specifier, context)
-  },
-})
-const { useNotionBinding } = await import('../app/composables/useNotionBinding.ts')
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 const deferred = () => {
   let resolve, reject
@@ -38,27 +16,6 @@ const target = (key = 'a') => ({
   key,
   url: page,
   bounds: { x: 800, y: 120, width: 400, height: 600, viewportHeight: 900 },
-})
-
-test('Notion 链接只接受官方 HTTPS 页面，绑定不能使用登录页或主页', () => {
-  assert.equal(notionUrl(`  ${page}  `), page)
-  assert.equal(notionPageUrl('https://team.notion.site/notes'), 'https://team.notion.site/notes')
-  for (const url of [
-    'https://notion.so.evil.test/a',
-    'http://notion.so/a',
-    'https://notion.so@evil.test/',
-    'https://user@notion.so/a',
-    'https://notion.so:8080/a',
-    'javascript:alert(1)',
-    'file:///tmp/note',
-    'https://evilnotion.so/a',
-  ])
-    assert.throws(() => notionUrl(url), url)
-  for (const url of ['https://app.notion.com/', 'https://app.notion.com/login', 'https://app.notion.com/signup'])
-    assert.throws(() => notionPageUrl(url))
-  assert.equal(parseNotionBinding(null), '')
-  assert.equal(parseNotionBinding({ version: 1, url: page }), page)
-  assert.throws(() => parseNotionBinding({ version: 2, url: page }))
 })
 
 test('原生网页区域限制在窗口内，隐藏或过小的区域不显示', () => {
@@ -136,77 +93,4 @@ test('原生创建失败后保持隐藏，可以显式重试', async () => {
   fail = false
   await controller.update(target(), true)
   assert.deepEqual(calls.at(-1), target().bounds)
-})
-
-function mount(t, request) {
-  globalThis.notionBindingIO = request
-  const identity = ref({ courseId: 'course', path: 'a.mp4' })
-  let binding
-  const renderer = createRenderer({
-    createComment: () => ({}),
-    insert() {},
-    remove() {},
-    parentNode: () => null,
-    nextSibling: () => null,
-  })
-  const app = renderer.createApp({
-    setup() {
-      binding = useNotionBinding(identity)
-      return () => null
-    },
-  })
-  app.mount({})
-  t.after(() => {
-    app.unmount()
-    delete globalThis.notionBindingIO
-  })
-  return { binding, identity }
-}
-
-test('课节绑定独立持久化，慢读取不能覆盖新课节', async (t) => {
-  const slow = deferred(),
-    data = new Map()
-  const { binding, identity } = mount(t, async (_collection, options) => {
-    if (options.method === 'POST') {
-      data.set(options.body.key, options.body.value)
-      return
-    }
-    return options.query.key === notionBindingKey('course', 'a.mp4') ? slow.promise : null
-  })
-  identity.value = { courseId: 'course', path: 'b.mp4' }
-  await tick()
-  await binding.save(page)
-  slow.resolve({ version: 1, url: 'https://notion.so/old-page' })
-  await tick()
-  assert.equal(binding.state.url, page)
-  assert.deepEqual(data.get(notionBindingKey('course', 'b.mp4')), { version: 1, url: page })
-  assert.equal(data.has(notionBindingKey('course', 'a.mp4')), false)
-})
-
-test('读取失败不允许覆盖绑定，写入失败保留原链接；迟到写入不改变新课节', async (t) => {
-  let failRead = true,
-    failWrite = false
-  const pending = deferred()
-  const { binding, identity } = mount(t, async (_collection, options) => {
-    if (options.method === 'POST') {
-      if (failWrite) throw Error('disk')
-      return pending.promise
-    }
-    if (failRead) throw Error('read')
-    return { version: 1, url: page }
-  })
-  await tick()
-  assert.equal(await binding.save(page), false)
-  failRead = false
-  await binding.load()
-  failWrite = true
-  assert.equal(await binding.save('https://notion.so/new-page'), false)
-  assert.equal(binding.state.url, page)
-  failWrite = false
-  const saving = binding.save('https://notion.so/new-page')
-  identity.value = { courseId: 'course', path: 'b.mp4' }
-  await tick()
-  pending.resolve()
-  assert.equal(await saving, false)
-  assert.equal(binding.state.url, page)
 })

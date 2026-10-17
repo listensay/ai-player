@@ -3,13 +3,12 @@ use serde_json::{json, Value};
 use std::{
     io::{Read, Write},
     net::TcpListener,
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::Manager;
-use tauri_plugin_dialog::DialogExt;
 
 #[derive(Default)]
 pub struct CalendarServer {
@@ -133,118 +132,6 @@ pub async fn subscribe_learning_calendar(app: tauri::AppHandle) -> db::Result<()
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn choose_knowledge_vault(app: tauri::AppHandle) -> db::Result<Option<String>> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let Some(folder) = app
-            .dialog()
-            .file()
-            .set_title("选择 Obsidian Vault / Markdown 知识库")
-            .blocking_pick_folder()
-        else {
-            return Ok(None);
-        };
-        let folder = folder
-            .into_path()
-            .map_err(|e| e.to_string())?
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
-        let path = folder.to_string_lossy().to_string();
-        let state = app.state::<AppState>();
-        let mut db = state.db.lock().map_err(|e| e.to_string())?;
-        db::request(
-            &mut db,
-            "settings",
-            "POST",
-            json!({}),
-            json!({"key":"learning-vault-root","value":path}),
-        )?;
-        Ok(Some(path))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-fn document_name(identity: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in identity.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("lesson-{hash:016x}.md")
-}
-fn vault_file(root: &Path, identity: &str) -> db::Result<PathBuf> {
-    let base = root
-        .canonicalize()
-        .map_err(|_| "知识库目录不可用，请重新选择。".to_string())?;
-    let directory = base.join("AI Player");
-    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let directory = directory.canonicalize().map_err(|e| e.to_string())?;
-    if !directory.starts_with(&base) {
-        return Err("知识库目录指向了其他位置。".into());
-    }
-    let file = directory.join(document_name(identity));
-    if file.exists() && file.canonicalize().map_err(|e| e.to_string())? != file {
-        return Err("知识库文件不能是符号链接。".into());
-    }
-    Ok(file)
-}
-fn read_document(path: &Path) -> db::Result<Option<String>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    if path.metadata().map_err(|e| e.to_string())?.len() > 4_000_000 {
-        return Err("知识库文件过大。".into());
-    }
-    std::fs::read_to_string(path)
-        .map(Some)
-        .map_err(|e| e.to_string())
-}
-fn write_document(path: &Path, content: &str, expected: &Option<String>) -> db::Result<()> {
-    if read_document(path)? != *expected {
-        return Err("知识库文件刚刚发生修改，请重新同步。".into());
-    }
-    let mut temporary = tempfile::NamedTempFile::new_in(path.parent().ok_or("文件路径无效")?)
-        .map_err(|e| e.to_string())?;
-    temporary
-        .write_all(content.as_bytes())
-        .map_err(|e| e.to_string())?;
-    temporary.as_file().sync_all().map_err(|e| e.to_string())?;
-    temporary.persist(path).map_err(|e| e.to_string())?;
-    Ok(())
-}
-#[tauri::command]
-pub async fn knowledge_vault_document(
-    app: tauri::AppHandle,
-    identity: String,
-    content: Option<String>,
-    expected: Option<String>,
-) -> db::Result<Value> {
-    if identity.is_empty()
-        || identity.len() > 4000
-        || content.as_ref().is_some_and(|s| s.len() > 4_000_000)
-    {
-        return Err("知识库文档无效。".into());
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        let root = db::request(
-            &mut *state.db.lock().map_err(|e| e.to_string())?,
-            "settings",
-            "GET",
-            json!({"key":"learning-vault-root"}),
-            Value::Null,
-        )?;
-        let root = root.as_str().ok_or("请先选择知识库目录。")?;
-        let file = vault_file(Path::new(root), &identity)?;
-        if let Some(content) = content {
-            write_document(&file, &content, &expected)?;
-        }
-        Ok(json!({"content":read_document(&file)?,"path":file.to_string_lossy()}))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 fn resource_command(location: &str) -> db::Result<Command> {
     if location.is_empty() || location.len() > 12000 || location.chars().any(char::is_control) {
         return Err("作品地址无效。".into());
@@ -310,27 +197,9 @@ mod tests {
         }
     }
     #[test]
-    fn vault_writes_are_atomic_and_check_external_edits() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = vault_file(dir.path(), "../../test").unwrap();
-        assert!(file.starts_with(dir.path().canonicalize().unwrap()));
-        write_document(&file, "original", &None).unwrap();
-        assert!(write_document(&file, "overwrite", &None).is_err());
-        write_document(&file, "updated", &Some("original".into())).unwrap();
-        assert_eq!(read_document(&file).unwrap(), Some("updated".into()));
-    }
-    #[test]
     fn resource_links_reject_shell_commands_and_non_web_protocols() {
         assert!(resource_command("javascript:alert(1)").is_err());
         assert!(resource_command("--args").is_err());
         assert!(resource_command("https://example.com/demo").is_ok());
-    }
-    #[cfg(unix)]
-    #[test]
-    fn vault_rejects_symlink_escape() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(outside.path(), root.path().join("AI Player")).unwrap();
-        assert!(vault_file(root.path(), "lesson").is_err());
     }
 }

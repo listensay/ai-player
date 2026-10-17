@@ -17,7 +17,6 @@ import {
 } from './studyProgram.ts'
 import { calculateDayBudget, calculateDay } from './dailyPlan.ts'
 import { estimateDuration } from './guide.ts'
-import { localDayKey } from './learningFeedback.ts'
 
 /** A plan summary can describe edits or warnings; only practice goals belong in a contract. */
 export function learningContractDraft(
@@ -345,21 +344,4 @@ export function learningCalendar(courses: HomeCourse[], today: string, time: str
     }
   }
   return [...lines, 'END:VCALENDAR'].map(foldCalendarLine).join('\r\n') + '\r\n'
-}
-export function knowledgeDocument(course: HomeCourse, path: string, sources: LearningSources) {
-  const note = sources.notes.find((n) => n.courseId === course.course.id && n.path === path)
-  const summary = sources.summaries.find((s) => s.courseId === course.course.id && s.path === path)
-  const practices = sources.practices.filter(
-    (p) => p.courseId === course.course.id && (p.record.path === path || p.record.sources.some((s) => s.path === path)),
-  )
-  const header = `---\naiplayer_course: ${JSON.stringify(course.course.id)}\naiplayer_lesson: ${JSON.stringify(path)}\ntitle: ${JSON.stringify(path.split('/').at(-1))}\ncourse: ${JSON.stringify(course.course.name)}\nplayer: ${JSON.stringify(lessonLink(course.course.id, path))}\n---\n`
-  const prefix = `${header}\n# ${path.split('/').at(-1)}\n\n[返回播放器](${lessonLink(course.course.id, path)})\n\n## AI 知识点\n${summary ? [summary.overview, ...summary.points.map((p) => `### ${p.title}\n${p.text}\n[回看片段](${lessonLink(course.course.id, path, p.start)})`)].join('\n\n') : '暂无总结'}\n\n## 课程笔记\n<!-- aiplayer:note:start -->\n`
-  const suffix = `\n<!-- aiplayer:note:end -->\n\n## 练习记录\n${practices.map((p) => `### ${p.record.question.prompt}\n${p.record.question.referenceAnswer}\n\n${p.record.attempts.map((a) => `- ${localDayKey(new Date(a.at))} · ${a.feedback.result === 'solid' ? '已掌握' : '待复习'}\n  ${a.answer}`).join('\n')}`).join('\n\n') || '暂无练习'}\n`
-  return {
-    content: prefix + (note?.content ?? '') + suffix,
-    note: note?.content ?? '',
-    prefix,
-    suffix,
-    updatedAt: note?.updatedAt ?? null,
-  }
 }

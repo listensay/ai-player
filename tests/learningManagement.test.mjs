@@ -29,13 +29,11 @@ const {
   adaptivePlan,
   planHealth,
   learningCalendar,
-  knowledgeDocument,
   graduationReport,
   flowInsights,
   foldCalendarLine,
   learningContractDraft,
 } = await import('../app/utils/learningOutcomes.ts')
-const { mergeKnowledgeDocument } = await import('../app/utils/knowledgeSync.ts')
 const { recordReview } = await import('../app/utils/learningManagement.ts')
 const { createLearningManagement } = await import('../app/composables/useLearningManagement.ts')
 const { restoreHomeCourse } = await import('../app/utils/learningHome.ts')
@@ -327,23 +325,6 @@ test('日历逐日推进章节、课程不重叠，UID 稳定，中文折行按�
   assert.equal(foldCalendarLine('学'.repeat(100)).replace(/\r\n /g, ''), '学'.repeat(100))
   assert.throws(() => learningCalendar([c], today, '99:00', 30))
 })
-test('笔记双向同步独立合并正文与生成区域，同时修改显示冲突，删除需决策', () => {
-  const c = course(),
-    s = sources()
-  s.notes.push({ courseId: 'course', path: '1.mp4', content: '原笔记', updatedAt: now })
-  const base = knowledgeDocument(c, '1.mp4', s).content
-  const local = base.replace('暂无总结', '新知识总结'),
-    remote = base.replace('原笔记', '外部编辑')
-  const merged = mergeKnowledgeDocument(base, local, remote)
-  assert.equal(merged.conflict, false)
-  assert.equal(merged.note, '外部编辑')
-  assert.match(merged.content, /新知识总结/)
-  assert.equal(mergeKnowledgeDocument(base, base.replace('原笔记', '本地编辑'), remote).conflict, true)
-  assert.equal(mergeKnowledgeDocument(base, local, null).conflict, true)
-  assert.equal(mergeKnowledgeDocument(null, base, null).conflict, false)
-  assert.equal(mergeKnowledgeDocument(base, local, remote, 'local').content, local)
-  assert.equal(mergeKnowledgeDocument(base, local, '移除了笔记标记').conflict, true)
-})
 test('完成观看但未验收的课程不发结课证书；实践、契约和掌握清单进入报告', () => {
   const c = course(),
     data = emptyLearningManagement()
@@ -414,25 +395,6 @@ test('保存失败不提交状态，并发操作按成功保存的状态继续�
   data.cards.push({ ...card(), id: 'later' })
   assert.equal(recordReview(data, [course()], 'later', 'remembered', now + 2000), true)
   assert.ok(data.cards.every((card) => card.reviewedAt >= now))
-})
-test('重复同步保留外部对生成区域的编辑，新的笔记修改仍可合并', () => {
-  const c = course(),
-    s = sources()
-  s.notes.push({ courseId: 'course', path: '1.mp4', content: '原笔记', updatedAt: now })
-  const original = knowledgeDocument(c, '1.mp4', s).content
-  const remote = original.replace('暂无总结', '补充知识')
-  const first = mergeKnowledgeDocument(original, original, remote)
-  assert.equal(first.conflict, false)
-  assert.equal(mergeKnowledgeDocument(first.content, original, remote, undefined, original).content, remote)
-  const second = mergeKnowledgeDocument(
-    first.content,
-    original.replace('原笔记', '新笔记'),
-    remote,
-    undefined,
-    original,
-  )
-  assert.match(second.content, /补充知识/)
-  assert.equal(second.note, '新笔记')
 })
 test('首页恢复保留计划创建时间；减负保留未来实践总时间，周末分担不改过去的休息日', () => {
   const c = course(),

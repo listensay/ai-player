@@ -1,7 +1,6 @@
 import type { PlaybackSample } from '../types/practice'
 import type { StudyDay } from '../types/checkIn'
 import type { TodayPlan, WorkEntry } from '../types/guide'
-import { isRecord } from './guide.ts'
 import { localDayKey } from './learningFeedback.ts'
 import { dailyPracticeItems } from './dailyPracticeScope.ts'
 
@@ -76,36 +75,6 @@ export function validDayKey(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const [year, month, day] = value.split('-').map(Number) as [number, number, number]
   return year >= 2000 && year <= 9999 && localDayKey(new Date(year, month - 1, day)) === value
-}
-
-export function restoreStudyDays(raw: unknown): Record<string, StudyDay> {
-  const days: Record<string, StudyDay> = {}
-  if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.days)) return days
-  for (const value of raw.days.slice(-5000)) {
-    if (
-      !isRecord(value) ||
-      !validDayKey(value.date) ||
-      typeof value.seconds !== 'number' ||
-      !Number.isFinite(value.seconds) ||
-      value.seconds < 0 ||
-      value.seconds > 86400 ||
-      typeof value.targetSeconds !== 'number' ||
-      !Number.isInteger(value.targetSeconds) ||
-      value.targetSeconds < 300 ||
-      value.targetSeconds > 86400 ||
-      (value.checkedAt !== null &&
-        (typeof value.checkedAt !== 'number' || !Number.isFinite(value.checkedAt) || value.checkedAt < 0))
-    )
-      continue
-    days[value.date] = {
-      date: value.date,
-      seconds: value.seconds,
-      targetSeconds: value.targetSeconds,
-      // 完成安排或实践投入也能达标，不能仅凭观看时长撤销已保存的打卡。
-      checkedAt: value.checkedAt as number | null,
-    }
-  }
-  return days
 }
 
 export function calendarDays(year: number, month: number) {

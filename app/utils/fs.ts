@@ -111,49 +111,9 @@ export async function scanCourse(root: CourseDirectoryHandle): Promise<{ tree: F
   return { tree, videos }
 }
 
-export async function readTextFile(dir: CourseDirectoryHandle, name: string): Promise<string | null> {
-  try {
-    const handle = await dir.getFileHandle(name)
-    const file = await handle.getFile()
-    return await file.text()
-  } catch (err) {
-    if ((err as DOMException).name === 'NotFoundError') return null
-    throw err
-  }
-}
-
 export async function writeTextFile(dir: CourseDirectoryHandle, name: string, text: string): Promise<void> {
   const handle = await dir.getFileHandle(name, { create: true })
   const writable = await handle.createWritable()
   await writable.write(text)
   await writable.close()
-}
-
-export async function writeBlobFile(dir: CourseDirectoryHandle, name: string, blob: Blob): Promise<void> {
-  const handle = await dir.getFileHandle(name, { create: true })
-  const writable = await handle.createWritable()
-  await writable.write(blob)
-  await writable.close()
-}
-
-/** 按相对路径（可含多级目录）读取文件；不存在返回 null */
-export async function resolveRelativeFile(base: CourseDirectoryHandle, relativePath: string): Promise<File | null> {
-  const parts = relativePath.split('/').filter((p) => p && p !== '.')
-  if (parts.length === 0) return null
-  try {
-    let dir = base
-    for (const part of parts.slice(0, -1)) {
-      if (part === '..') return null
-      dir = await dir.getDirectoryHandle(part)
-    }
-    const fileHandle = await dir.getFileHandle(parts[parts.length - 1]!)
-    return await fileHandle.getFile()
-  } catch {
-    return null
-  }
-}
-
-/** 相对路径是否是可以直接交给 <img> 的绝对地址 */
-export function isAbsoluteUrl(src: string): boolean {
-  return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)
 }

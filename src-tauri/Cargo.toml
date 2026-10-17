@@ -36,5 +36,4 @@ libc = "0.2"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSCalendar", "NSTimeZone"] }
-objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView", "WKUIDelegate"] }
 objc2-event-kit = { version = "0.3", default-features = false, features = ["std", "EKAlarm", "EKCalendar", "EKCalendarItem", "EKEventStore", "EKObject", "EKRecurrenceDayOfWeek", "EKRecurrenceEnd", "EKRecurrenceRule", "EKReminder", "EKSource", "EKTypes", "block2"] }

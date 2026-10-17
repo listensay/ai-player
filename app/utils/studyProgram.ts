@@ -217,9 +217,6 @@ export function budgetForDay(program: StudyProgram, stage: StagePractice | undef
   if (weekday >= 6 && calendar?.weekendBudget) return { ...calendar.weekendBudget }
   return stage?.budget ?? program.budget
 }
-export function dailyBudget(program: StudyProgram, stage: StagePractice | undefined, date: string): StudyBudget {
-  return budgetForDay(program, stage, programDay(program, date))
-}
 
 /**
  * 按各阶段每日看课额度推算剩余视频在计划第几天看完；超出计划后按基础分配继续推算。

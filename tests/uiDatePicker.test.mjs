@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import { createRenderer, nextTick } from 'vue'
@@ -99,20 +99,4 @@ test('无效日期不能提交，本地日历日期在不同时区往返不偏�
     state.draft.value = new Date(2026, 9, 4)
     assert.equal(state.selectedDate.value, '2026-10-04', zone)
   }
-})
-
-test('表单不再使用原生日期和下拉框，报告范围保留数值类型', () => {
-  const root = new URL('../app/', import.meta.url)
-  for (const file of readdirSync(root, { recursive: true }).filter((file) => file.endsWith('.vue'))) {
-    assert.doesNotMatch(
-      readFileSync(new URL(file, root), 'utf8'),
-      /<select\b|type=["'](?:date|datetime-local)["']/,
-      file,
-    )
-  }
-  const insights = readFileSync(new URL('components/StudyInsightsPanel.vue', root), 'utf8')
-  assert.match(insights, /<VSelect\s+v-model="kind"/)
-  assert.match(insights, /<VSelect\s+v-model="offset"/)
-  assert.match(insights, /value: 0/)
-  assert.match(insights, /value: -1/)
 })

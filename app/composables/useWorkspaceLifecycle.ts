@@ -1,5 +1,4 @@
 import { onBeforeUnmount, onMounted } from 'vue'
-import { registerWorkspaceFlush } from '~/utils/workspaceFlush'
 import { desktopInvoke } from '~/utils/platform'
 
 export function useWorkspaceLifecycle(options: {
@@ -25,12 +24,6 @@ export function useWorkspaceLifecycle(options: {
       closing = false
     }
   }
-  const unregisterFlush = registerWorkspaceFlush(async () => {
-    if (options.activeJobs()) throw Error('请先完成或取消正在进行的任务。')
-    await options.flush()
-    await desktopInvoke('notes_storage_flush')
-    await desktopInvoke('data_storage_flush')
-  })
   onMounted(async () => {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -52,7 +45,6 @@ export function useWorkspaceLifecycle(options: {
   })
   onBeforeUnmount(() => {
     disposed = true
-    unregisterFlush()
     unlistenClose?.()
     unlistenQuit?.()
   })
