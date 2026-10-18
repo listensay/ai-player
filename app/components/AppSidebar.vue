@@ -40,7 +40,8 @@ function toggleCollapse() {
   }
 }
 
-const isNotesActive = computed(() => route.path === '/' || route.path === '/notes')
+const isHomeActive = computed(() => route.path === '/')
+const isNotesActive = computed(() => route.path === '/notes')
 const isCoursesActive = computed(() => route.path.startsWith('/courses'))
 
 function navigate(path: string) {
@@ -80,6 +81,25 @@ function navigate(path: string) {
       <button
         type="button"
         class="flex w-full items-center rounded-xl text-body-sm transition-colors duration-150"
+        :aria-current="isHomeActive ? 'page' : undefined"
+        :class="[
+          collapsed ? 'h-10 justify-center p-0' : 'gap-3 px-3.5 py-2.5',
+          isHomeActive
+            ? 'bg-page-cream text-deep-indigo font-bold'
+            : 'text-graphite hover:bg-page-cream/60 hover:text-charcoal-ink',
+        ]"
+        title="首页"
+        aria-label="首页"
+        @click="navigate('/')"
+      >
+        <AppIcon name="dashboard" :size="18" class="shrink-0" />
+        <span v-if="!collapsed" class="truncate">首页</span>
+      </button>
+
+      <button
+        type="button"
+        class="flex w-full items-center rounded-xl text-body-sm transition-colors duration-150"
+        :aria-current="isNotesActive ? 'page' : undefined"
         :class="[
           collapsed ? 'h-10 justify-center p-0' : 'gap-3 px-3.5 py-2.5',
           isNotesActive
@@ -88,7 +108,7 @@ function navigate(path: string) {
         ]"
         title="笔记"
         aria-label="笔记"
-        @click="navigate('/')"
+        @click="navigate('/notes')"
       >
         <AppIcon name="note" :size="18" class="shrink-0" />
         <span v-if="!collapsed" class="truncate">笔记</span>

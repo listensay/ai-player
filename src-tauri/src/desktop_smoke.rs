@@ -11,6 +11,7 @@ pub async fn desktop_smoke_affine(
     webview: tauri::Webview,
     text: Option<String>,
     storage_action: Option<String>,
+    note_action: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if webview.label() != "main" {
         return Err("Only the test host may inspect notes".into());
@@ -23,10 +24,23 @@ pub async fn desktop_smoke_affine(
         r#"(() => {{
       const workspace = window.currentWorkspace;
       const docId = location.pathname.split('/')[3];
+      const lesson = window.__AI_PLAYER_LESSON__;
+      const createButton = document.querySelector('[data-testid="new-page-button-trigger"] button');
+      const summary = {{docId,lesson,docCount:workspace?.docCollection.meta.docMetas.length,listReady:docId === 'all' && !!createButton}};
+      const noteAction = {};
+      if (noteAction === 'create') createButton?.click();
       const doc = workspace?.docCollection.getDoc(docId);
-      if (!doc) return {{ready:false}};
+      if (!doc) return {{...summary,ready:false}};
       const paragraphs = Array.from(doc.yBlocks.values()).map(block => block.get('prop:text')).filter(text => text && typeof text.insert === 'function');
-      if (!paragraphs.length) return {{ready:false}};
+      if (!paragraphs.length) return {{...summary,ready:false}};
+      if (noteAction === 'bind-lesson' && lesson) {{
+        // Seed a legacy binding so reopening existing lesson notes remains covered.
+        const title = Array.from(doc.yBlocks.values()).map(block => block.get('prop:title')).find(title => title && typeof title.insert === 'function');
+        if (!title) throw Error('Fixture note has no title block');
+        doc.spaceDoc.transact(() => {{ title.delete(0,title.length); title.insert(0,lesson.title); }});
+        workspace.docCollection.meta.setDocMeta(docId, {{title:lesson.title}});
+        localStorage.setItem(`ai-player:lesson:${{JSON.stringify([lesson.courseId,lesson.path])}}`, JSON.stringify({{workspaceId:workspace.id,docId}}));
+      }}
       const storageAction = {};
       if (storageAction && !window.__NOTES_STORAGE_TEST__) {{
         window.__NOTES_STORAGE_TEST__ = {{pending:true}};
@@ -49,9 +63,10 @@ pub async fn desktop_smoke_affine(
           .then(() => {{window.__AI_PLAYER_PROBE_IPC__ = false;}})
           .catch(() => {{window.__AI_PLAYER_PROBE_IPC__ = true;}});
       }}
-      return {{ready:true,storage:window.__NOTES_STORAGE_TEST__,docId,workspaceId:workspace.id,title:doc.meta?.title,text:paragraphs.map(text=>text.toString()).join('\n'),
+      return {{...summary,ready:true,storage:window.__NOTES_STORAGE_TEST__,workspaceId:workspace.id,title:doc.meta?.title,text:paragraphs.map(text=>text.toString()).join('\n'),
         ipcBlocked:window.__AI_PLAYER_PROBE_IPC__ === true, hasLogin:!!document.querySelector('[data-testid="sidebar-user-avatar"]'), lesson:window.__AI_PLAYER_LESSON__ }};
     }})()"#,
+        serde_json::json!(note_action),
         serde_json::json!(storage_action),
         serde_json::json!(text)
     );
@@ -165,6 +180,8 @@ pub fn desktop_smoke_report(
         "library",
         "library-restart",
         "catalog",
+        "home",
+        "home-restart",
         "storage-legacy",
         "storage-migrate",
         "storage-move",
@@ -209,6 +226,8 @@ pub fn init() -> TauriPlugin<Wry> {
                     "library",
                     "library-restart",
                     "catalog",
+                    "home",
+                    "home-restart",
                     "storage-legacy",
                     "storage-migrate",
                     "storage-move",
@@ -223,6 +242,8 @@ pub fn init() -> TauriPlugin<Wry> {
                     serde_json::json!(phase),
                     if phase.starts_with("storage-") {
                         include_str!("../../tests/desktop/notesStorage.js")
+                    } else if phase.starts_with("home") {
+                        include_str!("../../tests/desktop/home.js")
                     } else if phase == "catalog" {
                         include_str!("../../tests/desktop/courseCatalog.js")
                     } else if phase.starts_with("library") {

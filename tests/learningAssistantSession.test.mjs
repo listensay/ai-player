@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { registerHooks } from 'node:module'
-import { createRenderer, ref, reactive, nextTick } from 'vue'
+import { createRenderer, ref, reactive } from 'vue'
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '~/utils/database')
+      return {
+        url: 'data:text/javascript,export const databaseRequest=()=>{throw Error("Test must inject history storage")}',
+        shortCircuit: true,
+      }
     if (specifier === '~/utils/guideAi')
       return {
-        url: 'data:text/javascript,export const requestGuideJson=(...args)=>globalThis.assistantRequest(...args)',
+        url: 'data:text/javascript,export const requestAiText=(...args)=>globalThis.assistantRequest(...args)',
         shortCircuit: true,
       }
     if (specifier.startsWith('~/'))
@@ -15,61 +20,59 @@ registerHooks({
   },
 })
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+const { createAiChatHistory } = await import('../app/utils/aiChatHistory.ts')
 const { useLearningAssistant } = await import('../app/composables/useLearningAssistant.ts')
-const deferred = () => {
-  let resolve
-  const promise = new Promise((r) => {
-    resolve = r
+function mount(t, storage = {}) {
+  let saved = storage.saved ?? null
+  const history = createAiChatHistory({
+    read: async () => saved,
+    write: async (data) => {
+      saved = structuredClone(data)
+      storage.saved = saved
+    },
   })
-  return { promise, resolve }
-}
-function mount(t) {
-  const writes = [],
-    requests = [],
-    queue = [],
-    seeks = []
-  globalThis.assistantRequest = (settings, messages, signal) => {
-    const d = deferred()
-    requests.push({ ...d, messages, signal })
-    return d.promise
-  }
-  t.mock.method(navigator.clipboard, 'writeText', async (value) => {
-    writes.push(value)
-  })
+  const requests = [],
+    writes = []
+  globalThis.assistantRequest = (settings, messages, signal, system) =>
+    new Promise((resolve, reject) => {
+      requests.push({ settings, messages, signal, system, resolve, reject })
+    })
+  t.mock.method(navigator.clipboard, 'writeText', async (value) => writes.push(value))
+  const settings = { provider: 'openai', baseUrl: 'https://one.example/v1', model: 'first', apiKey: 'key-one' }
   const options = {
-    course: ref({ id: 'course' }),
+    history,
+    course: ref({ id: 'course', name: '测试课程' }),
     video: ref({ path: 'one.mp4', title: '第一课' }),
     active: ref(true),
-    settings: reactive({ baseUrl: 'https://example.com', model: 'model', apiKey: '' }),
-    configured: ref(true),
-    player: {
-      state: reactive({ currentTime: 100, duration: 500, playing: false, buffering: false }),
-      pause() {},
-      seek: (s) => seeks.push(s),
-      captureFrame: async () => ({ blob: new Blob(['frame'], { type: 'image/png' }) }),
-    },
+    settings: reactive(settings),
+    activeProfileId: ref('one'),
+    profiles: ref([
+      { ...settings, id: 'one', name: '服务一', modelIds: ['first', 'second'] },
+      {
+        id: 'two',
+        name: '服务二',
+        provider: 'anthropic',
+        baseUrl: 'https://two.example/v1',
+        apiKey: 'key-two',
+        model: 'third',
+        modelIds: ['third'],
+      },
+    ]),
+    ready: ref(true),
+    player: { state: reactive({ currentTime: 100, duration: 500 }), pause() {} },
     transcripts: { get: () => ({ segments: [{ id: 1, start: 50, end: 160, text: '互斥锁' }] }) },
     knowledge: { get: () => ({ summary: null }) },
-    learning: {
-      load: async () => {},
-      state: { error: '' },
-      mutate: async (fn) => {
-        fn({ cards: queue })
-        return true
-      },
-    },
     reveal() {},
     notify() {},
   }
   let a
-  const renderer = createRenderer({
+  const app = createRenderer({
     createComment: () => ({}),
     insert() {},
     remove() {},
     parentNode: () => null,
     nextSibling: () => null,
-  })
-  const app = renderer.createApp({
+  }).createApp({
     setup() {
       a = useLearningAssistant(options)
       return () => null
@@ -77,101 +80,244 @@ function mount(t) {
   })
   app.mount({})
   t.after(() => app.unmount())
-  return { a, options, writes, requests, queue, seeks, app }
+  return { a, options, requests, writes, app, storage }
 }
-test('问答冻结提问时刻，不默认上传笔记；复制使用原时间戳', async (t) => {
+test('提问立即显示消息，回答使用 Markdown，下一轮携带真实角色历史', async (t) => {
   const { a, options, requests, writes } = mount(t)
   a.open()
-  const task = a.ask('解释锁')
-  assert.ok(!requests[0].messages[0].content.includes('秘密笔记'))
+  a.question.value = '解释锁'
+  const task = a.ask()
+  assert.equal(a.turns.value[0].status, 'pending')
+  assert.equal(a.turns.value[0].question, '解释锁')
+  assert.equal(a.question.value, '')
   options.player.state.currentTime = 220
-  requests[0].resolve({ markdown: '锁用于互斥', sources: ['s:1'] })
+  a.question.value = '下一条草稿'
+  requests[0].resolve('**锁**用于互斥')
   await task
   assert.equal(a.turns.value[0].seconds, 100)
-  await a.copyResult(a.turns.value[0].markdown, a.turns.value[0].seconds)
-  assert.match(writes[0], /1:40/)
+  assert.equal(a.turns.value[0].markdown, '**锁**用于互斥')
+  assert.equal(a.question.value, '下一条草稿')
+  await a.copyResult(a.turns.value[0].markdown)
+  assert.equal(writes[0], '**锁**用于互斥')
+  const next = a.ask()
+  assert.deepEqual(requests[1].messages, [
+    { role: 'user', content: '解释锁' },
+    { role: 'assistant', content: '**锁**用于互斥' },
+    { role: 'user', content: '下一条草稿' },
+  ])
+  requests[1].resolve('继续回答')
+  await next
 })
-test('切课或取消会中断请求，晚到结果不能污染新课节', async (t) => {
+test('同一会话可切换服务和模型，不更改全局配置且当前请求使用发送时的模型', async (t) => {
   const { a, options, requests } = mount(t)
-  a.open()
-  const task = a.ask('解释锁')
-  options.video.value = { path: 'two.mp4', title: '第二课' }
-  assert.equal(requests[0].signal.aborted, true)
-  requests[0].resolve({ markdown: '旧回答', sources: ['s:1'] })
-  await task
-  assert.equal(a.turns.value.length, 0)
-  a.open()
-  const canceled = a.ask('新问题')
-  a.cancel()
-  requests[1].resolve({ markdown: '取消回答', sources: [] })
-  await canceled
-  assert.equal(a.turns.value.length, 0)
+  assert.equal(a.modelOptions.value.length, 3)
+  assert.ok(!JSON.stringify(a.modelOptions.value).includes('key-one'))
+  a.question.value = '问题一'
+  const first = a.ask()
+  a.selectedModel.value = JSON.stringify(['one', 'second'])
+  assert.equal(requests[0].settings.model, 'first')
+  assert.equal(requests[0].signal.aborted, false)
+  requests[0].resolve('回答一')
+  await first
+  a.question.value = '继续'
+  const second = a.ask()
+  assert.equal(requests[1].settings.model, 'second')
+  requests[1].resolve('回答二')
+  await second
+  a.selectedModel.value = JSON.stringify(['two', 'third'])
+  a.question.value = '再继续'
+  const third = a.ask()
+  assert.equal(requests[2].settings.provider, 'anthropic')
+  assert.equal(requests[2].settings.apiKey, 'key-two')
+  assert.equal(requests[2].messages.length, 5)
+  requests[2].resolve('回答三')
+  await third
+  assert.equal(options.settings.model, 'first')
+  assert.deepEqual(
+    a.turns.value.map((turn) => turn.model),
+    ['first', 'second', 'third'],
+  )
 })
-test('主动粘贴文字才提供给整理工具；服务切换取消旧请求并重置截图授权', async (t) => {
+test('无字幕仍可聊天，空配置保留输入且不发送请求', async (t) => {
   const { a, options, requests } = mount(t)
-  a.open('notes')
-  a.noteInput.value = '主动粘贴的秘密笔记'
-  const task = a.improveNote('整理我的笔记')
-  assert.match(requests[0].messages[0].content, /秘密笔记/)
-  a.imageConsent.value = true
-  options.settings.model = 'other'
-  await nextTick()
-  assert.equal(requests[0].signal.aborted, true)
-  assert.equal(a.imageConsent.value, false)
-  requests[0].resolve({ markdown: 'ignored', sources: [] })
+  options.transcripts.get = () => ({ segments: [] })
+  a.question.value = '你好'
+  const task = a.ask()
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].system, /"evidence":\[\]/)
+  requests[0].resolve('你好，有什么想聊的？')
   await task
-  assert.equal(a.turns.value.length, 0)
+  options.profiles.value = []
+  a.question.value = '配置未就绪时的草稿'
+  await a.ask()
+  assert.equal(requests.length, 1)
+  assert.equal(a.question.value, '配置未就绪时的草稿')
+  assert.match(a.error.value, /配置/)
 })
-test('截图在未确认前不发请求；保存卡片去重且保留队列', async (t) => {
-  const { a, requests, queue } = mount(t)
-  await a.extract()
-  assert.equal(requests.length, 0)
-  assert.match(a.error.value, /确认/)
-  a.open('cards')
-  const task = a.generateCards()
-  requests[0].resolve({ cards: [1, 2, 3].map((i) => ({ front: `问题${i}`, back: '答案', sources: ['s:1'] })) })
-  await task
-  await a.addCards()
-  await a.addCards()
-  assert.equal(queue.length, 3)
-})
-test('高光模式默认关闭，不跳过核心；可撤销；离开播放器关闭跳读', async (t) => {
-  const { a, options, seeks } = mount(t)
-  a.highlights.value = [{ start: 100, end: 150, kind: 'transition', reason: '等待' }]
-  options.player.state.playing = true
-  options.player.state.currentTime = 110
-  await nextTick()
-  assert.deepEqual(seeks, [])
-  a.skipTransitions.value = true
-  options.player.state.currentTime = 111
-  await nextTick()
-  assert.deepEqual(seeks, [150])
-  a.undoSkip()
-  assert.deepEqual(seeks, [150, 111])
-  assert.equal(a.skipTransitions.value, false)
-  a.skipTransitions.value = true
-  options.active.value = false
-  await nextTick()
-  assert.equal(a.skipTransitions.value, false)
-})
-test('重新打开笔记工具会取消旧生成，晚到结果不能关联到新选区', async (t) => {
+test('停止保留问题并支持换模型重试，失败回复不会混入后续历史', async (t) => {
   const { a, requests } = mount(t)
-  a.open('notes')
-  a.noteInput.value = '第一次选区'
-  const pending = a.improveNote('精炼')
-  a.open('notes')
+  a.question.value = '需要重试的问题'
+  const task = a.ask()
+  a.cancel()
   assert.equal(requests[0].signal.aborted, true)
-  requests[0].resolve({ markdown: '旧选区结果', sources: [] })
-  await pending
-  assert.equal(a.noteResult.value, null)
+  requests[0].resolve('已取消的回答')
+  await task
+  const id = a.turns.value[0].id
+  assert.equal(a.turns.value[0].status, 'stopped')
+  assert.equal(a.turns.value[0].markdown, '')
+  a.selectedModel.value = JSON.stringify(['two', 'third'])
+  const retry = a.ask(id)
+  assert.equal(a.turns.value.length, 1)
+  assert.deepEqual(requests[1].messages, [{ role: 'user', content: '需要重试的问题' }])
+  requests[1].reject(Error('服务暂不可用'))
+  await retry
+  assert.equal(a.turns.value[0].status, 'error')
+  assert.equal(a.turns.value[0].error, '服务暂不可用')
+  const final = a.ask(id)
+  requests[2].resolve('重试成功')
+  await final
+  assert.equal(a.turns.value[0].status, 'done')
 })
-test('复制失败保留生成结果并显示错误', async (t) => {
-  const { a } = mount(t)
+test('切课、新对话、离开播放器和卸载会中断请求，晚到结果不能污染会话', async (t) => {
+  const { a, options, requests, app } = mount(t)
+  for (const change of [
+    () => {
+      options.video.value = { path: 'two.mp4', title: '第二课' }
+    },
+    () => a.reset(),
+    () => {
+      options.active.value = false
+    },
+    () => app.unmount(),
+  ]) {
+    options.active.value = true
+    a.question.value = '解释概念'
+    const task = a.ask()
+    const req = requests.at(-1)
+    change()
+    assert.equal(req.signal.aborted, true)
+    req.resolve('晚到的旧回答')
+    await task
+    assert.equal(a.busy.value, false)
+    assert.ok(a.turns.value.every((turn) => turn.markdown === ''))
+  }
+})
+test('修改密钥中断旧请求，重新打开聊天不会打断回答；重复发送不产生请求', async (t) => {
+  const { a, options, requests } = mount(t)
+  a.question.value = '解释概念'
+  const task = a.ask()
+  a.open()
+  await a.ask()
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].signal.aborted, false)
+  options.profiles.value[0].apiKey = 'changed'
+  assert.equal(requests[0].signal.aborted, true)
+  requests[0].resolve('旧配置回答')
+  await task
+  assert.equal(a.turns.value[0].status, 'stopped')
+})
+test('空回答可重试，复制失败不会丢失回答', async (t) => {
+  const { a, requests } = mount(t)
+  a.question.value = '解释概念'
+  const task = a.ask()
+  requests[0].resolve('  ')
+  await task
+  assert.equal(a.turns.value[0].status, 'error')
   t.mock.method(navigator.clipboard, 'writeText', async () => {
     throw Error('denied')
   })
-  a.noteResult.value = { markdown: '需要保留的内容', sources: [] }
-  await a.copyResult(a.noteResult.value.markdown)
-  assert.equal(a.noteResult.value.markdown, '需要保留的内容')
+  a.turns.value[0].markdown = '保留的内容'
+  await a.copyResult(a.turns.value[0].markdown)
+  assert.equal(a.turns.value[0].markdown, '保留的内容')
   assert.match(a.error.value, /复制失败/)
+})
+
+test('异步加载配置时默认使用当前服务的模型，删除已选服务后恢复有效选择', async (t) => {
+  const { a, options } = mount(t)
+  const profiles = [...options.profiles.value]
+  options.profiles.value = []
+  options.activeProfileId.value = 'two'
+  options.profiles.value = profiles
+  assert.equal(a.selectedModel.value, JSON.stringify(['two', 'third']))
+  options.profiles.value = profiles.slice(0, 1)
+  assert.equal(a.selectedModel.value, JSON.stringify(['one', 'first']))
+})
+
+test('新对话保存旧聊天，选择同视频的历史后可携带上下文继续', async (t) => {
+  const { a, requests, storage } = mount(t)
+  a.question.value = '第一段对话'
+  const first = a.ask()
+  requests[0].resolve('第一段回答')
+  await first
+  const id = a.conversation.value.id
+  a.reset()
+  assert.equal(a.conversation.value, null)
+  assert.equal(a.conversations.value.length, 1)
+  a.selectConversation(id)
+  assert.equal(a.turns.value[0].markdown, '第一段回答')
+  assert.equal(a.canReply.value, true)
+  a.question.value = '继续聊'
+  const second = a.ask()
+  assert.deepEqual(requests[1].messages, [
+    { role: 'user', content: '第一段对话' },
+    { role: 'assistant', content: '第一段回答' },
+    { role: 'user', content: '继续聊' },
+  ])
+  requests[1].resolve('继续回答')
+  await second
+  await a.flush()
+  assert.equal(storage.saved.sessions.length, 1)
+  assert.equal(storage.saved.sessions[0].turns.length, 2)
+  assert.equal(storage.saved.sessions[0].turns[1].markdown, '继续回答')
+  assert.ok(!JSON.stringify(storage.saved).includes('key-one'))
+})
+
+test('每次切换视频都打开空白对话，停止中的旧聊天可查看且晚到结果不写回', async (t) => {
+  const { a, options, requests, storage } = mount(t)
+  a.question.value = '第一课的问题'
+  const first = a.ask()
+  const id = a.conversation.value.id
+  options.video.value = { path: 'two.mp4', title: '第二课' }
+  assert.equal(a.conversation.value, null)
+  assert.equal(a.question.value, '')
+  assert.equal(requests[0].signal.aborted, true)
+  assert.equal(a.conversations.value[0].turns[0].status, 'stopped')
+  a.selectConversation(id)
+  assert.equal(a.canReply.value, false)
+  a.question.value = '不能误用第二课上下文'
+  await a.ask()
+  assert.equal(requests.length, 1)
+  a.reset()
+  a.question.value = '第二课的问题'
+  const second = a.ask()
+  requests[0].resolve('过期回答')
+  requests[1].resolve('第二课回答')
+  await Promise.all([first, second])
+  assert.equal(a.turns.value[0].markdown, '第二课回答')
+  assert.deepEqual(requests[1].messages, [{ role: 'user', content: '第二课的问题' }])
+  options.video.value = { path: 'one.mp4', title: '第一课' }
+  assert.equal(a.turns.value.length, 0)
+  assert.equal(a.conversation.value, null)
+  await a.flush()
+  assert.equal(storage.saved.sessions.length, 2)
+  assert.equal(storage.saved.sessions.find((session) => session.id === id).turns[0].markdown, '')
+})
+
+test('重启读取历史但默认新对话，退出保存中断状态', async (t) => {
+  const storage = {}
+  const first = mount(t, storage)
+  first.a.question.value = '未完成的提问'
+  const task = first.a.ask()
+  await first.a.flush()
+  assert.equal(storage.saved.sessions[0].turns[0].status, 'stopped')
+  first.requests[0].resolve('过期回答')
+  await task
+  first.app.unmount()
+  const second = mount(t, storage)
+  await second.a.history.load()
+  assert.equal(second.a.turns.value.length, 0)
+  assert.equal(second.a.conversations.value.length, 1)
+  second.a.selectConversation(storage.saved.sessions[0].id)
+  assert.equal(second.a.turns.value[0].question, '未完成的提问')
+  assert.equal(second.a.turns.value[0].status, 'stopped')
 })

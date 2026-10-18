@@ -42,6 +42,7 @@ const materialPanel = ref<string>()
 const view = ref<'question' | 'feedback' | 'materials'>('question')
 const detailPanel = ref<string>()
 const attemptIndex = ref(0)
+const skippedIds = ref(new Set<string>())
 const attempt = computed(() => current.value?.attempts[attemptIndex.value])
 const programming = computed(() => programmingQuestion(current.value?.question))
 const choice = computed(() =>
@@ -87,20 +88,29 @@ const reachedLimit = computed(
   () => !programming.value && (current.value?.attempts.length ?? 0) >= PRACTICE_ATTEMPT_LIMIT,
 )
 const canContinue = computed(() => !daily && !!attempt.value && (answerSubmitted.value || reachedLimit.value))
-const allQuestionsCompleted = computed(
-  () => orderedHistory.value.length > 0 && orderedHistory.value.every((record) => record.attempts.length > 0),
+const allQuestionsHandled = computed(
+  () =>
+    orderedHistory.value.length > 0 &&
+    orderedHistory.value.every((record) => record.attempts.length > 0 || skippedIds.value.has(record.id)),
 )
 const nextUnansweredQuestion = computed(() => {
   const following = [
     ...orderedHistory.value.slice(questionNumber.value),
     ...orderedHistory.value.slice(0, questionNumber.value - 1),
   ]
-  return following.find((record) => !record.attempts.length)
+  return following.find((record) => !record.attempts.length && !skippedIds.value.has(record.id))
 })
 function continueQuestions() {
   if (state.busy || !canContinue.value) return
   const next = nextUnansweredQuestion.value
   if (next) props.practice.select(next.id)
+}
+function skipQuestion() {
+  if (state.busy || !current.value || !state.historyReady) return
+  skippedIds.value.add(current.value.id)
+  const next = nextUnansweredQuestion.value
+  if (!daily && next) props.practice.select(next.id)
+  else props.practice.close()
 }
 const canGenerate = computed(
   () => state.historyReady && !state.busy && configured.value && hasMaterial.value && (!daily || !history.value.length),
@@ -171,6 +181,11 @@ async function showMaterials() {
   await nextTick()
   materialEl.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
 }
+watch(
+  () => [state.open, state.path] as const,
+  () => skippedIds.value.clear(),
+  { flush: 'sync' },
+)
 watch(
   () => [state.open, current.value?.id] as const,
   async ([open, id]) => {
@@ -778,6 +793,7 @@ async function upload(event: Event) {
                 : '根据知识点智能生成'
           }}</span>
           <div class="ml-auto flex flex-wrap gap-2">
+            <UiButton v-if="current && view !== 'materials'" variant="text" @click="skipQuestion">跳过</UiButton>
             <UiButton v-if="daily" variant="text" :disabled="!!state.busy" @click="practice.close()">{{
               completedCount === history.length && history.length ? '完成' : '稍后继续'
             }}</UiButton>
@@ -820,7 +836,7 @@ async function upload(event: Event) {
                 >下一题<AppIcon name="chevron-right" :size="16"
               /></UiButton>
               <UiButton
-                v-else-if="canContinue && allQuestionsCompleted"
+                v-else-if="canContinue && allQuestionsHandled"
                 variant="dark"
                 :disabled="!!state.busy"
                 @click="practice.close()"
@@ -835,7 +851,7 @@ async function upload(event: Event) {
               >下一题<AppIcon name="chevron-right" :size="16"
             /></UiButton>
             <UiButton
-              v-else-if="canContinue && allQuestionsCompleted"
+              v-else-if="canContinue && allQuestionsHandled"
               variant="dark"
               :disabled="!!state.busy"
               @click="practice.close()"

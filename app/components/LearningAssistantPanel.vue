@@ -1,477 +1,258 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useCourseWorkspace } from '~/composables/useCourseWorkspace'
-import type { AssistantMode } from '~/types/learningAssistant'
-import { formatTime } from '~/utils/time'
-import { programmingQuestion } from '~/utils/programming'
 import UiButton from './UiButton.vue'
+import AppIcon from './AppIcon.vue'
 import PracticeText from './PracticeText.vue'
-import LearningMapTree from './LearningMapTree.vue'
-const LearningCodeScratch = defineAsyncComponent(() => import('./LearningCodeScratch.vue'))
-const workspace = useCourseWorkspace(),
-  a = reactive(workspace.assistant)
-const modes: Array<{ id: AssistantMode; label: string }> = [
-  { id: 'ask', label: '随堂问答' },
-  { id: 'notes', label: '整理文字' },
-  { id: 'map', label: '知识脑图' },
-  { id: 'cards', label: '记忆闪卡' },
-  { id: 'feynman', label: '费曼对练' },
-  { id: 'vision', label: '画面识别' },
-  { id: 'highlights', label: '精华跳读' },
-]
-const presets = [
-  '用大白话和生活比喻解释这里的概念',
-  '这里的底层原理是什么？',
-  '这行代码为什么要这么写？如果字幕没有代码，请明确说明',
-]
-const flipped = ref<number | null>(null),
-  scratchOpen = ref(false),
-  importConfirmed = ref(false)
-let importBaseline: { id: string; draft: string } | null = null
-watch(
-  importConfirmed,
-  (confirmed) => {
-    const record = workspace.practice.current.value
-    importBaseline = confirmed && record ? { id: record.id, draft: record.draft } : null
-  },
-  { flush: 'sync' },
-)
-const activeExercise = computed(() =>
-  workspace.practice.current.value?.path === workspace.video.value?.path
-    ? programmingQuestion(workspace.practice.current.value?.question)
-    : null,
-)
-watch(
-  () => a.extraction,
-  () => {
-    scratchOpen.value = false
-    importConfirmed.value = false
-  },
-)
-watch(
-  () => a.cards,
-  () => {
-    flipped.value = null
-  },
-)
-function importCode() {
-  if (!importConfirmed.value || !a.extraction?.code || !activeExercise.value || workspace.practice.state.busy) return
-  const record = workspace.practice.current.value
-  if (!record || !importBaseline || record.id !== importBaseline.id || record.draft !== importBaseline.draft) {
-    importConfirmed.value = false
-    a.error = '目标练习或草稿已变化，请重新确认后再导入。'
-    return
+const workspace = useCourseWorkspace()
+const a = reactive(workspace.assistant)
+const historyOpen = ref(false),
+  historySearch = ref(''),
+  historyLimit = ref(20)
+const filteredHistory = computed(() => {
+  const query = historySearch.value.trim().toLowerCase()
+  return a.conversations.filter(
+    (session) => !query || `${session.title} ${session.videoTitle} ${session.courseName}`.toLowerCase().includes(query),
+  )
+})
+watch(historySearch, () => {
+  historyLimit.value = 20
+})
+function showHistory() {
+  historySearch.value = ''
+  historyLimit.value = 20
+  historyOpen.value = true
+  void a.history.load()
+}
+function selectHistory(id: string) {
+  follow = true
+  a.selectConversation(id)
+  historyOpen.value = false
+  void scrollToEnd()
+}
+function historyDate(timestamp: number) {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+const messages = ref<HTMLElement | null>(null)
+const input = ref<{ focus: () => void } | null>(null)
+let follow = true
+function onScroll() {
+  const el = messages.value
+  if (el) follow = el.scrollHeight - el.scrollTop - el.clientHeight < 64
+}
+async function scrollToEnd() {
+  await nextTick()
+  if (follow && messages.value) messages.value.scrollTop = messages.value.scrollHeight
+}
+watch(() => a.turns.map((turn) => [turn.id, turn.status, turn.markdown]), scrollToEnd, { deep: true })
+onMounted(scrollToEnd)
+async function send() {
+  follow = true
+  const task = a.ask()
+  input.value?.focus()
+  await scrollToEnd()
+  await task
+}
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+    event.preventDefault()
+    void send()
   }
-  workspace.practice.updateDraft(a.extraction.code)
-  workspace.practice.state.open = true
-  importConfirmed.value = false
 }
-function seek(seconds: number) {
-  a.skipTransitions = false
-  workspace.seekTo(seconds)
-}
-function saveCode(code: string, language: string) {
-  void a.copyResult(`\`\`\`${language}\n${code}\n\`\`\``, a.imageSeconds)
+async function newChat() {
+  a.reset()
+  follow = true
+  await nextTick()
+  input.value?.focus()
 }
 </script>
+
 <template>
-  <section class="assistant-panel scroll-soft min-h-0 flex-1 overflow-y-auto p-4" aria-label="AI 随堂助教">
-    <div class="assistant-toolbar">
-      <header class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="font-bold">Study Helper 随堂助教</h2>
-        <UiButton variant="text" size="sm" @click="workspace.openGuide('settings')">AI 设置</UiButton>
-      </header>
-      <nav class="mb-4 flex flex-wrap gap-1.5" aria-label="学习工具">
-        <button
-          v-for="item in modes"
-          :key="item.id"
-          type="button"
-          class="tool-tab"
-          :aria-pressed="a.mode === item.id"
-          :disabled="!!a.busy"
-          @click="a.open(item.id)"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
-    </div>
-    <p class="mb-3 text-caption text-stone">
-      生成预览仅保留在本课会话中，切课后清空。需要保留的内容可复制到 笔记 或加入复习队列。
+  <section class="ai-chat flex min-h-0 flex-1 flex-col" aria-label="AI 聊天">
+    <header class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
+      <UiButton size="sm" variant="text" @click="newChat"><AppIcon name="plus" :size="15" />新对话</UiButton>
+      <UiButton size="sm" variant="text" @click="showHistory"><AppIcon name="clock" :size="15" />历史对话</UiButton>
+      <UiButton size="sm" variant="text" @click="workspace.openGuide('settings')">AI 设置</UiButton>
+    </header>
+    <p v-if="a.conversation" class="truncate px-5 pb-2 text-caption text-stone" :title="a.conversation.videoTitle">
+      {{ a.conversation.videoTitle }}
     </p>
-    <details v-if="a.contextPreview" class="material-preview mb-4 rounded-xl border border-linen p-3">
-      <summary class="cursor-pointer text-caption font-medium">
-        本次课程材料 · {{ a.contextPreview.evidence.length }} 条来源 · {{ formatTime(a.contextPreview.start) }}–{{
-          formatTime(a.contextPreview.end)
-        }}
-      </summary>
-      <p v-if="a.contextPreview.truncated" class="mt-2 text-caption text-error">
-        材料较长，仅处理以下部分内容，不代表完整课程。
-      </p>
-      <div class="scroll-soft mt-2 max-h-48 space-y-3 overflow-auto text-caption">
-        <p v-for="source in a.contextPreview.evidence" :key="source.id">
-          <button class="source-link" type="button" @click="seek(source.start)">{{ formatTime(source.start) }}</button>
-          {{ source.id === 'n:note' ? '【用户笔记，时间为关联位置】' : '' }}{{ source.text }}
-        </p>
-        <p v-if="a.contextPreview.note" class="whitespace-pre-wrap">附带笔记：{{ a.contextPreview.note }}</p>
-        <p v-if="!a.contextPreview.evidence.length">当前没有字幕或知识点；请先转写字幕或在整理文字中提供内容。</p>
-      </div>
-    </details>
-
-    <div
-      v-if="a.busy"
-      role="status"
-      class="mb-3 flex items-center justify-between gap-2 rounded-xl bg-sunbeam-yellow/15 p-3 text-body-sm"
-    >
-      {{ a.busy }}…
-      <UiButton v-if="a.busy !== '正在加入复习队列'" size="sm" variant="text" @click="a.cancel">取消</UiButton>
+    <div v-if="a.history.state.error" class="flex items-center gap-2 px-5 pb-2 text-caption text-error" role="alert">
+      <span>{{ a.history.state.error }}</span
+      ><UiButton size="sm" variant="text" @click="a.history.retry">重试</UiButton>
     </div>
-    <p v-if="a.error" role="alert" class="mb-3 text-body-sm text-error">{{ a.error }}</p>
-    <p v-if="a.notice" role="status" class="mb-3 text-caption text-stone">{{ a.notice }}</p>
-
-    <div v-if="a.mode === 'ask'" class="space-y-4">
-      <div class="flex items-center justify-between gap-2 text-caption">
-        <span>提问定位 {{ formatTime(a.anchor) }} · 前后各 90 秒</span
-        ><UiButton variant="text" size="sm" :disabled="!!a.busy" @click="a.refreshAnchor">使用当前播放位置</UiButton>
+    <div ref="messages" class="scroll-soft min-h-0 flex-1 overflow-y-auto px-5 pb-5" @scroll="onScroll">
+      <div v-if="!a.turns.length" class="flex h-full min-h-40 flex-col items-center justify-center gap-3 text-stone">
+        <AppIcon name="sparkles" :size="28" />
+        <p class="text-body-sm">想聊点什么？</p>
       </div>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="preset in presets"
-          :key="preset"
-          class="preset"
-          type="button"
-          :disabled="!!a.busy"
-          @click="a.ask(preset)"
-        >
-          {{ preset }}
-        </button>
-      </div>
-      <article v-for="(turn, index) in a.turns" :key="index" class="space-y-3 rounded-2xl border border-linen p-3">
-        <h3 class="text-body-sm font-bold">{{ turn.question }}</h3>
-        <PracticeText :text="turn.markdown" />
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="source in turn.sources"
-            :key="source.id"
-            type="button"
-            class="source-link"
-            @click="seek(source.start)"
+      <div v-else role="log" aria-label="聊天消息" aria-live="polite" class="space-y-7 pt-3">
+        <article v-for="(turn, index) in a.turns" :key="turn.id" class="space-y-5">
+          <div
+            class="ml-auto w-fit max-w-[90%] whitespace-pre-wrap rounded-2xl bg-page-cream px-4 py-3 text-body-sm"
+            aria-label="你的消息"
           >
-            来源 {{ formatTime(source.start) }}
-          </button>
-        </div>
-        <UiButton
-          size="sm"
-          variant="ghost"
-          @click="a.copyResult(`### ${turn.question}\n\n${turn.markdown}`, turn.seconds)"
-          >复制回答</UiButton
-        >
-      </article>
-      <form class="space-y-2" @submit.prevent="a.ask()">
-        <label for="assistant-question" class="text-body-sm font-medium">哪里还没理解？</label
-        ><textarea
-          id="assistant-question"
+            {{ turn.question }}
+          </div>
+          <div class="min-w-0 space-y-2">
+            <p class="text-caption text-stone">AI · {{ turn.model }}</p>
+            <PracticeText v-if="turn.markdown" :text="turn.markdown" class="text-body-sm" />
+            <p v-if="turn.status === 'pending'" class="text-body-sm text-stone" role="status">正在回复…</p>
+            <p v-else-if="turn.status === 'stopped'" class="text-body-sm text-stone">已停止</p>
+            <p v-else-if="turn.error" class="text-body-sm text-error" role="alert">{{ turn.error }}</p>
+            <UiButton v-if="turn.status === 'done'" size="sm" variant="text" @click="a.copyResult(turn.markdown)"
+              >复制</UiButton
+            >
+            <UiButton
+              v-else-if="a.canReply && !a.busy && index === a.turns.length - 1"
+              size="sm"
+              variant="text"
+              @click="a.ask(turn.id)"
+              >重试</UiButton
+            >
+          </div>
+        </article>
+      </div>
+    </div>
+    <form v-if="a.canReply" class="shrink-0 p-4 pt-2" @submit.prevent="send">
+      <p v-if="a.error" class="mb-2 text-body-sm text-error" role="alert">{{ a.error }}</p>
+      <div class="ai-composer rounded-2xl border border-linen p-3 transition-colors focus-within:border-deep-indigo">
+        <VTextarea
+          ref="input"
           v-model="a.question"
-          rows="3"
-          maxlength="4000"
-          placeholder="输入问题，AI 会带上这一刻的课程上下文"
-          :disabled="!!a.busy"
-        /><UiButton type="submit" :disabled="!!a.busy || !a.question.trim()">询问助教</UiButton>
-      </form>
-    </div>
-
-    <div v-else-if="a.mode === 'notes'" class="space-y-3">
-      <p class="text-caption text-stone">粘贴需要整理的文字，留空则整理当前字幕。</p>
-      <label class="block text-body-sm" for="assistant-note">待整理文字</label
-      ><textarea id="assistant-note" v-model="a.noteInput" rows="5" maxlength="12000" :disabled="!!a.busy" />
-      <div class="flex flex-wrap gap-2">
-        <UiButton
-          v-for="action in ['精炼为技术卡片', '对比表格', '补充边界条件', '补全注释与示例']"
-          :key="action"
-          size="sm"
-          variant="ghost"
-          :disabled="!!a.busy"
-          @click="a.improveNote(action)"
-          >{{ action }}</UiButton
-        >
-      </div>
-      <article v-if="a.noteResult" class="space-y-3 rounded-xl border border-linen p-3">
-        <PracticeText :text="a.noteResult.markdown" />
-        <UiButton size="sm" @click="a.copyResult(a.noteResult.markdown)">复制内容</UiButton>
-      </article>
-    </div>
-
-    <div v-else-if="a.mode === 'map'" class="space-y-3">
-      <UiButton :disabled="!!a.busy" @click="a.generateMap">{{
-        a.graph.length ? '重新生成脑图' : '生成知识脑图'
-      }}</UiButton>
-      <p class="text-caption text-stone">点击概念折叠／展开，点击时间戳回到对应讲解。</p>
-      <LearningMapTree v-if="a.graph.length" :nodes="a.graph" @seek="seek" />
-      <details v-if="a.graph.length">
-        <summary class="text-caption">Mermaid 源码</summary>
-        <pre class="scroll-soft mt-2 overflow-auto rounded-xl bg-cream-deep p-3 text-caption">{{ a.mermaid }}</pre>
-        <UiButton size="sm" variant="ghost" class="mt-2" @click="a.copyResult('```mermaid\n' + a.mermaid + '\n```')"
-          >复制脑图源码</UiButton
-        >
-      </details>
-    </div>
-
-    <div v-else-if="a.mode === 'cards'" class="space-y-3">
-      <UiButton :disabled="!!a.busy" @click="a.generateCards">生成 3–5 张记忆卡片</UiButton>
-      <article v-for="(card, index) in a.cards" :key="index" class="space-y-3 rounded-2xl border border-linen p-4">
-        <button
-          class="w-full text-left font-bold"
-          type="button"
-          :aria-expanded="flipped === index"
-          @click="flipped = flipped === index ? null : index"
-        >
-          {{ index + 1 }}. {{ card.front
-          }}<span class="mt-2 block text-caption text-stone">{{
-            flipped === index ? '收起答案' : '想一想，再点击翻面'
-          }}</span></button
-        ><PracticeText v-if="flipped === index" :text="card.back" />
-        <details>
-          <summary class="text-caption">编辑卡片</summary>
-          <label class="mt-2 block text-caption"
-            >正面<textarea v-model="card.front" rows="2" maxlength="500" :disabled="!!a.busy" /></label
-          ><label class="mt-2 block text-caption"
-            >背面<textarea v-model="card.back" rows="4" maxlength="3000" :disabled="!!a.busy" />
-          </label>
-        </details>
-        <button
-          v-for="source in card.sources"
-          :key="source.id"
-          class="source-link mr-2"
-          type="button"
-          @click="seek(source.start)"
-        >
-          回看 {{ formatTime(source.start) }}
-        </button>
-      </article>
-      <UiButton
-        v-if="a.cards.length"
-        :disabled="!!a.busy"
-        @click="a.copyResult(a.cards.map((card) => `${card.front}\n\n${card.back}`).join('\n\n---\n\n'))"
-        >复制卡片内容</UiButton
-      >
-    </div>
-
-    <div v-else-if="a.mode === 'feynman'" class="space-y-3">
-      <VSelect
-        v-model="a.feynman.role"
-        label="对练角色"
-        :disabled="!!a.busy"
-        :items="[
-          { title: '小白新手', value: 'novice' },
-          { title: '技术面试官', value: 'interviewer' },
-        ]"
-        hide-details
-        density="compact"
-      />
-      <UiButton :disabled="!!a.busy" @click="a.startFeynman">{{
-        a.feynman.question ? '重新开始对练' : '开始对练'
-      }}</UiButton
-      ><template v-if="a.feynman.question"
-        ><PracticeText :text="a.feynman.question.question" /><label for="feynman-answer" class="block text-caption"
-          >用自己的话讲清楚</label
-        ><textarea
-          id="feynman-answer"
-          v-model="a.feynman.answer"
-          maxlength="8000"
-          rows="6"
-          :disabled="!!a.busy || !!a.feynman.feedback"
-        /><UiButton :disabled="!!a.busy || !a.feynman.answer.trim() || !!a.feynman.feedback" @click="a.evaluateFeynman"
-          >提交解释</UiButton
-        ></template
-      >
-      <article v-if="a.feynman.feedback" class="space-y-3 rounded-xl border border-linen p-3">
-        <p class="font-bold">本轮理解度参考：{{ a.feynman.feedback.score }}/100</p>
-        <p class="text-caption text-stone">AI 评分仅为练习参考，不会自动修改知识掌握度。</p>
-        <PracticeText :text="a.feynman.feedback.markdown" />
-        <ul class="list-disc pl-5 text-body-sm">
-          <li v-for="gap in a.feynman.feedback.gaps" :key="gap">{{ gap }}</li>
-        </ul>
-        <button
-          v-for="source in a.feynman.feedback.sources"
-          :key="source.id"
-          type="button"
-          class="source-link mr-2"
-          @click="seek(source.start)"
-        >
-          回看 {{ formatTime(source.start) }}
-        </button>
-        <div class="flex flex-wrap gap-2">
-          <UiButton size="sm" @click="a.followUp">继续追问</UiButton
-          ><UiButton
-            size="sm"
-            variant="ghost"
-            @click="
-              a.copyResult(
-                '### 费曼对练\n\n' +
-                  a.feynman.question?.question +
-                  '\n\n我的解释：\n' +
-                  a.feynman.answer +
-                  '\n\n反馈：\n' +
-                  a.feynman.feedback.markdown,
-              )
-            "
-            >保存本轮复盘</UiButton
-          >
-        </div>
-      </article>
-      <p v-if="a.feynman.rounds.length" class="text-caption text-stone">
-        本次已完成 {{ a.feynman.rounds.length }} 轮对练。
-      </p>
-    </div>
-
-    <div v-else-if="a.mode === 'vision'" class="space-y-3">
-      <p class="text-caption text-stone">
-        普通截图仍只存本地。本工具仅在你确认后上传这一张画面；请先检查是否含敏感信息。
-      </p>
-      <UiButton :disabled="!!a.busy || !workspace.player.state.frameReady" @click="a.capture"
-        >截取当前画面（仅本地预览）</UiButton
-      ><template v-if="a.imageUrl"
-        ><img
-          :src="a.imageUrl"
-          :alt="`待识别画面 ${formatTime(a.imageSeconds)}`"
-          class="w-full rounded-xl border border-linen"
-        />
-        <p class="break-all text-caption text-stone">
-          发送至：{{ workspace.guide.state.settings.baseUrl }} · {{ workspace.guide.state.settings.model }}
-        </p>
-        <label class="flex items-start gap-2 text-caption"
-          ><input
-            v-model="a.imageConsent"
-            type="checkbox"
-            :disabled="!!a.busy"
-          />我确认将这张截图和预览中的课程上下文发送至上述 AI 服务（需要支持视觉的模型）。</label
-        >
-        <div class="flex gap-2">
-          <UiButton :disabled="!!a.busy || !a.imageConsent" @click="a.extract">识别代码／公式</UiButton
-          ><UiButton variant="ghost" :disabled="!!a.busy" @click="a.clearFrame">丢弃截图</UiButton>
-        </div></template
-      >
-      <article v-if="a.extraction" class="space-y-3">
-        <PracticeText :text="a.extraction.markdown" />
-        <p v-if="a.extraction.warnings" role="status" class="text-body-sm text-error">
-          识别提醒：{{ a.extraction.warnings }}
-        </p>
-        <UiButton size="sm" @click="a.copyResult(a.extraction.markdown, a.imageSeconds)">复制识别结果</UiButton
-        ><UiButton v-if="a.extraction.code && !scratchOpen" size="sm" variant="ghost" @click="scratchOpen = true"
-          >将代码载入独立 Monaco 练习台</UiButton
-        ><LearningCodeScratch
-          v-if="scratchOpen && a.extraction.code"
-          :code="a.extraction.code"
-          :language="a.extraction.language"
-          @save="saveCode"
-        />
-        <div v-if="activeExercise && a.extraction.code" class="space-y-2 rounded-xl border border-linen p-3">
-          <label class="flex gap-2 text-caption"
-            ><input
-              v-model="importConfirmed"
-              type="checkbox"
-            />确认用识别代码替换当前编程练习草稿（不会自动运行）</label
-          ><UiButton
-            size="sm"
-            variant="ghost"
-            :disabled="!importConfirmed || !!workspace.practice.state.busy"
-            @click="importCode"
-            >填入当前练习</UiButton
-          >
-        </div>
-      </article>
-    </div>
-
-    <div v-else-if="a.mode === 'highlights'" class="space-y-3">
-      <p class="text-caption text-stone">
-        AI 标记可能误判，请先核对。未知区域与演示练习不会跳过；跳过的播放位移不算实际学习用时。
-      </p>
-      <UiButton :disabled="!!a.busy" @click="a.analyzeHighlights">分析字幕并标记片段</UiButton
-      ><label v-if="a.highlights.length" class="flex items-center gap-2 text-body-sm"
-        ><input
-          v-model="a.skipTransitions"
-          type="checkbox"
-          :disabled="!!a.busy"
-        />开启精华跳读：仅自动跳过“过渡／闲聊”</label
-      ><UiButton v-if="a.lastSkip !== null" size="sm" variant="ghost" @click="a.undoSkip"
-        >撤销上次跳过并关闭跳读</UiButton
-      >
-      <article
-        v-for="(segment, index) in a.highlights"
-        :key="index"
-        class="space-y-2 rounded-xl border border-linen p-3"
-      >
-        <button class="source-link" type="button" @click="seek(segment.start)">
-          {{ formatTime(segment.start) }}–{{ formatTime(segment.end) }}
-        </button>
-        <VSelect
-          v-model="segment.kind"
-          label="片段分类"
-          :disabled="a.skipTransitions"
-          :items="[
-            { title: '核心讲解', value: 'core' },
-            { title: '演示练习', value: 'practice' },
-            { title: '过渡／闲聊', value: 'transition' },
-          ]"
-          hide-details
+          class="ai-chat-input"
+          aria-label="消息"
+          placeholder="发送消息…"
+          variant="plain"
+          bg-color="transparent"
+          rows="2"
+          max-rows="6"
+          auto-grow
+          no-resize
           density="compact"
+          hide-details
+          maxlength="4000"
+          @keydown="onKeydown"
         />
-        <p class="text-caption text-stone">{{ segment.reason }}</p>
-      </article>
+        <div class="mt-2 flex items-center gap-3">
+          <VSelect
+            v-model="a.selectedModel"
+            class="min-w-0 flex-1"
+            aria-label="模型"
+            placeholder="选择模型"
+            :items="a.modelOptions"
+            :disabled="!a.modelOptions.length"
+            variant="plain"
+            density="compact"
+            hide-details
+          />
+          <UiButton v-if="a.busy" size="sm" variant="ghost" @click="a.cancel">停止</UiButton>
+          <UiButton v-else type="submit" size="sm" variant="dark" :disabled="!a.question.trim() || !a.configured"
+            >发送</UiButton
+          >
+        </div>
+      </div>
+    </form>
+    <div v-else class="shrink-0 p-4 text-right">
+      <UiButton variant="dark" size="sm" @click="newChat">新对话</UiButton>
     </div>
+    <VDialog v-model="historyOpen" :max-width="600" aria-labelledby="ai-chat-history-title">
+      <section class="paper-dialog flex max-h-[75dvh] flex-col bg-pure-white" aria-label="历史对话列表">
+        <header class="flex shrink-0 items-center justify-between gap-3 border-b border-linen px-6 py-4">
+          <h2 id="ai-chat-history-title" class="text-subheading font-bold">历史对话</h2>
+          <UiButton icon size="sm" variant="text" title="关闭历史对话" @click="historyOpen = false"
+            ><AppIcon name="close" :size="18"
+          /></UiButton>
+        </header>
+        <div class="shrink-0 px-6 pt-4">
+          <VTextField
+            v-model="historySearch"
+            aria-label="搜索对话"
+            placeholder="搜索对话"
+            hide-details
+            density="compact"
+          />
+        </div>
+        <div class="scroll-soft min-h-0 overflow-y-auto px-6 py-4">
+          <p v-if="a.history.state.loading" class="py-6 text-center text-body-sm text-stone" role="status">正在读取…</p>
+          <div v-else-if="a.history.state.error" class="flex items-center gap-2 text-body-sm text-error" role="alert">
+            <span>{{ a.history.state.error }}</span
+            ><UiButton size="sm" variant="text" @click="a.history.retry">重试</UiButton>
+          </div>
+          <ul v-if="filteredHistory.length" class="divide-y divide-linen">
+            <li v-for="session in filteredHistory.slice(0, historyLimit)" :key="session.id">
+              <button
+                type="button"
+                class="w-full rounded-lg px-2 py-4 text-left hover:bg-page-cream"
+                :aria-label="`打开对话：${session.title}`"
+                @click="selectHistory(session.id)"
+              >
+                <span class="block truncate text-body-sm font-bold">{{ session.title }}</span>
+                <span class="mt-1 block truncate text-caption text-stone"
+                  >{{ session.courseName }} · {{ session.videoTitle }}</span
+                >
+                <span class="mt-1 block text-caption text-stone">{{ historyDate(session.updatedAt) }}</span>
+              </button>
+            </li>
+          </ul>
+          <p
+            v-else-if="!a.history.state.loading && !a.history.state.error"
+            class="py-6 text-center text-body-sm text-stone"
+          >
+            {{ historySearch ? '未找到对话' : '暂无历史对话' }}
+          </p>
+          <UiButton
+            v-if="filteredHistory.length > historyLimit"
+            class="mt-3"
+            size="sm"
+            variant="text"
+            @click="historyLimit += 20"
+            >加载更多</UiButton
+          >
+        </div>
+      </section>
+    </VDialog>
   </section>
 </template>
+
 <style scoped>
-.assistant-toolbar {
-  position: sticky;
-  top: -16px;
-  z-index: 2;
-  margin: -16px -16px 12px;
-  padding: 16px 16px 0;
-  border-bottom: 1px solid #e2ded9;
-  background: #fff;
-}
-.assistant-panel {
+.ai-chat {
   overflow-wrap: anywhere;
 }
-.assistant-panel textarea {
-  display: block;
-  width: 100%;
-  resize: vertical;
-  border: 1px solid #e2ded9;
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: #fff;
-  font-size: 14px;
+.ai-composer :deep(.v-field) {
+  padding: 0;
+  background: transparent;
 }
-.assistant-panel textarea:focus {
-  outline: 2px solid #5144a3;
-  outline-offset: 2px;
+.ai-composer :deep(.v-field__input) {
+  padding: 0;
 }
-.tool-tab {
-  border: 1px solid #e2ded9;
-  border-radius: 999px;
-  padding: 7px 11px;
-  font-size: 12px;
+.ai-chat-input :deep(.v-field) {
+  --v-field-padding-top: 0px;
+  --v-input-padding-top: 0px;
+  --v-field-padding-bottom: 0px;
 }
-.tool-tab[aria-pressed='true'] {
-  background: #ffce00;
-  border-color: #ffce00;
-  font-weight: 700;
+.ai-chat-input :deep(textarea.v-field__input) {
+  padding: 0;
+  line-height: 24px;
+  color: var(--color-charcoal-ink);
+  caret-color: var(--color-charcoal-ink);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
-.preset {
-  border: 1px solid #e2ded9;
-  border-radius: 12px;
-  padding: 8px 10px;
-  font-size: 12px;
-  text-align: left;
+.ai-chat-input :deep(textarea:focus-visible) {
+  outline: none;
 }
-.source-link {
-  color: #5144a3;
-  text-decoration: underline;
-  font-size: 12px;
+.ai-composer :deep(.v-select__selection-text) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.ai-composer :deep(.v-select__selection) {
+  max-width: 100%;
 }
 </style>

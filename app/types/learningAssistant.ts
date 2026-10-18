@@ -1,4 +1,3 @@
-export type AssistantMode = 'ask' | 'notes' | 'map' | 'cards' | 'feynman' | 'vision' | 'highlights'
 export interface LearningEvidence {
   id: string
   start: number
@@ -14,46 +13,26 @@ export interface LearningContext {
   end: number
   duration: number
   evidence: LearningEvidence[]
-  note: string
   truncated: boolean
 }
-export interface AssistantAnswer {
-  markdown: string
-  sources: LearningEvidence[]
-}
-export interface AssistantTurn extends AssistantAnswer {
-  question: string
-  seconds: number
-}
-export interface LearningMapNode {
+export interface AssistantTurn {
   id: string
-  parent: string | null
-  label: string
-  sources: LearningEvidence[]
-}
-export interface GeneratedFlashcard {
-  front: string
-  back: string
-  sources: LearningEvidence[]
-}
-export interface FeynmanQuestion {
   question: string
-  sources: LearningEvidence[]
-}
-export interface FeynmanFeedback extends AssistantAnswer {
-  score: number
-  gaps: string[]
-  followUp: string
-}
-export interface VideoHighlight {
-  start: number
-  end: number
-  kind: 'core' | 'practice' | 'transition'
-  reason: string
-}
-export interface FrameExtraction {
   markdown: string
-  code: string
-  language: string
-  warnings: string
+  seconds: number
+  model: string
+  status: 'pending' | 'done' | 'error' | 'stopped'
+  error: string
+}
+
+export interface AssistantSession {
+  id: string
+  courseId: string
+  path: string
+  courseName: string
+  videoTitle: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  turns: AssistantTurn[]
 }

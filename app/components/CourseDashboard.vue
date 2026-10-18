@@ -5,19 +5,16 @@ import { useProgress } from '~/composables/useProgress'
 import { useCheckIn } from '~/composables/useStudyCheckIn'
 import AppIcon from '~/components/AppIcon.vue'
 import CheckInCalendar from '~/components/CheckInCalendar.vue'
-import DailyPracticeCard from '~/components/DailyPracticeCard.vue'
 import StagePanel from '~/components/StagePanel.vue'
 import StageProgressBars from '~/components/StageProgressBars.vue'
 import TodayWorkList from '~/components/TodayWorkList.vue'
 import UiButton from '~/components/UiButton.vue'
 import PlanAdjustment from '~/components/PlanAdjustment.vue'
-import ContinueStudyButton from '~/components/ContinueStudyButton.vue'
 import CourseCatalogBranch from '~/components/CourseCatalogBranch.vue'
 import { catalogFolderPaths, catalogLocation, filterCourseCatalog } from '~/utils/courseCatalog'
 import type { Course, VideoEntry } from '~/types/course'
 import type { TodayItem } from '~/types/guide'
 import { formatStudyDuration } from '~/utils/guide'
-import { localDayKey } from '~/utils/learningFeedback'
 import { BUDGET_LABELS, WORK_KINDS, conciseLessonTitle, conciseSource, formatMinutes } from '~/utils/studyProgram'
 
 const props = defineProps<{
@@ -145,7 +142,6 @@ const allocation = computed(() => {
     .filter((item) => item.target > 0 || item.done > 0)
 })
 const videoItems = computed(() => guide.state.today?.items ?? [])
-const nextVideoItem = computed(() => videoItems.value.find((i) => !i.done))
 function itemTitle(item: TodayItem) {
   const video = guide.videoMap.value.get(item.path)
   return video ? conciseLessonTitle(video.title) : item.path
@@ -167,22 +163,6 @@ const stageLag = computed(() => {
 const activeProgress = computed(() =>
   activeModule.value ? guide.stageProgressMap.value.get(activeModule.value.id) : undefined,
 )
-
-// —— 近 7 天学习时长，便于周复盘 ——
-const week = computed(() => {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date()
-    d.setDate(d.getDate() - 6 + i)
-    return localDayKey(d)
-  })
-  const rows = days.map((date) => {
-    const video = Math.floor((checkIn?.state.days[date]?.seconds ?? 0) / 60)
-    const work = Math.floor((guide.workSecondsByDate.value[date] ?? 0) / 60)
-    return { date, label: date.slice(5), video, work, checked: !!checkIn?.state.days[date]?.checkedAt }
-  })
-  const max = Math.max(60, ...rows.map((r) => r.video + r.work))
-  return { rows, max, total: rows.reduce((n, r) => n + r.video + r.work, 0) }
-})
 
 // Keep consecutive route segments in order, including returns to an earlier stage.
 const openGroups = reactive(new Set<string>())
@@ -355,11 +335,7 @@ const tasksOpen = ref(false),
   planOpen = ref(false),
   stageOpen = ref(false),
   historyOpen = ref(false)
-const nextWork = computed(() => guide.todayWork.value.find((item) => !item.done))
 const workDone = computed(() => guide.todayWork.value.filter((item) => item.done).length)
-const todayMinutes = computed(() =>
-  Math.floor((todayVideoSeconds.value + (guide.workSecondsByDate.value[guide.todayDate.value] ?? 0)) / 60),
-)
 </script>
 
 <template>
@@ -815,113 +791,6 @@ const todayMinutes = computed(() =>
           <div v-if="!filteredVideos.length" class="py-12 text-center text-body-sm text-stone">未找到匹配的课节</div>
         </div>
       </section>
-
-      <aside class="overview-summaries" aria-label="学习概况">
-        <section class="pane rounded-3xl p-6" aria-label="今日任务">
-          <div class="flex items-center justify-between gap-2 border-b border-linen/70 pb-3">
-            <h2 class="text-body font-bold text-charcoal-ink">今日学习</h2>
-            <span class="rounded-full bg-page-cream px-2.5 py-0.5 text-caption font-bold text-stone">
-              {{ guide.todayDate.value.slice(5) }}
-            </span>
-          </div>
-          <div class="mt-4 flex items-baseline gap-2">
-            <p class="text-heading font-bold text-charcoal-ink">{{ formatMinutes(todayMinutes) }}</p>
-            <p v-if="(guide.todayTotalMinutes.value ?? 0) > 0" class="text-caption text-stone">
-              / 目标 {{ formatMinutes(guide.todayTotalMinutes.value!)
-              }}<span v-if="guide.lightDay.value"> · 轻量日</span>
-            </p>
-          </div>
-
-          <div class="mt-4 space-y-3 border-t border-linen/70 pt-4">
-            <div v-if="nextVideoItem" class="rounded-2xl border border-linen bg-page-cream/60 p-3">
-              <p class="text-[11px] font-bold text-stone">下一节 · 视频学习</p>
-              <button
-                class="mt-1 line-clamp-2 text-left text-body-sm font-bold leading-relaxed text-charcoal-ink hover:text-deep-indigo"
-                @click="startItem(nextVideoItem)"
-              >
-                {{ itemTitle(nextVideoItem) }}
-              </button>
-            </div>
-            <div v-if="nextWork" class="rounded-2xl border border-linen bg-page-cream/60 p-3">
-              <p class="text-[11px] font-bold text-stone">待完成 · 实践任务</p>
-              <button
-                class="mt-1 line-clamp-2 text-left text-body-sm font-bold leading-relaxed text-charcoal-ink hover:text-deep-indigo"
-                @click="tasksOpen = true"
-              >
-                {{ nextWork.title }}
-              </button>
-            </div>
-            <p v-if="!nextVideoItem && !nextWork" class="py-2 text-caption text-stone">
-              {{ videoItems.length || guide.todayWork.value.length ? '今日任务已完成' : '今日暂无安排' }}
-            </p>
-            <div class="flex flex-col gap-2 pt-1">
-              <ContinueStudyButton @segment="startItem" />
-              <UiButton size="sm" variant="text" class="justify-between" @click="tasksOpen = true">
-                <span>查看今日明细</span>
-                <AppIcon name="chevron-right" :size="14" />
-              </UiButton>
-            </div>
-          </div>
-          <DailyPracticeCard class="mt-4" />
-        </section>
-
-        <section v-if="activeModule" class="pane rounded-3xl p-6" aria-label="阶段进度">
-          <div class="flex items-center justify-between gap-2 border-b border-linen/70 pb-3">
-            <h2 class="text-body font-bold text-charcoal-ink">当前阶段</h2>
-            <span
-              v-if="guide.stageProgressMap.value.get(activeModule.id)?.complete"
-              class="rounded-full bg-deep-indigo/10 px-2 py-0.5 text-caption font-bold text-deep-indigo"
-            >
-              已完成
-            </span>
-          </div>
-          <p class="mt-3 text-body-sm font-medium leading-relaxed text-charcoal-ink">{{ activeModule.title }}</p>
-          <p v-if="activeProgress" class="mt-1 text-caption text-stone">
-            已看完 {{ activeProgress.video.done }} / {{ activeProgress.video.total }} 节
-          </p>
-          <UiButton class="mt-3 w-full justify-between" size="sm" variant="ghost" @click="stageOpen = true">
-            <span>阶段详情与验收</span>
-            <AppIcon name="chevron-right" :size="14" />
-          </UiButton>
-        </section>
-
-        <section class="pane rounded-3xl p-6" aria-label="近 7 天学习时长">
-          <div class="flex items-center justify-between gap-2 border-b border-linen/70 pb-3">
-            <h2 class="text-body font-bold text-charcoal-ink">学习记录</h2>
-            <UiButton size="sm" variant="text" @click="historyOpen = true">打卡日历</UiButton>
-          </div>
-          <div class="mt-4 flex items-baseline gap-2">
-            <p class="text-heading font-bold text-charcoal-ink">{{ formatMinutes(week.total) }}</p>
-            <span class="text-caption text-stone">近 7 天投入</span>
-          </div>
-          <ol class="mt-4 grid grid-cols-7 gap-1.5">
-            <li
-              v-for="row in week.rows"
-              :key="row.date"
-              class="min-w-0 text-center"
-              :title="`${row.date} · 视频 ${row.video} 分钟 · 实践 ${row.work} 分钟${row.checked ? ' · 已打卡' : ''}`"
-            >
-              <div class="flex h-12 items-end justify-center rounded-lg bg-page-cream/60 p-1" aria-hidden="true">
-                <span
-                  class="flex w-full max-w-4 flex-col-reverse overflow-hidden rounded-sm bg-linen"
-                  :style="{ height: `${Math.max(4, ((row.video + row.work) / week.max) * 40)}px` }"
-                >
-                  <span
-                    class="bg-charcoal-ink"
-                    :style="{ height: `${(row.video / Math.max(1, row.video + row.work)) * 100}%` }"
-                  />
-                  <span
-                    class="bg-deep-indigo/60"
-                    :style="{ height: `${(row.work / Math.max(1, row.video + row.work)) * 100}%` }"
-                  />
-                </span>
-              </div>
-              <span class="mt-1.5 block text-[10px] tabular font-medium text-stone">{{ row.label }}</span>
-              <span class="sr-only">视频 {{ row.video }} 分钟，实践 {{ row.work }} 分钟</span>
-            </li>
-          </ol>
-        </section>
-      </aside>
     </div>
     <VDialog v-model="planOpen" max-width="640" aria-labelledby="overview-plan-title">
       <div class="paper-dialog overview-dialog">
@@ -937,6 +806,39 @@ const todayMinutes = computed(() =>
             <p class="text-stone">{{ timeSummary.video }}</p>
           </div>
           <PlanAdjustment />
+          <div class="flex flex-wrap gap-2">
+            <UiButton
+              size="sm"
+              @click="
+                () => {
+                  planOpen = false
+                  tasksOpen = true
+                }
+              "
+              >今日任务</UiButton
+            >
+            <UiButton
+              v-if="activeModule"
+              size="sm"
+              @click="
+                () => {
+                  planOpen = false
+                  stageOpen = true
+                }
+              "
+              >阶段详情</UiButton
+            >
+            <UiButton
+              size="sm"
+              @click="
+                () => {
+                  planOpen = false
+                  historyOpen = true
+                }
+              "
+              >学习日历</UiButton
+            >
+          </div>
           <UiButton
             @click="
               () => {
@@ -1112,11 +1014,6 @@ const todayMinutes = computed(() =>
 .overview-catalog {
   grid-row: 2;
 }
-.overview-summaries {
-  display: grid;
-  gap: 24px;
-  align-items: start;
-}
 .course-lesson-grid {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
   gap: 16px;
@@ -1145,29 +1042,6 @@ const todayMinutes = computed(() =>
   gap: 16px;
   padding: 20px 24px;
   border-bottom: 1px solid var(--color-linen);
-}
-@media (min-width: 1024px) {
-  .overview-shell {
-    grid-template-columns: minmax(0, 1fr) 360px;
-    gap: 28px;
-  }
-  .overview-course-header {
-    grid-column: 1 / -1;
-  }
-  .overview-catalog {
-    grid-column: 1;
-    grid-row: 2;
-  }
-  .overview-summaries {
-    grid-column: 2;
-    grid-row: 2;
-  }
-}
-@media (min-width: 1280px) {
-  .overview-shell {
-    grid-template-columns: minmax(0, 1fr) 380px;
-    gap: 32px;
-  }
 }
 @media (max-width: 639px) {
   .overview-page {

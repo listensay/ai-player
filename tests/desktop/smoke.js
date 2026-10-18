@@ -119,6 +119,99 @@ void (async () => {
       )
     })
   }
+  async function checkPracticeNavigation() {
+    await step('practice-order-and-empty-answer-skipping', async () => {
+      const leaveCourse = async () => {
+        location.hash = '/courses'
+        await until(
+          () => !document.querySelector('video') && visible(document.querySelector('.course-card')),
+          'course closed',
+        )
+        await pause(300)
+      }
+      await leaveCourse()
+      const original = (await read('practice', { courseId: 'smoke-course' }))['lesson-0.mp4']
+      const write = (records) =>
+        invoke('database_request', {
+          endpoint: 'practice',
+          method: 'POST',
+          query: {},
+          body: { courseId: 'smoke-course', videoPath: 'lesson-0.mp4', records },
+        })
+      const base = { ...original[0], groupId: 'navigation', createdAt: Date.now(), draft: '', attempts: [] }
+      delete base.codeRun
+      const choice = {
+        kind: 'single-choice',
+        prompt: '第一题：数组索引从哪里开始？',
+        concepts: ['数组索引'],
+        criteria: ['选择正确索引'],
+        referenceAnswer: '从零开始',
+        sourceIds: ['s1'],
+        options: [
+          { id: 'A', text: '零' },
+          { id: 'B', text: '一' },
+        ],
+        correctOptionIds: ['A'],
+      }
+      const records = [
+        { ...base, id: 'navigation-first', question: choice },
+        {
+          ...base,
+          id: 'navigation-second',
+          question: { ...choice, kind: 'explain', prompt: '第二题：说明你的理解。' },
+        },
+        {
+          ...base,
+          id: 'navigation-third',
+          question: original[0].question,
+          draft: original[0].question.programming.starterCode,
+        },
+      ]
+      await write([...records].reverse())
+      try {
+        route('lesson-0.mp4')
+        await until(() => document.querySelector('video')?.readyState >= 2, 'practice lesson ready')
+        await click('课后练习')
+        const number = (value) =>
+          document
+            .querySelector('.practice-picker .v-field__input')
+            ?.textContent.replace(/\s+/g, '')
+            .includes(`第${value}题/3`)
+        await until(
+          () => number(1) && document.querySelector('.practice-question-text')?.textContent.includes('第一题'),
+          'first question matches selection',
+        )
+        await click('跳过')
+        await until(
+          () => number(2) && document.querySelector('.practice-question-text')?.textContent.includes('第二题'),
+          'second question matches selection',
+        )
+        expect(document.querySelector('textarea[aria-label="作答内容"]').value === '', 'Explanation starts empty')
+        await click('跳过')
+        await editor()
+        expect(number(3), 'Programming question is third')
+        expect(document.querySelector('.practice-toolbar [title="下一题"]').disabled, 'Third question is last')
+        expect((await editor()).getValue() === records[2].draft, 'Third question has its own code draft')
+        await click('跳过')
+        await until(() => !visible(document.getElementById('practice-lesson-title')), 'last skip closes practice')
+        await click('课后练习')
+        await until(
+          () => number(1) && document.querySelector('.practice-question-text')?.textContent.includes('第一题'),
+          'reopening starts at first unanswered question',
+        )
+        await click('关闭练习')
+        await until(() => !visible(document.getElementById('practice-lesson-title')), 'practice closes')
+        const saved = (await read('practice', { courseId: 'smoke-course' }))['lesson-0.mp4']
+        expect(
+          saved.length === 3 && saved.every((record) => record.attempts.length === 0),
+          'Skipping never submits or grades answers',
+        )
+      } finally {
+        await leaveCourse()
+        await write(original)
+      }
+    })
+  }
   const captured = performance.getEntriesByType('measure')
   const observer = new PerformanceObserver((list) => captured.push(...list.getEntries()))
   observer.observe({ entryTypes: ['measure'] })
@@ -138,8 +231,10 @@ void (async () => {
     if (phase === 'lessons' || phase === 'lesson-restart') {
       route('lesson-0.mp4')
       await until(() => document.querySelector('video')?.readyState >= 2, 'lesson video ready')
-      if (phase === 'lessons') await checkLessonEndFlow()
-      else
+      if (phase === 'lessons') {
+        await checkLessonEndFlow()
+        await checkPracticeNavigation()
+      } else
         await step('restart-keeps-single-lesson-state', async () => {
           const flows = (await read('settings', { key: 'learning-management:v1' })).flows
           expect(
@@ -220,10 +315,36 @@ void (async () => {
           'The other growth sections must retain white cards',
         )
         await click('关闭学习管理')
+        await until(
+          () => ![...document.querySelectorAll('.v-overlay')].some(visible) && !location.hash.includes('dialog='),
+          'learning manager closes before navigation',
+        )
       })
       await step('affine-local-edit-switch-hide-restore', async () => {
         route('lesson-0.mp4')
         const probe = () => invoke('desktop_smoke_affine', { text: null })
+        const noteList = async (path) =>
+          until(
+            async () => {
+              const p = (await probe()).probe
+              return p?.listReady && p.lesson?.path === path && p
+            },
+            'unbound lesson opens the note list',
+            60000,
+          )
+        const initial = await noteList('lesson-0.mp4')
+        expect(Number.isInteger(initial.docCount), 'Workspace document count must be available')
+        route('lesson-1.mp4')
+        expect((await noteList('lesson-1.mp4')).docCount === initial.docCount, 'Switching videos must not create notes')
+        route('lesson-0.mp4')
+        expect(
+          (await noteList('lesson-0.mp4')).docCount === initial.docCount,
+          'Reopening a video must not create notes',
+        )
+        await invoke('desktop_smoke_affine', { text: null, noteAction: 'create' })
+        await until(async () => (await probe()).probe?.ready, 'manually created note opens')
+        expect((await probe()).probe.docCount === initial.docCount + 1, 'Manual creation adds exactly one note')
+        await invoke('desktop_smoke_affine', { text: null, noteAction: 'bind-lesson' })
         let lastNote
         await until(
           async () => {
@@ -287,11 +408,10 @@ void (async () => {
         await until(async () => (await probe()).size.width > widthBefore, 'resizing moves the native panel')
         await noteVisibility(false, 'resized notes own their cursor region')
         route('lesson-1.mp4')
-        await until(async () => {
-          const p = (await probe()).probe
-          return p?.ready && p.docId !== first && p.title === 'lesson-1' && p.lesson?.path === 'lesson-1.mp4'
-        }, 'different lessons have different notes')
-        expect((await probe()).probe.text === '', 'New lesson must start with an empty note')
+        expect(
+          (await noteList('lesson-1.mp4')).docCount === initial.docCount + 1,
+          'Opening an unbound video after editing must not create another note',
+        )
         await click('课后练习')
         const python = await editor()
         expect(python.getModel().getLanguageId() === 'python', 'Python language did not load')
@@ -302,6 +422,7 @@ void (async () => {
           const p = (await probe()).probe
           return p?.docId === first && p.text === 'Native AFFiNE draft'
         }, 'lesson binding restores its local note')
+        expect((await probe()).probe.docCount === initial.docCount + 1, 'Restoring a bound note must not duplicate it')
       })
       await step('notes-workspace-cursor-routing', async () => {
         location.hash = '/notes'
@@ -390,6 +511,7 @@ void (async () => {
         success: false,
         steps,
         error: String(error),
+        note: await invoke('desktop_smoke_affine', { text: null }).catch(() => null),
         metrics: metrics(),
         visibleText: document.body.innerText.slice(-8000),
       },

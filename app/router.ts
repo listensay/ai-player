@@ -3,8 +3,8 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: '/', name: 'home', component: () => import('./pages/NotesPage.vue') },
-    { path: '/notes', redirect: '/' },
+    { path: '/', name: 'home', component: () => import('./pages/HomePage.vue') },
+    { path: '/notes', name: 'notes', component: () => import('./pages/NotesPage.vue') },
     { path: '/courses', name: 'courses', component: () => import('./pages/CoursesPage.vue') },
     ...(['settings', 'study'] as const).map((dialog) => ({
       path: `/${dialog}`,

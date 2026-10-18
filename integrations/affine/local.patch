@@ -548,10 +548,10 @@ index 5ac4d9b..121210c 100644
    | typeof idbStorages
 diff --git a/packages/frontend/apps/web/src/ai-player-courses.ts b/packages/frontend/apps/web/src/ai-player-courses.ts
 new file mode 100644
-index 0000000..74836b1
+index 0000000..ed2da57
 --- /dev/null
 +++ b/packages/frontend/apps/web/src/ai-player-courses.ts
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,93 @@
 +import { notify } from '@affine/component';
 +import { router } from '@affine/core/desktop/router';
 +import { AppSidebarService } from '@affine/core/modules/app-sidebar';
@@ -567,9 +567,17 @@ index 0000000..74836b1
 +    .__TAURI__?.core;
 +  if (!native) return;
 +  const service = framework.get(WorkspacesService);
++  const ready = (globalThis as any).currentWorkspace
++    ? Promise.resolve()
++    : new Promise<void>(resolve => {
++        window.addEventListener('affine:workspace:change', () => resolve(), {
++          once: true,
++        });
++      });
 +  let revision = 0;
 +  let queue = Promise.resolve();
 +  const open = async (lesson: Lesson | null, token: number) => {
++    await ready;
 +    if (token !== revision) return;
 +    if (!lesson) {
 +      (globalThis as any).currentWorkspace?.scope
@@ -596,21 +604,16 @@ index 0000000..74836b1
 +    const { workspace, dispose } = service.open({ metadata: meta });
 +    try {
 +      await workspace.engine.doc.waitForDocReady(workspace.id);
-+      let docId = saved?.workspaceId === meta.id ? saved.docId : undefined;
-+      if (!docId || !workspace.docCollection.getDoc(docId)) {
-+        docId = workspace.docs.createDoc({
-+          title: lesson.title.slice(0, 160),
-+          primaryMode: 'page',
-+        }).id;
-+        // A newly created local doc has no remote update to mark it ready.
-+        await workspace.engine.doc.waitForDocLoaded(docId);
-+        await workspace.engine.doc.waitForUpdated(docId);
-+        localStorage.setItem(
-+          key,
-+          JSON.stringify({ workspaceId: meta.id, docId })
-+        );
-+      }
 +      if (token !== revision) return;
++      const docId = saved?.workspaceId === meta.id ? saved.docId : undefined;
++      if (!docId || !workspace.docCollection.getDoc(docId)) {
++        await router.navigate(
++          `/workspace/${encodeURIComponent(meta.id)}/all`
++        );
++        if (token === revision)
++          workspace.scope.get(AppSidebarService).sidebar.setOpen(true);
++        return;
++      }
 +      await router.navigate(
 +        `/workspace/${encodeURIComponent(meta.id)}/${encodeURIComponent(docId)}`
 +      );

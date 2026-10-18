@@ -81,12 +81,12 @@ export function provideCourseWorkspace() {
     course,
     video,
     active: computed(() => currentView.value === 'player'),
-    settings: guide.state.settings,
-    configured: guide.configured,
+    activeProfileId: computed(() => guide.ai.state.collection.activeId),
+    profiles: computed(() => guide.ai.state.collection.profiles),
+    ready: computed(() => guide.ai.state.ready && !guide.ai.state.saving),
     player,
     transcripts,
     knowledge,
-    learning,
     reveal: () => {
       rightPanelOpen.value = true
       rightTab.value = 'assistant'
@@ -155,7 +155,10 @@ export function provideCourseWorkspace() {
       ] as const,
     (value, previous) => {
       if (currentView.value !== 'player' || !course.value || !video.value) return
-      if (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2])
+      if (
+        (!previous || value[0] !== previous[0] || value[1] !== previous[1] || value[2] !== previous[2]) &&
+        (rightTab.value !== 'assistant' || previous?.[2] !== 'player')
+      )
         rightTab.value = 'notes'
     },
     { immediate: true },
@@ -315,8 +318,6 @@ export function provideCourseWorkspace() {
       const { practice: _practice, ...query } = route.query
       await router.replace({ path: route.path, query })
       await openPractice()
-      const pending = practice.history.value.find((r) => !r.attempts.length)
-      if (pending) practice.select(pending.id)
     },
   )
 
@@ -489,7 +490,7 @@ export function provideCourseWorkspace() {
   }
 
   useShortcuts({
-    askAssistant: () => assistant.open('ask'),
+    askAssistant: () => assistant.open(),
     togglePlay: () => player.toggle(),
     seekBy: (s) => player.seekBy(s),
     volumeBy: (d) => player.setVolume(player.state.volume + d),
@@ -608,6 +609,7 @@ export function provideCourseWorkspace() {
       await daily.flush()
       await studyTools.flush()
       await learning.flush()
+      await assistant.flush()
       await flushDatabaseWrites()
     },
   })

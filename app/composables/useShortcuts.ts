@@ -28,8 +28,8 @@ export const SHORTCUT_GROUPS = [
     ],
   },
   {
-    title: '助教',
-    items: [{ keys: ['⌥', 'A'], label: '暂停并询问随堂助教' }],
+    title: 'AI',
+    items: [{ keys: ['⌥', 'A'], label: '暂停并打开 AI' }],
   },
   {
     title: '其他',

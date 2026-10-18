@@ -3,9 +3,11 @@ import { mkdtemp, readFile, writeFile, cp, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
+import { prepareAiChat } from '../tests/fixtures/aiChat.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const lessonOnly = process.env.AI_PLAYER_SMOKE_LESSON_ONLY === '1'
+const homeOnly = process.argv.includes('--home')
 const notesStorageOnly = process.argv.includes('--notes-storage') || process.argv.includes('--data-storage')
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
@@ -45,12 +47,15 @@ const executable = join(
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
 await prepareDesktopSmoke(data)
 const reports = []
+const closeAiChat = homeOnly ? await prepareAiChat(data) : null
 try {
   const phases = notesStorageOnly
     ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
-    : lessonOnly
-      ? ['lessons', 'lesson-restart']
-      : ['first', 'second']
+    : homeOnly
+      ? ['home', 'home-restart']
+      : lessonOnly
+        ? ['lessons', 'lesson-restart']
+        : ['first', 'second']
   for (const phase of phases) {
     let phaseData = data
     if (phase === 'storage-other-computer') {
@@ -94,7 +99,7 @@ try {
   }
   for (const report of reports) {
     if (!report.success) throw Error(`Native desktop regression failed: ${report.phase}`)
-    if (notesStorageOnly) continue
+    if (notesStorageOnly || homeOnly) continue
     for (const name of Object.keys(limits)) {
       if (!report.metrics?.some((metric) => metric.name === `ai-player:${name}`))
         throw Error(`Missing native performance metric: ${name}`)
@@ -107,6 +112,7 @@ try {
   }
   console.log(`Native desktop regression passed: ${reports.flatMap((report) => report.steps).join(', ')}.`)
 } finally {
+  await closeAiChat?.()
   await writeFile(join(data, 'desktop-smoke-report.json'), JSON.stringify({ dataDirectory: data, reports }, null, 2))
   console.log(`Regression data and reports: ${data}`)
 }

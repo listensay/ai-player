@@ -178,10 +178,16 @@ export function useLessonPractice(
     attachmentStore.clear()
   }
   function select(id: string) {
-    if (state.busy) return
+    if (state.busy || !history.value.some((record) => record.id === id)) return
     state.selectedId = id
     state.error = ''
     state.hintError = ''
+  }
+  function selectOpeningQuestion(scope: PracticeScope | null) {
+    const matching = [...history.value]
+      .reverse()
+      .filter((record) => JSON.stringify(record.scope) === JSON.stringify(scope))
+    state.selectedId = (matching.find((record) => !record.attempts.length) ?? matching[0])?.id ?? ''
   }
   function updateDraft(answer: string) {
     if (current.value && !state.busy) {
@@ -341,7 +347,7 @@ export function useLessonPractice(
     state.note = ''
     state.cues = []
     state.preparedSources = options.sources ? [] : null
-    state.selectedId = history.value.find((r) => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
+    selectOpeningQuestion(scope)
     const controller = new AbortController()
     request = controller
     state.busy = 'loading'
@@ -354,7 +360,7 @@ export function useLessonPractice(
       if (controller.signal.aborted) return
       if (!state.historyReady) await (historyLoad = loadHistory())
       if (controller.signal.aborted || !state.historyReady) return
-      state.selectedId = history.value.find((r) => JSON.stringify(r.scope) === JSON.stringify(scope))?.id ?? ''
+      selectOpeningQuestion(scope)
       if (options.sources && current.value) {
         const saved = history.value
           .filter((record) => JSON.stringify(record.scope) === JSON.stringify(scope))

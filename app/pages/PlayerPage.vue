@@ -102,7 +102,6 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · Study Helper`)
           :key="`${course.id}:${video.path}`"
           :video="video"
           :course-id="course.id"
-          :highlights="assistant.highlights.value"
           :has-prev="hasPrev"
           :has-next="hasNext"
           @prev="navigateEpisode(-1)"
@@ -217,10 +216,10 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · Study Helper`)
               :class="
                 rightTab === 'assistant' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'
               "
-              title="暂停并问助教（⌥A）"
-              @click="assistant.open('ask')"
+              title="暂停并打开 AI（⌥A）"
+              @click="assistant.open()"
             >
-              助教
+              AI
             </button>
           </div>
           <button

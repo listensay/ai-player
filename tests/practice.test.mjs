@@ -211,7 +211,8 @@ test('同一视频连续出题、切题及重新打开保留草稿', async (t) =
   h.practice.close()
   await open(h)
   assert.equal(h.practice.history.value.length, 2)
-  assert.notEqual(h.practice.current.value.id, first)
+  assert.equal(h.practice.current.value.id, first)
+  assert.equal(h.practice.current.value.draft, '["A"]')
   assert.equal(h.saves.at(-1)[2].length, 2)
 })
 
@@ -749,7 +750,7 @@ async function mountDialog(t, practice, listeners = {}) {
           ? null
           : vueH(
               name === 'UiButton' ? 'button' : name,
-              attrs,
+              { ...attrs, modelValue: props.modelValue },
               props.text ?? [slots.default?.(), slots.label?.(), slots.selection?.(), slots.help?.()],
             )
     },
@@ -952,7 +953,7 @@ test('整组与单题混合追加保持连续题号，跨组导航、漏答续�
   await open(h)
   await nextTick()
   assert.deepEqual(pickerItems(), expectedItems)
-  assert.match(dialog.text().replace(/\s+/g, ''), /第8题\/8/)
+  assert.match(dialog.text().replace(/\s+/g, ''), /第2题\/8/)
 })
 
 test('旧记录和同一时间生成的不同批次使用同一套连续题号，课节之间互不混排', async (t) => {
@@ -976,7 +977,7 @@ test('旧记录和同一时间生成的不同批次使用同一套连续题号�
     items.map((item) => item.title),
     Array.from({ length: 5 }, (_, i) => `第 ${i + 1} 题 · 单选题`),
   )
-  assert.match(dialog.text().replace(/\s+/g, ''), /第5题\/5/)
+  assert.match(dialog.text().replace(/\s+/g, ''), /第1题\/5/)
   await open(h, 'b.mp4')
   await nextTick()
   assert.deepEqual(
@@ -1096,6 +1097,120 @@ test('弹窗逐题提交后显示下一题，末题汇总分数并完成关闭�
   await nextTick()
   assert.match(dialog.text(), /整组得分.*67/s)
   await dialog.click('完成')
+})
+
+test('重开三题从首个未答题开始，题号、选中项、内容和导航保持一致', async (t) => {
+  const questions = [question('第一题选择'), { ...question('第二题理解'), kind: 'explain' }, codeQuestion]
+  const records = questions
+    .map((question, index) => ({ ...record(`ordered-${index}`), question, groupId: 'ordered' }))
+    .reverse()
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': records }) })
+  await open(h)
+  const dialog = await mountDialog(t, h.practice)
+  const assertSelected = (index) => {
+    assert.equal(h.practice.current.value.id, `ordered-${index}`)
+    assert.equal(dialog.find('VSelect').props.modelValue, `ordered-${index}`)
+    assert.match(dialog.text().replace(/\s+/g, ''), new RegExp(`第${index + 1}题/3`))
+    assert.equal(dialog.titled('下一题').props.disabled, index === 2)
+    if (index === 2) assert.equal(dialog.find('ProgrammingWorkspace').props.question.prompt, codeQuestion.prompt)
+    else assert.match(dialog.text(), new RegExp(questions[index].prompt))
+  }
+  assertSelected(0)
+  await dialog.titled('下一题').props.onClick()
+  await nextTick()
+  assertSelected(1)
+  await dialog.titled('下一题').props.onClick()
+  await nextTick()
+  assertSelected(2)
+  h.practice.close()
+  await open(h)
+  await nextTick()
+  assertSelected(0)
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  h.practice.close()
+  await open(h)
+  await nextTick()
+  assertSelected(1)
+})
+
+test('所有题型都可空答跳过，保留草稿且不评分，跳过末题退出后仍可重答', async (t) => {
+  const kinds = ['single-choice', 'multiple-choice', 'true-false', 'fill-blank', 'explain', 'task', 'code']
+  const records = kinds
+    .map((kind, index) => ({
+      ...record(`skip-${index}`),
+      question:
+        kind === 'code'
+          ? codeQuestion
+          : {
+              ...question(`${kind}练习`),
+              kind,
+              ...(kind === 'multiple-choice' ? { correctOptionIds: ['A', 'B'] } : {}),
+              ...(kind === 'true-false'
+                ? {
+                    options: [
+                      { id: 'true', text: '正确' },
+                      { id: 'false', text: '错误' },
+                    ],
+                    correctOptionIds: ['true'],
+                  }
+                : {}),
+            },
+      draft: kind === 'explain' ? '尚未写完的想法' : '',
+    }))
+    .reverse()
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': records }) })
+  h.available.value = false
+  await open(h)
+  const dialog = await mountDialog(t, h.practice)
+  for (let index = 0; index < kinds.length; index++) {
+    assert.equal(h.practice.current.value.id, `skip-${index}`)
+    await dialog.click('跳过')
+  }
+  assert.equal(h.practice.state.open, false)
+  assert.equal(h.calls.length, 0)
+  assert.ok(h.practice.history.value.every((record) => record.attempts.length === 0))
+  await h.practice.flush()
+  assert.equal(h.saves.at(-1)[2].find((record) => record.id === 'skip-4').draft, '尚未写完的想法')
+  await open(h)
+  await nextTick()
+  assert.equal(h.practice.current.value.id, 'skip-0')
+  await dialog.click('跳过')
+  assert.equal(h.practice.current.value.id, 'skip-1')
+})
+
+test('跳过后作答下一题不回到已跳过题，仍可完成本轮练习', async (t) => {
+  const records = [record('last'), record('middle'), record('first')]
+  const h = harness(t, { dbFetchPractice: async () => ({ 'a.mp4': records }) })
+  await open(h)
+  const dialog = await mountDialog(t, h.practice)
+  await dialog.click('跳过')
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  await dialog.click('下一题')
+  assert.equal(h.practice.current.value.id, 'last')
+  h.practice.updateDraft('["A"]')
+  await nextTick()
+  await dialog.click('提交作答')
+  assert.equal(dialog.button('下一题'), undefined)
+  await dialog.click('完成')
+  assert.equal(h.practice.state.open, false)
+  assert.equal(h.practice.history.value.find((record) => record.id === 'first').attempts.length, 0)
+})
+
+test('每日综合作业可空答跳过，无需配置 AI 或上传内容', async (t) => {
+  const path = 'daily:2026-10-18:skip'
+  const saved = { ...record('daily-skip', path), question: { ...question('综合作业'), kind: 'task' } }
+  const h = harness(t, { dbFetchPractice: async () => ({ [path]: [saved] }) }, { mode: 'daily' })
+  h.available.value = false
+  await h.practice.openSources(path, '今日巩固', async () => sources)
+  const dialog = await mountDialog(t, h.practice)
+  await dialog.click('跳过')
+  assert.equal(h.practice.state.open, false)
+  assert.equal(h.practice.current.value.attempts.length, 0)
+  assert.equal(h.calls.length, 0)
 })
 
 test('末题提前作答不能完成，下一题回到漏答题，重新提交后仍可继续', async (t) => {

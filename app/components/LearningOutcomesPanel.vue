@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useLearningManagement } from '~/composables/useLearningManagement'
+import { useAppDialogs } from '~/composables/useAppDialogs'
 import { canAcceptWork } from '~/utils/learningManagement'
 import { graduationReport, learningContractDraft } from '~/utils/learningOutcomes'
 import { validDate } from '~/utils/studyProgram'
@@ -10,7 +11,9 @@ import type { PortfolioWork } from '~/types/learningManagement'
 import UiButton from './UiButton.vue'
 import UiDatePicker from './UiDatePicker.vue'
 import StudyFormDialog from './StudyFormDialog.vue'
+defineProps<{ compact?: boolean }>()
 const learning = useLearningManagement()
+const dialogs = useAppDialogs()
 const courseId = ref(''),
   contractOpen = ref(false),
   workOpen = ref(false),
@@ -177,29 +180,45 @@ async function exportReport(format: 'md' | 'png') {
 }
 </script>
 <template>
-  <section class="space-y-6" aria-label="实践作品与学习契约">
-    <header>
+  <section class="space-y-6" :aria-label="compact ? '实践作品' : '实践作品与学习契约'">
+    <header v-if="compact" class="flex items-center justify-between gap-3">
+      <h2 class="text-subheading font-bold">实践作品</h2>
+      <UiButton size="sm" variant="text" @click="dialogs.open('study', 'outcomes')">查看全部</UiButton>
+    </header>
+    <header v-else>
       <h2 class="text-heading-sm">我的作品集</h2>
       <p class="mt-2 text-body-sm text-stone">把学到的知识，变成拿得出的作品。</p>
     </header>
     <VSelect v-model="courseId" label="课程" :items="courseOptions" />
-    <p v-if="error || learning.state.error" role="alert" class="text-body-sm text-error">
-      {{ error || learning.state.error }}
+    <p v-if="error || learning.state.error || learning.sourceError.value" role="alert" class="text-body-sm text-error">
+      {{ error || learning.state.error || learning.sourceError.value }}
     </p>
+    <p v-if="learning.loading.value || learning.state.loading" role="status" class="text-body-sm text-stone">
+      正在读取…
+    </p>
+    <UiButton v-else-if="!learning.state.ready || learning.sourceError.value" size="sm" @click="learning.refresh"
+      >重试</UiButton
+    >
+    <p v-else-if="!courseOptions.length" class="text-body-sm text-stone">还没有课程</p>
     <template v-if="course">
       <div class="flex flex-wrap gap-3">
-        <UiButton variant="dark" @click="editWork()">添加作品</UiButton
-        ><UiButton @click="openContract()">签订学习契约</UiButton>
+        <UiButton variant="dark" :disabled="!learning.state.ready || !!learning.state.saving" @click="editWork()"
+          >添加作品</UiButton
+        ><UiButton v-if="!compact" @click="openContract()">签订学习契约</UiButton>
       </div>
       <article v-for="c in contracts" :key="c.id" class="rounded-3xl border border-linen bg-pure-white p-6">
         <p class="text-caption font-bold text-deep-indigo">
-          学习契约 · {{ stages.find((s) => s.value === c.moduleId)?.title }}
+          学习契约 · {{ stages.find((s) => s.value === c.moduleId)?.title ?? '原阶段' }}
         </p>
-        <h3 class="mt-3 text-subheading">{{ c.goal }}</h3>
+        <h3 class="mt-3 break-words text-subheading">{{ c.goal }}</h3>
         <p class="mt-3 text-body-sm text-stone">每日 {{ c.minutes }} 分钟 · {{ c.deadline }} 前完成</p>
         <UiButton class="mt-3" size="sm" variant="text" @click="openContract(c.moduleId)">修改契约</UiButton>
       </article>
-      <div class="grid gap-5 lg:grid-cols-2">
+      <div
+        v-if="works.length"
+        class="grid gap-5"
+        :class="compact ? 'scroll-soft max-h-96 auto-rows-max overflow-y-auto' : 'lg:grid-cols-2'"
+      >
         <article v-for="w in works" :key="w.id" class="pane overflow-hidden">
           <img
             v-if="w.screenshot"
@@ -228,8 +247,10 @@ async function exportReport(format: 'md' | 'png') {
           </div>
         </article>
       </div>
-      <p v-if="!works.length" class="pane p-10 text-center text-body-sm text-stone">从第一个小作品开始。</p>
-      <section class="pane p-6">
+      <p v-if="!works.length && !contracts.length" class="pane p-10 text-center text-body-sm text-stone">
+        从第一个小作品开始。
+      </p>
+      <section v-if="!compact" class="pane p-6">
         <h3 class="text-subheading">{{ report?.graduated ? '结课证书已就绪' : '学习成果报告' }}</h3>
         <div class="mt-4 flex gap-3">
           <UiButton :disabled="busy" @click="exportReport('png')">导出高清图片</UiButton
@@ -240,7 +261,7 @@ async function exportReport(format: 'md' | 'png') {
     <StudyFormDialog
       v-model:open="contractOpen"
       title="学习契约"
-      title-id="learning-contract-title"
+      :title-id="compact ? 'home-learning-contract-title' : 'learning-contract-title'"
       :submit-label="savedContract ? '保存修改' : '签订契约'"
       :busy="!!learning.state.saving"
       :error="error"
@@ -267,7 +288,7 @@ async function exportReport(format: 'md' | 'png') {
     <StudyFormDialog
       v-model:open="workOpen"
       :title="work.id ? '编辑作品' : '添加作品'"
-      title-id="portfolio-work-title"
+      :title-id="compact ? 'home-portfolio-work-title' : 'portfolio-work-title'"
       submit-label="保存作品"
       :busy="!!learning.state.saving"
       :error="error"

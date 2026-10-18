@@ -119,7 +119,8 @@ export function generateAutomaticPractice(
     }
     const latest = (await dbFetchPractice(courseId))[path] ?? []
     if (latest.some((r) => r.scope === null)) return
-    if (!(await dbSavePractice(courseId, path, [...records, ...latest]))) throw Error('课后练习保存失败，请重试。')
+    if (!(await dbSavePractice(courseId, path, [...records.reverse(), ...latest])))
+      throw Error('课后练习保存失败，请重试。')
     revisions.set(key, (revisions.get(key) ?? 0) + 1)
   })().finally(() => jobs.delete(key))
   jobs.set(key, task)

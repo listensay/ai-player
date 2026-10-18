@@ -27,6 +27,12 @@ void (async () => {
     location.hash = '/courses/smoke-course/player?lesson=lesson-0.mp4'
     let probe
     await step('open-note', async () => {
+      if (phase === 'storage-legacy') {
+        await until(async () => (await invoke('desktop_smoke_affine', { text: null })).probe?.listReady, 'note list')
+        await invoke('desktop_smoke_affine', { text: null, noteAction: 'create' })
+        await until(async () => (await invoke('desktop_smoke_affine', { text: null })).probe?.ready, 'new note')
+        await invoke('desktop_smoke_affine', { text: null, noteAction: 'bind-lesson' })
+      }
       await until(async () => {
         probe = (await invoke('desktop_smoke_affine', { text: null })).probe
         return probe?.ready && probe.title === 'lesson-0' && probe.lesson?.path === 'lesson-0.mp4'
@@ -129,7 +135,12 @@ void (async () => {
     await invoke('desktop_smoke_report', { result: { success: true, steps, probe } })
   } catch (error) {
     await invoke('desktop_smoke_report', {
-      result: { success: false, steps, error: `${String(error)}\n${error.stack || ''}` },
+      result: {
+        success: false,
+        steps,
+        error: `${String(error)}\n${error.stack || ''}`,
+        note: await invoke('desktop_smoke_affine', { text: null }).catch(() => null),
+      },
     })
   }
 })()

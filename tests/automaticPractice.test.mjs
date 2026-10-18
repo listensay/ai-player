@@ -115,6 +115,30 @@ test('自动练习保存未作答记录，重复完成事件和重新打开不�
   assert.equal(h.calls(), 1)
 })
 
+test('自动三题保存和恢复保持出题顺序，不受同毫秒时间戳影响', async (t) => {
+  let clock = 1000
+  t.mock.method(Date, 'now', () => clock)
+  for (const sameTime of [true, false]) {
+    const h = fixture()
+    const original = globalThis.autoPracticeIO.requestGuideJson
+    globalThis.autoPracticeIO.requestGuideJson = async (...args) => {
+      const first = await original(...args)
+      return { questions: ['第一题', '第二题', '第三题'].map((prompt) => ({ ...first, prompt })) }
+    }
+    if (!sameTime) t.mock.method(Date, 'now', () => clock++)
+    await generateAutomaticPractice(`ordered-${sameTime}`, 'a.mp4', '列表', cues, settings)
+    const saved = h.saved.get(`ordered-${sameTime}`)['a.mp4']
+    const loaded = restorePractice(
+      [...saved].sort((a, b) => b.createdAt - a.createdAt),
+      ['a.mp4'],
+    )
+    assert.deepEqual(
+      loaded.reverse().map((record) => record.question.prompt),
+      ['第一题', '第二题', '第三题'],
+    )
+  }
+})
+
 test('普通实操课自动纠正单题结果，通过三题及内容审查后才保存两道编程题', async () => {
   const h = fixture()
   const original = globalThis.autoPracticeIO.requestGuideJson
@@ -268,10 +292,10 @@ test('自动生成 Python 题组，检测可用语言并验证代码后保存可
   const records = h.saved.get('python')['a.mp4']
   assert.equal(records.length, 2)
   assert.equal(new Set(records.map((r) => r.groupId)).size, 1)
-  assert.equal(records[0].draft, python.programming.starterCode)
-  assert.deepEqual(records[0].question.programming, python.programming)
-  assert.equal(restorePractice(records, ['a.mp4'])[0].draft, python.programming.starterCode)
-  assert.deepEqual(records[0].attempts, [])
+  assert.equal(records.at(-1).draft, python.programming.starterCode)
+  assert.deepEqual(records.at(-1).question.programming, python.programming)
+  assert.equal(restorePractice(records, ['a.mp4']).at(-1).draft, python.programming.starterCode)
+  assert.deepEqual(records.at(-1).attempts, [])
   assert.deepEqual(
     h.executions.map((input) => input.code),
     [python.programming.referenceCode, python.programming.starterCode],
