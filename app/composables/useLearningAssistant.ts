@@ -134,7 +134,6 @@ export function useLearningAssistant(options: {
       options.notify('请先在播放器打开课节。')
       return
     }
-    options.player.pause()
     options.reveal()
   }
   async function ask(retryId?: string) {

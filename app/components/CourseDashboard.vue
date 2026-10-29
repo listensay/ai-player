@@ -370,17 +370,6 @@ const workDone = computed(() => guide.todayWork.value.filter((item) => item.done
                 variant="ghost"
                 size="sm"
                 class="border border-linen hover:border-charcoal-ink/30"
-                title="AI 导学"
-                aria-label="AI 导学"
-                @click="emit('guide')"
-              >
-                <AppIcon name="sparkles" :size="16" class="text-deep-indigo" />
-                <span>AI 导学</span>
-              </UiButton>
-              <UiButton
-                variant="ghost"
-                size="sm"
-                class="border border-linen hover:border-charcoal-ink/30"
                 @click="planOpen = true"
               >
                 学习计划

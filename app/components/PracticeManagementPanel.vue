@@ -40,7 +40,7 @@ async function open(courseId: string, path: string) {
 <template>
   <section class="space-y-4" aria-label="练习管理">
     <h2 class="text-heading-sm">练习管理</h2>
-    <p class="text-body-sm text-stone">逐字稿完成后自动生成课后练习，未作答的题目会保留在这里。</p>
+    <p class="text-body-sm text-stone">逐字稿生成后就会有课后练习，还没答的题目都在这里。</p>
     <VCheckbox v-model="pendingOnly" label="只看待完成" hide-details />
     <p v-if="learning.state.error" role="alert">{{ learning.state.error }}</p>
     <div

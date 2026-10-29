@@ -13,7 +13,6 @@ const emit = defineEmits<{ close: [] }>()
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-heading-sm font-bold">快捷键</h2>
-            <p class="mt-1 text-body-sm text-graphite">编辑笔记时，播放类单键快捷键不生效。</p>
           </div>
           <UiButton variant="text" size="sm" icon title="关闭" @click="emit('close')">
             <AppIcon name="close" :size="18" />

@@ -82,6 +82,32 @@ function mount(t, storage = {}) {
   t.after(() => app.unmount())
   return { a, options, requests, writes, app, storage }
 }
+test('打开助教保留播放状态，未打开课节或离开播放器时不展开面板', (t) => {
+  const { a, options } = mount(t)
+  options.player.state.playing = true
+  const pause = t.mock.method(options.player, 'pause', () => {
+    options.player.state.playing = false
+  })
+  const reveal = t.mock.method(options, 'reveal')
+  const notify = t.mock.method(options, 'notify')
+  a.open()
+  assert.equal(options.player.state.playing, true)
+  assert.equal(options.player.state.currentTime, 100)
+  assert.equal(pause.mock.callCount(), 0)
+  assert.equal(reveal.mock.callCount(), 1)
+  options.player.state.playing = false
+  a.open()
+  assert.equal(options.player.state.playing, false)
+  assert.equal(pause.mock.callCount(), 0)
+  assert.equal(reveal.mock.callCount(), 2)
+  options.active.value = false
+  a.open()
+  options.active.value = true
+  options.video.value = null
+  a.open()
+  assert.equal(reveal.mock.callCount(), 2)
+  assert.equal(notify.mock.callCount(), 2)
+})
 test('提问立即显示消息，回答使用 Markdown，下一轮携带真实角色历史', async (t) => {
   const { a, options, requests, writes } = mount(t)
   a.open()

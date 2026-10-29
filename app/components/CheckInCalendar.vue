@@ -221,7 +221,6 @@ const weekDays = ['一', '二', '三', '四', '五', '六', '日']
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <span class="text-body-sm font-bold">今日目标进度</span>
-          <span class="text-caption text-stone"> 实际投入 {{ formatStudyClock(checkIn?.seconds.value ?? 0) }} </span>
         </div>
         <div>
           <span

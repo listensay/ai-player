@@ -216,10 +216,10 @@ usePageTitle(() => `${video.value?.title ?? '播放器'} · Study Helper`)
               :class="
                 rightTab === 'assistant' ? 'bg-sunbeam-yellow text-charcoal-ink' : 'text-graphite hover:bg-cream-deep'
               "
-              title="暂停并打开 AI（⌥A）"
+              title="打开 AI助教（⌥A）"
               @click="assistant.open()"
             >
-              AI
+              AI助教
             </button>
           </div>
           <button

@@ -187,7 +187,7 @@ async function exportReport(format: 'md' | 'png') {
     </header>
     <header v-else>
       <h2 class="text-heading-sm">我的作品集</h2>
-      <p class="mt-2 text-body-sm text-stone">把学到的知识，变成拿得出的作品。</p>
+      <p class="mt-2 text-body-sm text-stone">用学到的知识，做出自己的作品。</p>
     </header>
     <VSelect v-model="courseId" label="课程" :items="courseOptions" />
     <p v-if="error || learning.state.error || learning.sourceError.value" role="alert" class="text-body-sm text-error">

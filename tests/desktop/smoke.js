@@ -89,6 +89,29 @@ void (async () => {
       await pause(300)
       expect(!visible(document.getElementById('flow-check-title')), 'Pause must not prompt lesson feedback')
     })
+    await step('assistant-keeps-playback-running', async () => {
+      const video = await until(() => document.querySelector('video'), 'video')
+      video.muted = true
+      video.currentTime = 0
+      await video.play()
+      const assistantSelected = () =>
+        [...document.querySelectorAll('[role="tab"][aria-selected="true"]')].some(
+          (tab) => tab.textContent.trim() === 'AI助教',
+        )
+      await click('AI助教')
+      await until(assistantSelected, 'assistant tab selected')
+      await pause(300)
+      expect(!video.paused && video.currentTime > 0, 'Opening the assistant must preserve playback')
+      await click('笔记')
+      await click('收起右侧面板')
+      document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', altKey: true, bubbles: true }))
+      await until(assistantSelected, 'assistant shortcut reopens the panel')
+      expect(visible(document.getElementById('player-learning-panel')), 'Assistant shortcut must reveal the panel')
+      await pause(300)
+      expect(!video.paused, 'Assistant shortcut must preserve playback')
+      await click('笔记')
+      video.pause()
+    })
     await step('lesson-end-practice-and-single-feedback', async () => {
       const video = await until(() => document.querySelector('video'), 'video')
       video.muted = true
