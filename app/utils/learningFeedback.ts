@@ -27,6 +27,7 @@ export function applyMastery(
   lessons: GuideLesson[],
   records: Record<string, ConceptMastery>,
   excludedPrerequisites = new Set<string>(),
+  protectedExclusions = new Set<string>(),
 ) {
   const mastered = new Set<string>()
   for (const lesson of lessons) {
@@ -36,13 +37,17 @@ export function applyMastery(
       .map((r) => r.concept)
     if (markedConcepts.length) lesson.concepts = [...new Set([...lessonConcepts(lesson), ...markedConcepts])]
     const level = lessonMastery(lesson, records)
+    if (protectedExclusions.has(lesson.path)) {
+      lesson.status = 'skipped'
+      continue
+    }
     if (level === 'mastered') {
       lesson.status = 'skipped'
       mastered.add(lesson.path)
     } else if (level === 'needs-review') lesson.status = 'required'
     else if (level === 'uncertain' && lesson.status === 'skipped') lesson.status = 'optional'
   }
-  retainPrerequisites(lessons, false, new Set([...mastered, ...excludedPrerequisites]))
+  retainPrerequisites(lessons, false, new Set([...mastered, ...excludedPrerequisites, ...protectedExclusions]))
   return mastered
 }
 

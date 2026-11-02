@@ -26,7 +26,7 @@ const renderer = createRenderer({
   parentNode: () => null,
   nextSibling: () => null,
 })
-function mount(t, modelValue = '2026-10-04', min) {
+function mount(t, modelValue = '2026-10-04', min, extra = {}) {
   globalThis.testDateAdapter = new VuetifyDateAdapter({ locale: 'zh-CN' })
   let state
   const updates = []
@@ -38,7 +38,7 @@ function mount(t, modelValue = '2026-10-04', min) {
         return () => null
       },
     },
-    { label: '开始日期', modelValue, min, 'onUpdate:modelValue': (value) => updates.push(value) },
+    { label: '开始日期', modelValue, min, ...extra, 'onUpdate:modelValue': (value) => updates.push(value) },
   )
   app.mount({})
   t.after(() => {
@@ -99,4 +99,24 @@ test('无效日期不能提交，本地日历日期在不同时区往返不偏�
     state.draft.value = new Date(2026, 9, 4)
     assert.equal(state.selectedDate.value, '2026-10-04', zone)
   }
+})
+test('AI 日期字段尊重上限和禁用状态，空值不会默认提交今天', async (t) => {
+  const { state, updates } = mount(t, '', undefined, { max: '2026-10-04' })
+  state.open.value = true
+  await nextTick()
+  assert.equal(state.canConfirm.value, false)
+  state.draft.value = new Date(2026, 9, 5)
+  state.confirm()
+  assert.deepEqual(updates, [])
+  state.draft.value = new Date(2026, 9, 4)
+  state.confirm()
+  assert.deepEqual(updates, ['2026-10-04'])
+})
+test('禁用的日期字段不提交选中日期', async (t) => {
+  const { state, updates } = mount(t, '2026-10-04', undefined, { disabled: true })
+  state.open.value = true
+  await nextTick()
+  state.confirm()
+  assert.equal(state.canConfirm.value, false)
+  assert.deepEqual(updates, [])
 })

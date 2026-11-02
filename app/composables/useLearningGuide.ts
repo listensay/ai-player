@@ -1,6 +1,8 @@
 import { useGuideScheduling } from '~/composables/useGuideScheduling'
 import { useGuideMastery } from '~/composables/useGuideMastery'
 import { useGuideAi } from '~/composables/useGuideAi'
+import { useGuideConversation } from '~/composables/useGuideConversation'
+import { bindPlanCatalog, catalogRouteTree, catalogTreeVideos } from '~/utils/guideCatalog'
 import { onBeforeUnmount, onMounted, computed, reactive, ref, watch, inject, provide } from 'vue'
 import type { Ref } from 'vue'
 import { useAiSettings } from '~/composables/useAiSettings'
@@ -117,7 +119,15 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
         (state.plan?.lessons ?? []).filter((l) => lessonMastery(l, state.mastery) === 'mastered').map((l) => l.path),
       ),
   )
-  const route = computed(() => orderedRoute(state.plan?.lessons ?? [], state.includeOptional))
+  const route = computed(() => {
+    const ordered = orderedRoute(state.plan?.lessons ?? [], state.includeOptional, state.plan?.constraints?.order)
+    if (!course.value?.root) return ordered
+    const lessons = new Map(ordered.map((lesson) => [lesson.path, lesson]))
+    const selected = course.value.videos.filter((video) => lessons.has(video.path))
+    const rank = new Map(ordered.map((lesson, index) => [lesson.path, index]))
+    selected.sort((a, b) => rank.get(a.path)! - rank.get(b.path)!)
+    return catalogTreeVideos(catalogRouteTree(course.value.root, selected)).map((video) => lessons.get(video.path)!)
+  })
   const routePaths = computed(() => route.value.map((l) => l.path))
   const videoMap = computed(() => new Map(course.value?.videos.map((v) => [v.path, v]) ?? []))
   const routeView = computed(() => state.view === 'route' && !!state.plan)
@@ -237,7 +247,7 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     const pending = state.pending
     if (!pending || !state.plan) return null
     const before = route.value
-    const after = orderedRoute(pending.plan.lessons, false)
+    const after = orderedRoute(pending.plan.lessons, false, pending.plan.constraints?.order)
     const diff = compareRoutes(before, after)
     const beforeSchedule = schedule.value
     const afterSchedule = buildSchedule(after, durations.value, courseProgressMap.value, pending.plan.dailyMinutes)
@@ -260,7 +270,8 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
 
   /** 把存储或文件中的路线恢复为可用计划：校验课节，并保留对话和创建时间。 */
   function restorePlan(raw: unknown, allowEmptyRoute = true) {
-    const plan = validateLearningPlan(raw, activePaths, allowEmptyRoute)
+    let plan = validateLearningPlan(raw, activePaths, allowEmptyRoute)
+    if (course.value?.root) plan = bindPlanCatalog(plan, course.value.videos, course.value.name)
     if (isRecord(raw) && Array.isArray(raw.messages)) {
       plan.messages = raw.messages
         .filter((m) => isRecord(m) && ['user', 'assistant'].includes(String(m.role)) && typeof m.content === 'string')
@@ -429,6 +440,30 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     snapshot,
     refreshWork,
     persist,
+  })
+  const conversation = useGuideConversation({
+    course,
+    configured,
+    guideReady,
+    settings: computed(() => state.settings),
+    blocked: computed(() => !!state.busy),
+    plan: computed(() => state.plan),
+    date: todayDate,
+    catalog: computed(() =>
+      (course.value?.videos ?? []).map((video) => ({
+        path: video.path,
+        title: video.title,
+        duration: durations.value[video.path] ?? null,
+        done: !!progress.get(course.value!.id, video.path)?.done,
+      })),
+    ),
+    generate,
+    resetPlanMessages: (id) => {
+      if (id !== activeId) return
+      if (state.plan) state.plan.messages = []
+      state.pending = null
+      persist()
+    },
   })
 
   watch(
@@ -611,6 +646,7 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
   })
 
   const guide = {
+    courseName: computed(() => course.value?.name ?? ''),
     persist,
     state,
     ai,
@@ -629,6 +665,7 @@ export function useLearningGuide(course: Ref<Course | null>, schedulingEnabled: 
     counts,
     configured,
     generate,
+    conversation,
     cancel,
     previewStatus,
     setStatus,

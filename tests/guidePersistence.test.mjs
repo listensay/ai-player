@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { createRenderer, reactive, ref } from 'vue'
 import { localDayKey } from '../app/utils/learningFeedback.ts'
+import { emptyRouteConstraints } from '../app/utils/guideConstraints.ts'
 
 const boundaries = {
   '~/composables/useAiSettings': ['useAiSettings'],
@@ -16,9 +17,11 @@ const boundaries = {
 registerHooks({
   resolve(specifier, context, next) {
     if (boundaries[specifier]) {
-      const code = boundaries[specifier]
+      let code = boundaries[specifier]
         .map((name) => `export const ${name} = (...args) => globalThis.guideTestIO.${name}(...args)`)
         .join('\n')
+      if (specifier === '~/utils/guideAi')
+        code += `\nexport { AiJsonParseError } from '${new URL('../app/utils/guideAi.ts', import.meta.url)}'`
       return { url: `data:text/javascript,${encodeURIComponent(code)}`, shortCircuit: true }
     }
     if (specifier.startsWith('~/'))
@@ -30,7 +33,7 @@ const { useLearningGuide } = await import('../app/composables/useLearningGuide.t
 const { useStudyCheckIn } = await import('../app/composables/useStudyCheckIn.ts')
 globalThis.window = new EventTarget()
 const tick = () => new Promise((resolve) => setImmediate(resolve))
-const course = (id) => ({ id, videos: [{ path: 'a.mp4', title: '课程', size: 1, modified: 1 }] })
+const course = (id) => ({ id, name: '课程', videos: [{ path: 'a.mp4', title: '课程', size: 1, modified: 1 }] })
 const plan = () => ({
   version: 1,
   createdAt: 123,
@@ -43,6 +46,20 @@ const plan = () => ({
     { path: 'a.mp4', moduleId: 'm', status: 'required', reason: '需要学习', prerequisites: [], concepts: ['变量'] },
   ],
 })
+function generationReply(messages, result) {
+  const batch = messages.find((message) => message.content.includes('以下是输入数据：'))
+  if (batch) {
+    const { targetIds } = JSON.parse(batch.content.split('以下是输入数据：')[1])
+    return {
+      lessons: targetIds.map((id, index) => {
+        const { moduleId: _owner, path: _path, ...lesson } = result.lessons[index]
+        return { ...lesson, id }
+      }),
+    }
+  }
+  const context = JSON.parse(messages[0].content.split('以下是本次课程与学情数据：')[1])
+  return { ...result, modules: context.fixedModules }
+}
 const stored = () => ({
   plan: plan(),
   metadata: {},
@@ -99,7 +116,11 @@ function harness(t, overrides = {}, checkIn = false) {
     },
   })
   app.mount({})
-  t.after(() => app.unmount())
+  t.after(async () => {
+    app.unmount()
+    await tick()
+    await tick()
+  })
   return { guide, clock, active, saves, checkSaves, app }
 }
 test('导学尚未读取完成时，定时保存和退出均不写入空路线', async (t) => {
@@ -113,6 +134,76 @@ test('导学尚未读取完成时，定时保存和退出均不写入空路线',
   pending.resolve(stored())
   await tick()
   assert.equal(h.saves.length, 0)
+})
+
+test('每日用时和完成时间均可为空，未填时接受 AI 建议而不塞入默认时间', async (t) => {
+  const calls = []
+  const h = harness(t, {
+    dbFetchGuide: async () => null,
+    planPrompt: (...args) => {
+      calls.push(args)
+      return []
+    },
+    requestGuideJson: async (_settings, messages) =>
+      generationReply(messages, { ...plan(), dailyMinutes: 45, summary: '建议每日 45 分钟' }),
+  })
+  await tick()
+  assert.equal(await h.guide.generate('学习基础知识', null, null), true)
+  assert.equal(calls[0][2], null)
+  assert.equal(calls[0][6].completionDate, null)
+  assert.equal(h.guide.state.plan.dailyMinutes, 45)
+})
+
+test('交互规划必须给出完整周期并保持时间一致，异常响应不写入路线', async (t) => {
+  let result = { ...plan(), dailyMinutes: 45 }
+  const h = harness(t, {
+    dbFetchGuide: async () => null,
+    planPrompt: () => [],
+    requestGuideJson: async (_settings, messages) => generationReply(messages, result),
+  })
+  await tick()
+  const conversation = [{ role: 'user', content: '已选择稳步学习' }]
+  assert.equal(await h.guide.generate('按确认的方案安排', null, null, conversation), false)
+  assert.equal(h.guide.state.plan, null)
+  result.program = {
+    days: 28,
+    startDate: localDayKey(),
+    budget: { video: 30, code: 0, project: 0, recap: 0 },
+    lightEvery: 0,
+    lightMinutes: 45,
+  }
+  assert.equal(await h.guide.generate('按确认的方案安排', null, null, conversation), false)
+  result.program.budget.video = 45
+  assert.equal(await h.guide.generate('按确认的方案安排', 30, null, conversation), false)
+  assert.equal(h.guide.state.plan, null)
+  assert.equal(await h.guide.generate('按确认的方案安排', null, null, conversation), true)
+  assert.equal(h.guide.state.plan.program.days, 28)
+})
+
+test('聊天中的每日时间约束包含看课与实践，不把总额度全算作看课', async (t) => {
+  const raw = {
+    ...plan(),
+    dailyMinutes: 30,
+    program: {
+      days: 28,
+      startDate: localDayKey(),
+      budget: { video: 30, code: 15, project: 10, recap: 5 },
+      lightEvery: 0,
+      lightMinutes: 60,
+    },
+  }
+  const h = harness(t, {
+    dbFetchGuide: async () => null,
+    planPrompt: () => [],
+    requestGuideJson: async (_settings, messages) => generationReply(messages, raw),
+  })
+  await tick()
+  assert.equal(
+    await h.guide.generate('每日一小时，兼顾学习与实践', 60, null, [{ role: 'user', content: '每天一小时' }]),
+    true,
+  )
+  assert.equal(h.guide.state.plan.dailyMinutes, 30)
+  assert.equal(h.guide.state.plan.program.budget.code, 15)
 })
 test('导学读取失败后不生成、不自动保存，原记录不会被覆盖', async (t) => {
   const h = harness(t, {
@@ -398,6 +489,133 @@ test('调整遇到 HTTP 520 或残缺结果不替换已有路线', async (t) => 
   assert.equal(JSON.stringify(h.guide.state.plan), original)
   assert.equal(h.guide.state.pending, null)
 })
+
+test('AI 补充实践不能突破已确认的周投入，校验失败不覆盖原计划或课节', async (t) => {
+  const original = stored()
+  original.plan.constraints = { ...emptyRouteConstraints(), weeklyMinutes: { min: 0, max: 300 } }
+  original.plan.program = {
+    days: 30,
+    startDate: localDayKey(),
+    budget: { video: 30, code: 0, project: 0, recap: 0 },
+    lightEvery: 0,
+    lightMinutes: 30,
+  }
+  const h = harness(t, {
+    dbFetchGuide: async () => original,
+    practicePrompt: () => [],
+    requestGuideJson: async () => ({
+      program: { ...original.plan.program, budget: { video: 30, code: 120, project: 0, recap: 30 } },
+      stages: [
+        {
+          moduleId: 'm',
+          startDay: 1,
+          endDay: 30,
+          goal: '复盘',
+          project: '笔记',
+          skipWhen: '已完成复盘',
+          tasks: [],
+          checks: [],
+        },
+      ],
+    }),
+  })
+  await tick()
+  const before = JSON.stringify(h.guide.state.plan)
+  assert.equal(await h.guide.generatePractice(), false)
+  assert.match(h.guide.state.error, /超出.*上限/)
+  assert.equal(JSON.stringify(h.guide.state.plan), before)
+})
+
+test('长目录生成失败保留原路线，缺失批次补齐后仍须确认才替换', async (t) => {
+  const checkpoints = new Map()
+  let fail = true,
+    calls = 0
+  const h = harness(t, {
+    planPrompt: () => [],
+    databaseRequest: async (_endpoint, options) => {
+      if (options.method === 'POST') {
+        checkpoints.set(options.body.key, structuredClone(options.body.value))
+        return null
+      }
+      return structuredClone(checkpoints.get(options.query.key) ?? null)
+    },
+    requestGuideJson: async (_settings, messages) => {
+      calls++
+      const message = [...messages].reverse().find((m) => m.content.includes('以下是输入数据：'))
+      if (!message)
+        return {
+          ...plan(),
+          modules: JSON.parse(messages[0].content.split('以下是本次课程与学情数据：')[1]).fixedModules,
+          program: {
+            days: 30,
+            startDate: localDayKey(),
+            budget: { video: 30, code: 0, project: 0, recap: 0 },
+            lightEvery: 0,
+            lightMinutes: 30,
+          },
+        }
+      const { targetIds } = JSON.parse(message.content.split('以下是输入数据：')[1])
+      return {
+        lessons:
+          fail && targetIds.includes('l21')
+            ? []
+            : targetIds.map((id) => ({
+                id,
+                status: 'required',
+                reason: '按目标安排',
+                concepts: ['变量'],
+                prerequisites: [],
+              })),
+      }
+    },
+  })
+  await tick()
+  h.active.value.videos.push(
+    ...Array.from({ length: 24 }, (_, i) => ({ path: `extra-${i}.mp4`, title: `课程 ${i}`, size: 1, modified: 1 })),
+  )
+  const original = JSON.stringify(h.guide.state.plan)
+  assert.equal(await h.guide.generate('重新安排完整课程', 30), false, h.guide.state.error)
+  assert.equal(calls, 4)
+  assert.equal(JSON.stringify(h.guide.state.plan), original)
+  assert.equal(h.guide.state.pending, null)
+  fail = false
+  assert.equal(await h.guide.generate('重新安排完整课程', 30), true, h.guide.state.error)
+  assert.equal(calls, 5)
+  assert.equal(JSON.stringify(h.guide.state.plan), original)
+  assert.equal(h.guide.state.pending.plan.lessons.length, 25)
+  h.guide.applyPending()
+  assert.equal(h.guide.state.plan.lessons.length, 25)
+})
+
+for (const action of ['date', 'catalog', 'model'])
+  test(`长目录生成期间 ${action} 变化取消旧请求，已到达的结果不能进入预览`, async (t) => {
+    const waiting = deferred()
+    let calls = 0
+    const h = harness(t, {
+      planPrompt: () => [],
+      requestGuideJson: async () => {
+        calls++
+        return waiting.promise
+      },
+    })
+    await tick()
+    h.active.value.videos.push(
+      ...Array.from({ length: 20 }, (_, i) => ({ path: `extra-${i}.mp4`, title: '新增课节', size: 1, modified: 1 })),
+    )
+    const generation = h.guide.generate('继续学习', 30)
+    const started = performance.now()
+    while (!calls && performance.now() - started < 2000) await tick()
+    assert.equal(calls, 1, h.guide.state.error || h.guide.state.storageError)
+    if (action === 'date') h.guide.todayDate.value = localDayKey(new Date(Date.now() + 86400000))
+    else if (action === 'catalog') h.active.value.videos[0].path = 'renamed.mp4'
+    else h.guide.state.settings.model = 'new-model'
+    waiting.resolve(plan())
+    assert.equal(await generation, false)
+    assert.equal(calls, 1)
+    assert.equal(h.guide.state.pending, null)
+    assert.equal(h.guide.state.plan.summary, '保留这条路线')
+    assert.equal(h.guide.state.busy, '')
+  })
 
 test('已重置的今日安排从旧快照和练习范围恢复完成位置，保存重开不再重复', async (t) => {
   const saved = stored(),

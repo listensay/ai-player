@@ -1,3 +1,5 @@
+import type { GuideRouteConstraints } from './guideConstraints'
+
 export type LessonStatus = 'required' | 'optional' | 'skipped'
 
 export interface KnowledgeModule {
@@ -5,6 +7,7 @@ export interface KnowledgeModule {
   title: string
   description: string
   practice?: StagePractice
+  sourcePath?: string
 }
 
 export type WorkKind = 'code' | 'project' | 'recap'
@@ -117,6 +120,8 @@ export interface LearningPlan {
   lessons: GuideLesson[]
   messages: GuideMessage[]
   program?: StudyProgram
+  constraints?: GuideRouteConstraints
+  catalogVersion?: 1
 }
 
 export interface LessonMetadata {

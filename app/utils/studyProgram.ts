@@ -439,6 +439,7 @@ export function compareRoutes(before: GuideLesson[], after: GuideLesson[]) {
 export function inheritProgram(next: LearningPlan, previous: LearningPlan | null) {
   if (!previous) return next
   if (!next.program && previous.program) next.program = clone(previous.program)
+  if (!next.constraints && previous.constraints) next.constraints = clone(previous.constraints)
   for (const m of next.modules)
     if (!m.practice) {
       const old = previous.modules.find((p) => p.id === m.id)

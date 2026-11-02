@@ -3,6 +3,7 @@ import type { VideoEntry } from '~/types/course'
 import type { GuideLesson, MasteryLevel } from '~/types/guide'
 import type { GuideWorkspaceState } from '~/types/guideWorkspace'
 import { applyMastery, lessonConcepts, masteryKey } from '~/utils/learningFeedback'
+import { excludedRoutePaths } from '~/utils/guideConstraints'
 
 export function useGuideMastery(
   state: GuideWorkspaceState,
@@ -17,7 +18,8 @@ export function useGuideMastery(
     else delete state.mastery[key]
     // 撤回标记时保守回到查漏，关键前置课仍会被保留。
     if (!level && lesson.status === 'skipped') lesson.status = 'optional'
-    applyMastery(state.plan!.lessons, state.mastery)
+    const excluded = excludedRoutePaths(state.plan!)
+    applyMastery(state.plan!.lessons, state.mastery, excluded, excluded)
     state.notice = '已根据掌握程度更新学习路线，观看记录不受影响。'
     persist()
   }
@@ -34,7 +36,8 @@ export function useGuideMastery(
     if (state.plan) {
       const lesson = lessonMap.value.get(path)
       if (!level && lesson?.status === 'skipped') lesson.status = 'optional'
-      applyMastery(state.plan.lessons, state.mastery)
+      const excluded = excludedRoutePaths(state.plan)
+      applyMastery(state.plan.lessons, state.mastery, excluded, excluded)
     }
     persist()
   }

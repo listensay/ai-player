@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import { useGuide } from '~/composables/useLearningGuide'
-import AiProfileSelector from '~/components/AiProfileSelector.vue'
+import GuideConversationPanel from '~/components/GuideConversationPanel.vue'
 import { useAppDialogs } from '~/composables/useAppDialogs'
 import AppIcon from '~/components/AppIcon.vue'
 import ConceptMastery from '~/components/ConceptMastery.vue'
@@ -26,8 +26,6 @@ function openSettings() {
 const guide = useGuide()
 const { state, schedule, counts, risks } = guide
 const tab = ref<'plan' | 'today'>('plan')
-const draft = ref('')
-const dailyMinutes = ref(state.plan?.dailyMinutes ?? 120)
 const pending = ref<{ path: string; status: LessonStatus; risks: DependencyRisk[] } | null>(null)
 const pendingAlert = ref<HTMLElement>()
 const lessonQuery = ref('')
@@ -39,11 +37,7 @@ const tabs = [
   { id: 'today', label: '今日学习' },
   { id: 'plan', label: '定制路线' },
 ] as const
-const examples = [
-  '已掌握 Java 基础，目标是完成 Spring Boot 项目开发，每日可学习 2 小时。',
-  '无相关基础，计划系统学习本课程，每日可学习 1 小时。',
-  '具备相关经验，重点补充知识并学习项目实战，每日可学习 30 分钟。',
-]
+
 const visibleLessons = computed(() =>
   guide.arrangedLessons.value.filter((l) => {
     const q = lessonQuery.value.trim().toLowerCase()
@@ -98,7 +92,6 @@ watch(
       tab.value = props.initialTab ?? 'plan'
       planView.value = 'overview'
       expandedLesson.value = undefined
-      dailyMinutes.value = state.plan?.dailyMinutes ?? 120
     }
   },
 )
@@ -114,14 +107,6 @@ watch(
   () => state.plan,
   () => {
     pending.value = null
-    dailyMinutes.value = state.plan?.dailyMinutes ?? dailyMinutes.value
-  },
-)
-// 完整计划或导入可能修改看课时间，输入框随之同步。
-watch(
-  () => state.plan?.dailyMinutes,
-  (value) => {
-    if (value) dailyMinutes.value = value
   },
 )
 watch(pending, async (value) => {
@@ -131,26 +116,15 @@ watch(pending, async (value) => {
   }
 })
 
-async function generate() {
-  if (!guide.configured.value) {
-    openSettings()
-    state.error = '请先配置 AI 服务，再生成学习路线。'
-    return
-  }
-  if (await guide.generate(draft.value, Number(dailyMinutes.value))) {
-    draft.value = ''
-    pending.value = null
-    await showPlanView('overview')
-  }
+async function onPlanGenerated() {
+  pending.value = null
+  await showPlanView('overview')
 }
 async function showPlanView(view: 'overview' | 'lessons' | 'settings') {
   planView.value = view
   await nextTick()
   planTop.value?.parentElement?.scrollTo({ top: 0 })
   planHeading.value?.focus({ preventScroll: true })
-}
-function updateDailyMinutes() {
-  if (state.plan && !guide.setDailyMinutes(Number(dailyMinutes.value))) dailyMinutes.value = state.plan.dailyMinutes
 }
 function start() {
   if (!first.value) return
@@ -382,59 +356,15 @@ function confirmStatus() {
             </section>
 
             <section v-show="!state.plan || planView === 'settings'" class="pane p-5 sm:p-6">
-              <h3 v-if="!state.plan" class="text-heading-sm">学习背景与目标</h3>
-              <p v-if="!state.plan" class="mt-2 text-caption text-stone">
-                已读取 {{ guide.videoMap.value.size }} 节课程
-              </p>
-              <form class="space-y-5" :class="!state.plan && 'mt-5'" @submit.prevent="generate">
-                <VTextarea
-                  v-model="draft"
-                  required
-                  maxlength="6000"
-                  rows="4"
-                  :disabled="!!state.busy"
-                  :label="state.plan ? '调整要求' : '规划要求'"
-                  placeholder="例如：已掌握 Java 基础，目标是完成 Spring Boot 项目开发。"
-                />
-                <div v-if="!state.plan" class="flex flex-wrap gap-2">
-                  <UiButton
-                    v-for="(example, index) in examples"
-                    :key="example"
-                    size="sm"
-                    :disabled="!!state.busy"
-                    @click="draft = example"
-                    >{{ ['项目开发', '系统入门', '知识巩固'][index] }}</UiButton
+              <div v-if="!state.plan" class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-heading-sm">学习背景与目标</h3>
+                <p class="flex items-center gap-2 text-body-sm text-graphite">
+                  <AppIcon name="film" :size="17" /><span
+                    ><strong class="font-bold tabular">{{ guide.videoMap.value.size }}</strong> 节课程</span
                   >
-                </div>
-                <div class="flex flex-wrap items-end gap-4">
-                  <AiProfileSelector class="min-w-0 flex-1 basis-64" :disabled="!!state.busy" />
-                  <VTextField
-                    v-model.number="dailyMinutes"
-                    :label="state.plan?.program ? '每日观看时间' : '每日学习时间'"
-                    suffix="分钟"
-                    aria-label="每日学习分钟数"
-                    type="number"
-                    min="5"
-                    max="1440"
-                    step="1"
-                    required
-                    :disabled="!!state.busy"
-                    class="w-44 flex-none"
-                    @change="updateDailyMinutes"
-                  />
-                </div>
-                <p v-if="state.scanning" class="text-caption leading-relaxed text-stone">
-                  时长读取中 {{ state.scanned }}/{{ guide.videoMap.value.size }}
                 </p>
-                <div class="flex flex-wrap items-center gap-3">
-                  <UiButton type="submit" variant="primary" :disabled="!!state.busy || !guide.guideReady.value"
-                    ><AppIcon name="sparkles" :size="18" />{{ state.plan ? '生成调整方案' : '生成学习路线' }}</UiButton
-                  >
-                  <UiButton variant="text" size="sm" @click="openSettings">{{
-                    guide.configured.value ? '管理 AI 配置' : '配置 AI 服务'
-                  }}</UiButton>
-                </div>
-              </form>
+              </div>
+              <GuideConversationPanel class="mt-5" @generated="onPlanGenerated" @settings="openSettings" />
               <VExpansionPanels v-if="state.plan" class="mt-6">
                 <VExpansionPanel value="program">
                   <VExpansionPanelTitle>完整学习计划</VExpansionPanelTitle>

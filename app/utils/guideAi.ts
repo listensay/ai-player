@@ -1,6 +1,7 @@
 import { platformFetch } from './platform.ts'
 import type { AiProvider, ConceptMastery, GuideMessage, GuideSettings, LearningPlan } from '../types/guide'
 import { isRecord } from './guide.ts'
+import { localDayKey } from './learningFeedback.ts'
 
 // Messages API 要求 max_tokens；由请求层提供，不作为用户配置项。
 const ANTHROPIC_MAX_TOKENS = 4096
@@ -31,6 +32,50 @@ export function completionUrl(baseUrl: string, provider: AiProvider = 'openai'):
   return url.toString()
 }
 
+export class AiJsonParseError extends Error {
+  readonly content: string | null
+
+  constructor(content: string, cause: unknown) {
+    super('AI 回复格式有误，请重试。', { cause })
+    this.name = 'AiJsonParseError'
+    this.content = content.length <= 60000 ? content : null
+  }
+}
+
+function singleJsonValue(text: string): string | null {
+  let start = -1,
+    quoted = false,
+    escaped = false,
+    candidate: string | null = null
+  const closers: string[] = []
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!
+    if (start === -1) {
+      if (char === '}' || char === ']') return null
+      if (char !== '{' && char !== '[') continue
+      if (candidate !== null) return null
+      start = index
+    }
+    if (quoted) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') quoted = false
+      continue
+    }
+    if (char === '"') quoted = true
+    else if (char === '{') closers.push('}')
+    else if (char === '[') closers.push(']')
+    else if (char === '}' || char === ']') {
+      if (closers.pop() !== char) return null
+      if (!closers.length) {
+        candidate = text.slice(start, index + 1)
+        start = -1
+      }
+    }
+  }
+  return start === -1 ? candidate : null
+}
+
 export function parseAiJson(content: string): unknown {
   const text = content
     .trim()
@@ -38,8 +83,17 @@ export function parseAiJson(content: string): unknown {
     .replace(/\s*```$/, '')
   try {
     return JSON.parse(text)
-  } catch {
-    throw new Error('AI 返回的内容不是完整 JSON，请重试或换用支持 JSON 的模型。')
+  } catch (cause) {
+    // Accept one complete JSON value surrounded by prose, never a partial or ambiguous result.
+    const candidate = singleJsonValue(text)
+    if (candidate !== null) {
+      try {
+        return JSON.parse(candidate)
+      } catch {
+        // Invalid syntax must be corrected by the model, not completed or executed locally.
+      }
+    }
+    throw new AiJsonParseError(content, cause)
   }
 }
 
@@ -114,9 +168,11 @@ export async function requestGuideJson(
   settings: GuideSettings,
   messages: GuideMessage[],
   signal: AbortSignal,
-  options: { imagePurpose?: 'learning' } = {},
+  options: { imagePurpose?: 'learning'; system?: string } = {},
 ): Promise<unknown> {
-  return parseAiJson(await requestCompletion(settings, messages, signal, { ...options, system: GUIDE_SYSTEM_PROMPT }))
+  return parseAiJson(
+    await requestCompletion(settings, messages, signal, { ...options, system: options.system ?? GUIDE_SYSTEM_PROMPT }),
+  )
 }
 
 export async function requestAiText(
@@ -212,6 +268,13 @@ async function requestCompletion(
     const choice = raw.choices[0]
     if (choice.finish_reason === 'length') throw truncatedOutput()
     if (
+      choice.finish_reason === 'content_filter' ||
+      (isRecord(choice.message) && choice.message.refusal != null && choice.message.refusal !== '')
+    )
+      throw new Error('AI 拒绝了本次请求，请调整输入后重试。')
+    if (choice.finish_reason !== undefined && choice.finish_reason !== 'stop')
+      throw new Error('AI 未完成本次回答，请重试。')
+    if (
       !isRecord(choice.message) ||
       typeof choice.message.content !== 'string' ||
       choice.message.content.length > 2_000_000
@@ -233,10 +296,15 @@ async function requestCompletion(
 export function planPrompt(
   catalog: Array<{ path: string; title: string; duration: number | null; done: boolean }>,
   request: string,
-  dailyMinutes: number,
+  dailyMinutes: number | null,
   previous: LearningPlan | null,
   feedback?: { mastery: ConceptMastery[] },
-  today = new Date().toISOString().slice(0, 10),
+  today = localDayKey(),
+  preferences: {
+    completionDate?: string | null
+    conversation?: GuideMessage[]
+    dailyTotalMinutes?: number | null
+  } = {},
 ): GuideMessage[] {
   return [
     {
@@ -249,11 +317,12 @@ feedback 中的 mastery 是用户亲自标记的知识掌握程度，优先于�
 板块按知识主题归类，不局限于文件夹。保留至少一节必修。必须给每节课具体选择理由。
 modules 与 lessons 数组必须按建议的学习顺序排列，不要照抄文件夹或文件名前缀的顺序；前置课优先于依赖它的课节。prerequisites 只表达真实知识依赖，不要仅为排序而串联无关课程。
 知识图谱仅依据标题，无法判断的内容保守列为查漏，不要假装已阅读视频。
-每日学习时间默认 ${dailyMinutes} 分钟；本次要求明确指定时间时，以该要求为准（5–1440 分钟）。dailyMinutes 仅指每日看课 / 回看时间。
-若要求中给出学习总周期或每日总投入（包括编码、项目、复习），另返回 program 与各板块的 practice，把看课之外的时间安排为可执行、可验收的任务；未给出时省略这两项。program.startDate 默认为 ${today}，budget 各项为分钟且 video 与 dailyMinutes 一致；practice 的 startDay–endDay 按学习顺序连续编排且不超出 program.days；tasks 的 kind 为 code / project / recap，每日重复的复盘任务设 repeat 为 true；checks 的 kind 为 exercise（练习验收）或 project（项目验收），需能凭仓库、测试结果或演示判断是否通过；skipWhen 说明具备何种能力可跳过该板块课程。
+${dailyMinutes === null ? '用户未指定每日学习时间，请结合课程体量、学情和已选择方案建议合理分钟数，不采用固定默认值。' : preferences.dailyTotalMinutes !== undefined ? `用户指定每日总学习时间 ${dailyMinutes} 分钟，program.budget 中看课、编码、项目、复习的总和必须符合这个约束。` : `用户指定每日看课时间 ${dailyMinutes} 分钟，请尊重该约束。`}dailyMinutes 为 5–1440 的整数，专门保存每日看课 / 回看额度，不是每日总学习时间；有实践时从每日总额度中划分各项。若对话明确给出每日总投入，program.budget 总和应符合它。
+${preferences.completionDate ? `用户希望 ${preferences.completionDate} 完成学习，请从 ${today} 起安排完整 program，兼顾看课和实践；不可行时在 summary 说明冲突和建议，不假装可以按时完成。` : '用户未指定预计完成日期，请根据路线、每日节奏和实践给出合理周期，返回 program，并在 summary 提供预计完成日期。'}
+program.startDate 默认为 ${today}，budget 各项为分钟且 video 与 dailyMinutes 一致；若需要实践，为各板块安排可执行、可验收的 practice，startDay–endDay 按学习顺序连续编排且不超出 program.days；tasks 的 kind 为 code / project / recap，每日重复的复盘任务设 repeat 为 true；checks 的 kind 为 exercise（练习验收）或 project（项目验收）；不要为不需要编程的学习目标强行安排代码或项目。skipWhen 说明具备何种能力可跳过该板块课程。格式示例中的时间只是结构示例，不能照搬为建议。
 返回格式：{"summary":"简短说明路线与依赖诊断","profile":"综合所有对话后的背景与目标","dailyMinutes":120,"program":${PROGRAM_EXAMPLE},"modules":[{"id":"m1","title":"基础语法","description":"学习结果","practice":${PRACTICE_EXAMPLE}}],"lessons":[{"path":"目录里的原路径","moduleId":"m1","concepts":["知识点"],"prerequisites":[],"status":"required","reason":"原因"}]}
 以下是输入数据：
-${JSON.stringify({ catalog, previous: previous ? { profile: previous.profile, program: previous.program, lessons: previous.lessons.map((l) => ({ path: l.path, status: l.status })), conversation: previous.messages.slice(-10) } : null, feedback, request })}`,
+${JSON.stringify({ catalog, preferences: { dailyMinutes, dailyTotalMinutes: preferences.dailyTotalMinutes, completionDate: preferences.completionDate ?? null }, conversation: preferences.conversation ?? [], previous: previous ? { profile: previous.profile, program: previous.program, lessons: previous.lessons.map((l) => ({ path: l.path, status: l.status })), conversation: previous.messages.slice(-10) } : null, feedback, request })}`,
     },
   ]
 }
@@ -271,6 +340,7 @@ export function practicePrompt(plan: LearningPlan, route: Array<{ moduleId: stri
     {
       role: 'user',
       content: `请根据已有学习路线，为各知识板块补充实践安排与验收清单，不修改课节。
+用户已确认的时间上限必须保留，不额外增加周末投入。stages 只能对应输入中 requiredLessons 大于零的板块，不能把排除的课程加回。
 program 为完整学习计划：依据学情画像与对话中的总周期、每日总投入和时间分配；未说明时按每日看课 ${plan.dailyMinutes} 分钟保守安排。startDate 默认为 ${today}，budget 各项为分钟，video 为看课 / 回看额度。
 stages 只为路线中有必修课的板块安排，按学习顺序连续编排 startDay–endDay，不超出 program.days。阶段每日分配与 program.budget 不同时填写 budget。
 tasks 按执行顺序列出 code（独立编码）、project（项目实践）、recap（复习与面试）任务；instructions 写清操作与完成标准；每日重复的复盘任务设 repeat 为 true。
@@ -282,6 +352,7 @@ checks 中 exercise 为练习验收、project 为项目验收，均需能凭仓�
         profile: plan.profile,
         dailyMinutes: plan.dailyMinutes,
         program: plan.program ?? null,
+        constraints: plan.constraints ?? null,
         modules: plan.modules.map((m) => ({
           id: m.id,
           title: m.title,

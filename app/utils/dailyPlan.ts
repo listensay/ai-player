@@ -12,6 +12,7 @@ import type {
 import type { VideoProgress } from '../types/course'
 import { buildSchedule, estimateDuration, orderedRoute } from './guide.ts'
 import { buildTodayPlan } from './learningFeedback.ts'
+import { fixedCatalogRoute } from './guideConstraints.ts'
 import { completedBeforeDay, progressForPlanning } from './learningHistory.ts'
 import { dailyPracticeItems } from './dailyPracticeScope.ts'
 import {
@@ -45,7 +46,7 @@ function dayModule(context: DailyContext, date: string, route?: GuideLesson[]) {
     modules.find((m) => m.id === records.activeModuleId) ??
     (plan?.program ? stageForDay(modules, programDay(plan.program, date)) : undefined)
   if (scheduled) return scheduled
-  const lessons = route ?? orderedRoute(plan?.lessons ?? [], context.includeOptional)
+  const lessons = route ?? orderedRoute(plan?.lessons ?? [], context.includeOptional, plan?.constraints?.order)
   const learnedProgress = progressForPlanning(progress, context.metadata, context.today, date)
   const next = lessons.find((l) => !learnedProgress[l.path]?.done) ?? lessons[0]
   return modules.find((m) => m.id === next?.moduleId) ?? modules.find((m) => m.practice) ?? modules[0]
@@ -99,7 +100,7 @@ export function calculateDay(context: DailyContext, date: string, override?: num
   const { plan } = context
   const progress = progressForPlanning(context.progress, context.metadata, context.today, date)
   const completed = completedBeforeDay(context.today, date)
-  const route = orderedRoute(plan?.lessons ?? [], context.includeOptional)
+  const route = orderedRoute(plan?.lessons ?? [], context.includeOptional, plan?.constraints?.order)
   const module = dayModule({ ...context, progress }, date, route)
   const { previous, selected, base, budget } = dayBudget(context, date, module, override)
   const durations = Object.fromEntries(
@@ -113,7 +114,9 @@ export function calculateDay(context: DailyContext, date: string, override?: num
   const extraMinutes =
     context.enabled !== false && budgetTotal(base) > 0 ? extraDays.reduce((sum, entry) => sum + entry.minutes, 0) : 0
   const today = buildTodayPlan(
-    route,
+    plan?.constraints && fixedCatalogRoute(plan.constraints)
+      ? route.filter((lesson) => !progress[lesson.path]?.done)
+      : route,
     durations,
     progress,
     context.mastery,

@@ -14,6 +14,7 @@ const code = compileScript(descriptor, { id: 'course-tree-test' })
   .replace(/import \{ useProgress \} from [^\n]+/, 'const useProgress = () => globalThis.treeIO.progress')
   .replace(/import (AppIcon|CourseTreeNode|VirtualList) from [^\n]+/g, 'const $1 = {}')
   .replace("from '~/utils/courseTreeRows'", `from '${new URL('../app/utils/courseTreeRows.ts', import.meta.url).href}'`)
+  .replace("from '~/utils/guideCatalog'", `from '${new URL('../app/utils/guideCatalog.ts', import.meta.url).href}'`)
   .replaceAll("from 'vue'", `from '${import.meta.resolve('vue')}'`)
 const { outputText } = ts.transpileModule(code, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -54,6 +55,7 @@ function mount(t) {
     state: guideState,
     routeView: computed(() => guideState.view === 'route'),
     routeVideos: ref(videos),
+    routePositions: ref(new Map(videos.map((video, index) => [video.path, index + 1]))),
     todayDate: ref('2026-09-28'),
     guideReady: ref(true),
     recordsReady: ref(true),

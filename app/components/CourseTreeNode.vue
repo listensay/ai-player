@@ -5,7 +5,6 @@ import { useProgress } from '~/composables/useProgress'
 import AppIcon from '~/components/AppIcon.vue'
 import LessonBadge from '~/components/LessonBadge.vue'
 import type { FolderEntry, VideoEntry } from '~/types/course'
-import { conciseLessonTitle } from '~/utils/studyProgram'
 
 const props = defineProps<{
   node: FolderEntry | VideoEntry
@@ -16,6 +15,8 @@ const props = defineProps<{
   /** 定制路线中的序号，与原文件名序号分开。 */
   flat?: boolean
   routePosition?: number
+  routeLabels?: Map<string, string>
+  routePositions?: Map<string, number>
 }>()
 
 const emit = defineEmits<{
@@ -82,7 +83,9 @@ function onClick() {
     >
       <VExpansionPanel value="content">
         <VExpansionPanelTitle :style="{ paddingLeft: indent }" :data-path="node.path" :title="node.name">
-          <span class="min-w-0 flex-1 truncate text-body-sm font-bold">{{ node.name }}</span>
+          <span class="min-w-0 flex-1 truncate text-body-sm font-bold">{{
+            routeLabels?.get(node.path) ?? node.name
+          }}</span>
           <span v-if="folderStats" class="tabular shrink-0 text-caption text-stone"
             >{{ folderStats.done }}/{{ folderStats.total }}</span
           >
@@ -97,6 +100,9 @@ function onClick() {
               :course-id="courseId"
               :current-path="currentPath"
               :expanded="expanded"
+              :route-labels="routeLabels"
+              :route-positions="routePositions"
+              :route-position="routePositions?.get(child.path)"
               @select="emit('select', $event)"
               @toggle="emit('toggle', $event)"
             />
@@ -134,13 +140,19 @@ function onClick() {
       </span>
       <span
         class="min-w-0 flex-1 text-body-sm"
-        :class="[isCurrent ? 'font-bold' : 'font-medium', routePosition ? '[overflow-wrap:anywhere]' : 'truncate']"
+        :class="[
+          isCurrent ? 'font-bold' : 'font-medium',
+          routePosition && !flat ? '[overflow-wrap:anywhere]' : 'truncate',
+        ]"
       >
-        <span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{
-          String(routePosition).padStart(2, '0')
-        }}</span>
-        <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span
-        >{{ routePosition && node.kind === 'video' ? conciseLessonTitle(node.title) : titleParts?.text }}
+        <span v-if="routeLabels?.has(node.path)">{{ routeLabels.get(node.path) }}</span>
+        <template v-else
+          ><span v-if="routePosition" class="tabular mr-1.5 font-bold text-deep-indigo">{{
+            String(routePosition).padStart(2, '0')
+          }}</span>
+          <span v-else-if="titleParts?.index" class="tabular mr-1.5 text-stone">{{ titleParts.index }}</span
+          >{{ titleParts?.text }}</template
+        >
       </span>
       <span
         v-if="videoProgress && !videoProgress.done && videoProgress.ratio > 0"

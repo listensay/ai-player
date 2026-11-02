@@ -566,6 +566,7 @@ export function provideCourseWorkspace() {
       }
       await useProgress().flush()
       guide.persist()
+      await guide.conversation.flush()
       await practice.flush()
       if (!(await checkIn.finishSession())) throw new Error('学习时间保存失败，请重试。')
       await daily.flush()

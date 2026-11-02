@@ -22,7 +22,8 @@ registerHooks({
     return next(specifier, context)
   },
 })
-const { completionUrl, requestGuideJson, requestAiText } = await import('../app/utils/guideAi.ts')
+const { AiJsonParseError, parseAiJson, completionUrl, requestGuideJson, requestAiText } =
+  await import('../app/utils/guideAi.ts')
 const { emptyAiSettings, restoreAiSettings, validateAiProfile } = await import('../app/utils/aiSettings.ts')
 const { useAiSettings } = await import('../app/composables/useAiSettings.ts')
 
@@ -66,6 +67,20 @@ test('笔记 AI 复用两种模型协议，保留普通文字与自己的任务�
     )
     assert.equal(calls[0].body.model, 'test-model')
   }
+})
+test('导学问卷使用专用系统契约，两种协议保留 JSON 提取且不影响默认请求', async () => {
+  for (const provider of ['openai', 'anthropic']) {
+    const calls = transport(provider === 'anthropic' ? nativeReply() : openaiReply())
+    const system = '仅返回互动问卷 JSON，未知学情 profile 可以为空。'
+    assert.deepEqual(
+      await requestGuideJson({ ...settings, provider }, conversation, new AbortController().signal, { system }),
+      { ok: true },
+    )
+    assert.equal(provider === 'anthropic' ? calls[0].body.system : calls[0].body.messages[0].content, system)
+  }
+  const calls = transport(openaiReply())
+  await call()
+  assert.ok(calls[0].body.messages[0].content.includes('严谨的中文课程导学老师'))
 })
 function transport(body, status = 200) {
   const calls = []
@@ -228,6 +243,54 @@ test('合并 Anthropic 文本块，忽略思考块，沿用 JSON 围栏兼容', 
   assert.deepEqual(await call({ provider: 'anthropic' }), { ok: true })
 })
 
+test('JSON 提取兼容前后说明、围栏和字符串中的括号及转义，仅接受一个完整结果', () => {
+  const value = { message: '符号 { } [ ]、引号 "、反斜杠 \\ 和换行\n都属于文本', nested: [{ ok: true }] }
+  const content = JSON.stringify(value)
+  for (const response of [
+    content,
+    `\uFEFF${content}`,
+    `这是问卷：\n${content}\n请回答。`,
+    `问卷如下：\n\`\`\`json\n${content}\n\`\`\`\n请回答。`,
+  ])
+    assert.deepEqual(parseAiJson(response), value)
+  assert.deepEqual(parseAiJson('结果：\n[{"ok":true}]\n完成。'), [{ ok: true }])
+  for (const response of [
+    '不是 JSON',
+    '{"nested":{"ok":true}',
+    '{"ok":true}}',
+    '结果：{"ok":true}，另外：{"other":true}',
+    '```json\n{"ok":true}\n```\n```json\n{"other":true}\n```',
+    '结果：{"ok":true}\n{"unfinished":',
+    '{"ok":true,}',
+    '{"message":"未转义\n换行"}',
+    "{'ok': true}",
+  ])
+    assert.throws(() => parseAiJson(response), AiJsonParseError)
+})
+
+test('已完成的非法 JSON 保留有界原文及错误原因，传输层不自行重放', async () => {
+  for (const provider of ['openai', 'anthropic']) {
+    const content = '{"message":"private-course-data",}'
+    const calls = transport(
+      provider === 'anthropic'
+        ? nativeReply({ content: [{ type: 'text', text: content }] })
+        : openaiReply({ message: { content } }),
+    )
+    await assert.rejects(call({ provider }), (error) => {
+      assert.ok(error instanceof AiJsonParseError)
+      assert.equal(error.content, content)
+      assert.ok(error.cause instanceof SyntaxError)
+      assert.ok(!error.message.includes('private-course-data'))
+      return true
+    })
+    assert.equal(calls.length, 1)
+  }
+  assert.throws(
+    () => parseAiJson('x'.repeat(60001)),
+    (error) => error instanceof AiJsonParseError && error.content === null,
+  )
+})
+
 test('截断时即使文本是有效 JSON 也拒绝应用，不再引导修改输出设置', async () => {
   for (const provider of ['openai', 'anthropic']) {
     transport(
@@ -237,6 +300,20 @@ test('截断时即使文本是有效 JSON 也拒绝应用，不再引导修改�
       call({ provider }),
       (error) => /输出被截断/.test(error.message) && !/设置|最大输出/.test(error.message),
     )
+  }
+})
+
+test('OpenAI 的拒绝、过滤及明确未完成状态不能进入 JSON 修正', async () => {
+  for (const [overrides, message] of [
+    [{ finish_reason: 'content_filter' }, /拒绝/],
+    [{ message: { content: '{bad', refusal: 'private refusal details' } }, /拒绝/],
+    [{ finish_reason: 'tool_calls' }, /未完成/],
+    [{ finish_reason: 'function_call' }, /未完成/],
+    [{ finish_reason: null }, /未完成/],
+  ]) {
+    const calls = transport(openaiReply(overrides))
+    await assert.rejects(call(), (error) => !(error instanceof AiJsonParseError) && message.test(error.message))
+    assert.equal(calls.length, 1)
   }
 })
 
@@ -264,7 +341,9 @@ test('不兼容结构、缺失文本、超长文本及非法 JSON 都报错', as
     nativeReply({ content: [{ type: 'text', text: '不是 JSON' }] }),
   ]) {
     transport(reply)
-    await assert.rejects(call({ provider: 'anthropic' }), /返回|JSON/)
+    await assert.rejects(call({ provider: 'anthropic' }), (error) =>
+      error instanceof AiJsonParseError ? error.message === 'AI 回复格式有误，请重试。' : /返回/.test(error.message),
+    )
   }
 })
 
@@ -372,7 +451,7 @@ test('网关重试共用最初的响应时限', async (t) => {
 
 test('成功响应的无效 JSON 和网络异常不会自动重复发送', async () => {
   const calls = transport(openaiReply({ message: { content: 'invalid' } }))
-  await assert.rejects(call(), /JSON/)
+  await assert.rejects(call(), AiJsonParseError)
   assert.equal(calls.length, 1)
   let attempts = 0
   globalThis.aiServiceIO.fetch = async () => {

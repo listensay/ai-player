@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { prepareDesktopSmoke } from './prepare-desktop-smoke.mjs'
 import { prepareAiChat } from '../tests/fixtures/aiChat.mjs'
+import { prepareGuideConversation } from '../tests/fixtures/guideConversation.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const lessonOnly = process.env.AI_PLAYER_SMOKE_LESSON_ONLY === '1'
 const homeOnly = process.argv.includes('--home')
 const desktopSettingsOnly = process.argv.includes('--desktop-settings')
 const playerTimingOnly = process.argv.includes('--player-timing')
+const guideConversationOnly = process.argv.includes('--guide-conversation')
 const notesStorageOnly = process.argv.includes('--notes-storage') || process.argv.includes('--data-storage')
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
@@ -49,19 +51,25 @@ const executable = join(
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
 await prepareDesktopSmoke(data, { audibleReminder: desktopSettingsOnly })
 const reports = []
-const closeAiChat = homeOnly ? await prepareAiChat(data) : null
+const closeAiChat = guideConversationOnly
+  ? await prepareGuideConversation(data)
+  : homeOnly
+    ? await prepareAiChat(data)
+    : null
 try {
-  const phases = playerTimingOnly
-    ? ['player-timing', 'player-timing-restart']
-    : desktopSettingsOnly
-      ? ['desktop-settings', 'desktop-settings-restart']
-      : notesStorageOnly
-        ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
-        : homeOnly
-          ? ['home', 'home-restart']
-          : lessonOnly
-            ? ['lessons', 'lesson-restart']
-            : ['first', 'second']
+  const phases = guideConversationOnly
+    ? ['guide-conversation', 'guide-conversation-restart']
+    : playerTimingOnly
+      ? ['player-timing', 'player-timing-restart']
+      : desktopSettingsOnly
+        ? ['desktop-settings', 'desktop-settings-restart']
+        : notesStorageOnly
+          ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
+          : homeOnly
+            ? ['home', 'home-restart']
+            : lessonOnly
+              ? ['lessons', 'lesson-restart']
+              : ['first', 'second']
   for (const phase of phases) {
     let phaseData = data
     if (phase === 'storage-other-computer') {
@@ -105,7 +113,7 @@ try {
   }
   for (const report of reports) {
     if (!report.success) throw Error(`Native desktop regression failed: ${report.phase}`)
-    if (notesStorageOnly || homeOnly || desktopSettingsOnly || playerTimingOnly) continue
+    if (notesStorageOnly || homeOnly || desktopSettingsOnly || playerTimingOnly || guideConversationOnly) continue
     for (const name of Object.keys(limits)) {
       if (!report.metrics?.some((metric) => metric.name === `ai-player:${name}`))
         throw Error(`Missing native performance metric: ${name}`)

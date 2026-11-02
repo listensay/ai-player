@@ -8,6 +8,8 @@ import type {
 } from '../types/guide'
 import type { VideoProgress } from '../types/course'
 import { parseProgram, parseStage } from './studyProgram.ts'
+import { parseRouteConstraints } from './guideConstraints.ts'
+import { lessonDirectory } from './guideCatalog.ts'
 
 export const LESSON_STATUS_LABELS: Record<LessonStatus, string> = {
   required: '必修',
@@ -26,35 +28,11 @@ function requiredText(value: unknown, name: string, max = 2000): string {
   return value.trim()
 }
 
-/** AI 和本地缓存都属于不可信输入。任何缺课、虚构引用或循环依赖都不能成为播放路线。 */
-export function validateLearningPlan(value: unknown, paths: string[], allowEmptyRoute = false): LearningPlan {
-  if (!isRecord(value) || !Array.isArray(value.modules) || !Array.isArray(value.lessons)) {
-    throw new Error('AI 没有返回完整的课程路线，请重试。')
-  }
-  const knownPaths = new Set(paths)
-  const moduleIds = new Set<string>()
-  const modules = value.modules.map((raw) => {
-    if (!isRecord(raw)) throw new Error('知识板块格式不正确。')
-    const id = requiredText(raw.id, '板块编号', 100)
-    if (moduleIds.has(id)) throw new Error('知识板块编号重复，请重新生成。')
-    moduleIds.add(id)
-    const module: KnowledgeModule = {
-      id,
-      title: requiredText(raw.title, '板块名称', 200),
-      description: requiredText(raw.description, '板块说明'),
-    }
-    // 实践安排是可选增强：格式不完整时只忽略该部分，不影响路线本身。
-    if (raw.practice !== undefined && raw.practice !== null) {
-      try {
-        module.practice = parseStage(raw.practice)
-      } catch {
-        /* 忽略无效安排 */
-      }
-    }
-    return module
-  })
+/** Parse lesson details against the entire catalog, including dependencies outside this batch. */
+export function parseGuideLessons(value: unknown, knownPaths: Set<string>, moduleIds: Set<string>): GuideLesson[] {
+  if (!Array.isArray(value)) throw new Error('课节格式不正确。')
   const seen = new Set<string>()
-  const lessons: GuideLesson[] = value.lessons.map((raw) => {
+  return value.map((raw) => {
     if (!isRecord(raw)) throw new Error('课节格式不正确。')
     const path = requiredText(raw.path, '课节路径', 2000)
     if (!knownPaths.has(path) || seen.has(path)) throw new Error('AI 返回了不存在或重复的课节，请重试。')
@@ -79,19 +57,79 @@ export function validateLearningPlan(value: unknown, paths: string[], allowEmpty
       concepts: raw.concepts.map((c: unknown) => requiredText(c, '知识点', 150)).slice(0, 20),
     }
   })
-  if (seen.size !== knownPaths.size) throw new Error('AI 遗漏了部分课节，原路线已保留，请重新生成。')
-  const byPath = new Map(lessons.map((l) => [l.path, l]))
+}
+
+/** In a partial draft, only cycles whose lessons have all arrived can be checked yet. */
+export function validateLessonDependencies(lessons: GuideLesson[]): void {
+  const byPath = new Map(lessons.map((lesson) => [lesson.path, lesson]))
   const visited = new Set<string>()
   const visiting = new Set<string>()
   function visit(path: string) {
     if (visiting.has(path)) throw new Error('前置知识出现循环依赖，请重新生成。')
-    if (visited.has(path)) return
+    if (visited.has(path) || !byPath.has(path)) return
     visiting.add(path)
     byPath.get(path)!.prerequisites.forEach(visit)
     visiting.delete(path)
     visited.add(path)
   }
-  paths.forEach(visit)
+  lessons.forEach((lesson) => visit(lesson.path))
+}
+
+/** AI 和本地缓存都属于不可信输入。任何缺课、虚构引用或循环依赖都不能成为播放路线。 */
+export function validateLearningPlan(value: unknown, paths: string[], allowEmptyRoute = false): LearningPlan {
+  if (!isRecord(value) || !Array.isArray(value.modules) || !Array.isArray(value.lessons)) {
+    throw new Error('AI 没有返回完整的课程路线，请重试。')
+  }
+  const knownPaths = new Set(paths)
+  const moduleIds = new Set<string>()
+  const modules = value.modules.map((raw) => {
+    if (!isRecord(raw)) throw new Error('知识板块格式不正确。')
+    const id = requiredText(raw.id, '板块编号', 100)
+    if (moduleIds.has(id)) throw new Error('知识板块编号重复，请重新生成。')
+    moduleIds.add(id)
+    const module: KnowledgeModule = {
+      id,
+      title: requiredText(raw.title, '板块名称', value.catalogVersion === 1 ? 1000 : 200),
+      description: requiredText(raw.description, '板块说明'),
+    }
+    if (raw.sourcePath !== undefined) {
+      if (
+        typeof raw.sourcePath !== 'string' ||
+        raw.sourcePath.length > 2000 ||
+        raw.sourcePath.split('/').some((part) => part === '.' || part === '..') ||
+        raw.sourcePath.includes('\\')
+      )
+        throw new Error('学习目录路径无效。')
+      module.sourcePath = raw.sourcePath
+      if (value.catalogVersion === 1) module.title = raw.title as string
+    }
+    // 实践安排是可选增强：格式不完整时只忽略该部分，不影响路线本身。
+    if (raw.practice !== undefined && raw.practice !== null) {
+      try {
+        module.practice = parseStage(raw.practice)
+      } catch {
+        /* 忽略无效安排 */
+      }
+    }
+    return module
+  })
+  const lessons = parseGuideLessons(value.lessons, knownPaths, moduleIds)
+  if (lessons.length !== knownPaths.size) throw new Error('AI 遗漏了部分课节，原路线已保留，请重新生成。')
+  validateLessonDependencies(lessons)
+  if (value.catalogVersion !== undefined && value.catalogVersion !== 1) throw new Error('学习目录版本无效。')
+  if (value.catalogVersion === 1) {
+    const byId = new Map(modules.map((module) => [module.id, module]))
+    const sources = new Set(modules.map((module) => module.sourcePath))
+    if (sources.has(undefined) || sources.size !== modules.length) throw new Error('学习目录缺失或重复。')
+    for (const lesson of lessons) {
+      const module = byId.get(lesson.moduleId)!
+      if (
+        module.sourcePath !== lessonDirectory(lesson.path) ||
+        (module.sourcePath && module.title !== module.sourcePath.split('/').at(-1))
+      )
+        throw new Error('AI 改变了课节的原始目录，请重新生成。')
+    }
+  }
   if (!allowEmptyRoute && !lessons.some((l) => l.status === 'required'))
     throw new Error('路线没有必修课，请补充学习目标后重试。')
   if (
@@ -122,6 +160,8 @@ export function validateLearningPlan(value: unknown, paths: string[], allowEmpty
     lessons,
     messages: [],
     ...(program ? { program } : {}),
+    ...(value.constraints != null ? { constraints: parseRouteConstraints(value.constraints) } : {}),
+    ...(value.catalogVersion === 1 ? { catalogVersion: 1 as const } : {}),
   }
 }
 
@@ -153,8 +193,13 @@ export function retainPrerequisites(
   return promoted
 }
 
-export function orderedRoute(lessons: GuideLesson[], includeOptional: boolean): GuideLesson[] {
+export function orderedRoute(
+  lessons: GuideLesson[],
+  includeOptional: boolean,
+  order: 'ai' | 'catalog' = 'ai',
+): GuideLesson[] {
   const selected = lessons.filter((l) => l.status === 'required' || (includeOptional && l.status === 'optional'))
+  if (order === 'catalog') return selected
   const selectedPaths = new Set(selected.map((l) => l.path))
   const byPath = new Map(lessons.map((l) => [l.path, l]))
   const visited = new Set<string>()

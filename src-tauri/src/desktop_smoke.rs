@@ -177,6 +177,8 @@ pub fn desktop_smoke_report(
         "second",
         "lessons",
         "lesson-restart",
+        "guide-conversation",
+        "guide-conversation-restart",
         "player-timing",
         "player-timing-restart",
         "desktop-settings",
@@ -231,6 +233,8 @@ pub fn init() -> TauriPlugin<Wry> {
                     "second",
                     "lessons",
                     "lesson-restart",
+                    "guide-conversation",
+                    "guide-conversation-restart",
                     "player-timing",
                     "player-timing-restart",
                     "desktop-settings",
@@ -252,7 +256,9 @@ pub fn init() -> TauriPlugin<Wry> {
                 let script = format!(
                     "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {};\n{}",
                     serde_json::json!(phase),
-                    if phase.starts_with("player-timing") {
+                    if phase.starts_with("guide-conversation") {
+                        include_str!("../../tests/desktop/guideConversation.js")
+                    } else if phase.starts_with("player-timing") {
                         include_str!("../../tests/desktop/playerTiming.js")
                     } else if phase.starts_with("desktop-settings") {
                         include_str!("../../tests/desktop/desktopSettings.js")

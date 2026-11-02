@@ -6,6 +6,7 @@ import { useProgress } from '~/composables/useProgress'
 import type { VirtualListHandle } from '~/types/virtualList'
 import VirtualList from '~/components/VirtualList.vue'
 import { courseTreeRows, type CourseEntryRow } from '~/utils/courseTreeRows'
+import { catalogRouteLabels, catalogRouteTree } from '~/utils/guideCatalog'
 import AppIcon from '~/components/AppIcon.vue'
 import CourseTreeNode from '~/components/CourseTreeNode.vue'
 import type { Course, FolderEntry, TreeFilter, VideoEntry } from '~/types/course'
@@ -55,39 +56,33 @@ const routeEmptyLabel = computed(() =>
       ? '今日暂无视频安排'
       : '未找到匹配的课节',
 )
-const moduleTitles = computed(() => new Map(guide.state.plan?.modules.map((m) => [m.id, m.title]) ?? []))
-function routeModule(path: string) {
-  return guide.lessonMap.value.get(path)?.moduleId
-}
-
-/** 路线按阶段折叠：默认展开当前阶段与正在播放课节所在阶段，搜索或筛选时全部展开。 */
-const openModules = reactive(new Set<string>())
+const routeRoot = computed(() => catalogRouteTree(props.course.root, guide.routeVideos.value))
+const routeLabels = computed(() => catalogRouteLabels(routeRoot.value, guide.routePositions.value))
+const routeExpanded = reactive(new Set<string>())
 watch(
-  () => [guide.activeModule.value?.id, props.currentPath ? routeModule(props.currentPath) : undefined],
-  (ids) => {
-    for (const id of ids) if (id) openModules.add(id)
+  () => [guide.firstLesson.value?.path, props.currentPath],
+  (paths) => {
+    for (const path of paths) {
+      if (!path) continue
+      const parts = path.split('/')
+      for (let length = 1; length < parts.length; length++) routeExpanded.add(parts.slice(0, length).join('/'))
+    }
   },
   { immediate: true },
 )
-const routeGroups = computed(() => {
-  const result: Array<{ key: string; moduleId: string; videos: VideoEntry[] }> = []
-  for (const v of visibleRoute.value) {
-    const id = routeModule(v.path) ?? ''
-    const last = result.at(-1)
-    if (last?.moduleId === id) last.videos.push(v)
-    else result.push({ key: `${id}:${result.length}`, moduleId: id, videos: [v] })
-  }
-  return result
-})
-const routeOpen = (id: string) => isFiltering.value || openModules.has(id)
-const allRouteOpen = computed(() => routeGroups.value.every((g) => openModules.has(g.moduleId)))
-function setModuleOpen(id: string, value: unknown) {
-  if (value === 'content') openModules.add(id)
-  else openModules.delete(id)
-}
+const visibleRouteRoot = computed(() => filterFolder(routeRoot.value))
+const routeFolderPaths = computed(() => collectFolderPaths(routeRoot.value))
+const routeExpansion = computed(() => (isFiltering.value ? new Set(routeFolderPaths.value) : routeExpanded))
+const allRouteOpen = computed(
+  () => routeFolderPaths.value.length > 0 && routeFolderPaths.value.every((path) => routeExpanded.has(path)),
+)
 function toggleRouteAll() {
-  if (allRouteOpen.value) openModules.clear()
-  else for (const g of routeGroups.value) openModules.add(g.moduleId)
+  if (allRouteOpen.value) routeExpanded.clear()
+  else for (const path of routeFolderPaths.value) routeExpanded.add(path)
+}
+function toggleRouteFolder(path: string) {
+  if (routeExpanded.has(path)) routeExpanded.delete(path)
+  else routeExpanded.add(path)
 }
 
 function selectRouteVideo(video: VideoEntry) {
@@ -145,18 +140,14 @@ const visibleRoot = computed(() => {
   return filterFolder(props.course.root)
 })
 
-type ModuleRow = { kind: 'module'; key: string; moduleId: string; count: number }
 const virtualized = computed(() =>
   routeView.value ? routeInScope.value.length > 100 : props.course.root.videoCount > 100,
 )
-const rows = computed<Array<CourseEntryRow | ModuleRow>>(() => {
+const rows = computed<CourseEntryRow[]>(() => {
   if (!routeView.value) return visibleRoot.value ? courseTreeRows(visibleRoot.value, expanded) : []
   const entry = (node: VideoEntry): CourseEntryRow => ({ kind: 'entry', key: node.path, node, depth: 0 })
   if (!showAllRoute.value) return visibleRoute.value.map(entry)
-  return routeGroups.value.flatMap((group) => [
-    { kind: 'module' as const, key: `module:${group.key}`, moduleId: group.moduleId, count: group.videos.length },
-    ...(routeOpen(group.moduleId) ? group.videos.map(entry) : []),
-  ])
+  return visibleRouteRoot.value ? courseTreeRows(visibleRouteRoot.value, routeExpansion.value) : []
 })
 watch(
   () => [routeView.value, showAllRoute.value, store.state.query, store.state.filter],
@@ -197,6 +188,7 @@ function revealCurrent() {
   if (!path) return
   const parts = path.split('/')
   for (let i = 1; i < parts.length; i++) expanded.add(parts.slice(0, i).join('/'))
+  for (let i = 1; i < parts.length; i++) routeExpanded.add(parts.slice(0, i).join('/'))
   nextTick(() => {
     if (virtualized.value) {
       const index = rows.value.findIndex((row) => row.kind === 'entry' && row.node.path === path)
@@ -243,7 +235,7 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         {{ allExpanded ? '全部收起' : '全部展开' }}
       </button>
       <button
-        v-else-if="routeView && showAllRoute && routeGroups.length > 1 && !isFiltering"
+        v-else-if="routeView && showAllRoute && routeFolderPaths.length && !isFiltering"
         type="button"
         class="rounded-full px-2.5 py-1 text-caption font-medium text-stone transition-colors hover:bg-cream-deep hover:text-charcoal-ink"
         @click="toggleRouteAll"
@@ -336,35 +328,22 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
         :items="rows"
         :item-key="(row) => row.key"
         :item-height="36"
-        :aria-label="routeView ? (showAllRoute ? 'AI 推荐课节' : '今日视频') : '完整目录'"
+        :aria-label="routeView ? (showAllRoute ? '学习路线目录' : '今日视频') : '完整目录'"
       >
         <template #default="{ item }">
           <CourseTreeNode
-            v-if="item.kind === 'entry'"
             :node="item.node"
             :depth="item.depth"
             :course-id="course.id"
             :current-path="currentPath"
-            :expanded="expanded"
+            :expanded="routeView ? routeExpansion : expanded"
+            :route-labels="routeView ? routeLabels : undefined"
+            :route-positions="routeView ? guide.routePositions.value : undefined"
             flat
             :route-position="routeView ? guide.routePositions.value.get(item.node.path) : undefined"
             @select="routeView ? selectRouteVideo($event) : emit('select', $event)"
-            @toggle="toggle"
+            @toggle="routeView ? toggleRouteFolder($event) : toggle($event)"
           />
-          <VExpansionPanels
-            v-else
-            class="sidebar-panels pt-2"
-            :model-value="routeOpen(item.moduleId) ? 'content' : undefined"
-            :readonly="isFiltering"
-            @update:model-value="setModuleOpen(item.moduleId, $event)"
-          >
-            <VExpansionPanel value="content"
-              ><VExpansionPanelTitle
-                ><span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{{ moduleTitles.get(item.moduleId) }}</span
-                ><span class="tabular shrink-0 font-medium text-stone">{{ item.count }}</span></VExpansionPanelTitle
-              ></VExpansionPanel
-            >
-          </VExpansionPanels>
         </template>
       </VirtualList>
       <ul v-else-if="routeView && !showAllRoute && visibleRoute.length" aria-label="今日视频">
@@ -377,40 +356,24 @@ const hasFolders = computed(() => props.course.root.children.some((c) => c.kind 
           :current-path="currentPath"
           :expanded="expanded"
           :route-position="guide.routePositions.value.get(entry.path)"
+          :route-labels="routeLabels"
           @select="selectRouteVideo"
         />
       </ul>
-      <ul v-else-if="routeView && visibleRoute.length" aria-label="AI 推荐课节">
-        <li v-for="group in routeGroups" :key="group.key" class="pt-2">
-          <VExpansionPanels
-            class="sidebar-panels"
-            :model-value="routeOpen(group.moduleId) ? 'content' : undefined"
-            :readonly="isFiltering"
-            @update:model-value="setModuleOpen(group.moduleId, $event)"
-          >
-            <VExpansionPanel value="content">
-              <VExpansionPanelTitle>
-                <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{{ moduleTitles.get(group.moduleId) }}</span>
-                <span class="tabular shrink-0 font-medium text-stone">{{ group.videos.length }}</span>
-              </VExpansionPanelTitle>
-              <VExpansionPanelText>
-                <ul>
-                  <CourseTreeNode
-                    v-for="entry in group.videos"
-                    :key="entry.path"
-                    :node="entry"
-                    :depth="0"
-                    :course-id="course.id"
-                    :current-path="currentPath"
-                    :expanded="expanded"
-                    :route-position="guide.routePositions.value.get(entry.path)"
-                    @select="emit('select', $event)"
-                  />
-                </ul>
-              </VExpansionPanelText>
-            </VExpansionPanel>
-          </VExpansionPanels>
-        </li>
+      <ul v-else-if="routeView && showAllRoute && visibleRouteRoot" role="tree" aria-label="学习路线目录">
+        <CourseTreeNode
+          v-for="entry in visibleRouteRoot.children"
+          :key="entry.path"
+          :node="entry"
+          :depth="0"
+          :course-id="course.id"
+          :current-path="currentPath"
+          :expanded="routeExpansion"
+          :route-labels="routeLabels"
+          :route-positions="guide.routePositions.value"
+          @select="selectRouteVideo"
+          @toggle="toggleRouteFolder"
+        />
       </ul>
       <p v-else-if="routeView" class="px-2 py-8 text-center text-body-sm text-stone">{{ routeEmptyLabel }}</p>
       <ul v-else-if="visibleRoot" role="tree">

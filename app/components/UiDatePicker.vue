@@ -7,14 +7,20 @@ import { validDate } from '~/utils/studyProgram'
 import UiButton from './UiButton.vue'
 
 defineOptions({ inheritAttrs: false })
-const props = defineProps<{ label: string; min?: string; required?: boolean }>()
+const props = defineProps<{ label: string; min?: string; max?: string; required?: boolean; disabled?: boolean }>()
 const model = defineModel<string>({ required: true })
 const date = useDate()
 const open = ref(false)
 const draft = ref<Date | null>(null)
 // 日期是本地日历日，使用适配器转换，避免 UTC 序列化导致日期偏移。
 const selectedDate = computed(() => (draft.value && date.isValid(draft.value) ? date.toISO(draft.value) : ''))
-const canConfirm = computed(() => validDate(selectedDate.value) && (!props.min || selectedDate.value >= props.min))
+const canConfirm = computed(
+  () =>
+    !props.disabled &&
+    validDate(selectedDate.value) &&
+    (!props.min || selectedDate.value >= props.min) &&
+    (!props.max || selectedDate.value <= props.max),
+)
 watch([open, model], ([isOpen]) => {
   if (isOpen) draft.value = validDate(model.value) ? date.toJsDate(date.date(model.value)) : null
 })
@@ -33,6 +39,7 @@ function confirm() {
     :max-width="330"
     location="bottom start"
     :close-on-content-click="false"
+    :disabled="disabled"
     :content-props="{ role: 'dialog', 'aria-label': `选择${label}` }"
   >
     <template #activator="{ props: activatorProps }">
@@ -41,6 +48,7 @@ function confirm() {
         :model-value="model"
         :label="label"
         :required="required"
+        :disabled="disabled"
         :append-inner-icon="CalendarDays"
         readonly
         aria-haspopup="dialog"
@@ -48,6 +56,7 @@ function confirm() {
         @keydown.enter.prevent="open = !open"
         @keydown.space.prevent="open = !open"
         @keydown.down.prevent="open = true"
+        @click:clear="model = ''"
       />
     </template>
     <VCard class="w-full">
@@ -55,6 +64,7 @@ function confirm() {
         v-if="open"
         v-model="draft"
         :min="min"
+        :max="max"
         :aria-label="`选择${label}`"
         width="100%"
         hide-header
