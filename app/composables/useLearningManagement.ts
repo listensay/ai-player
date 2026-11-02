@@ -1,31 +1,13 @@
-import {
-  computed,
-  inject,
-  onBeforeUnmount,
-  onMounted,
-  provide,
-  reactive,
-  ref,
-  shallowRef,
-  toRaw,
-  type InjectionKey,
-} from 'vue'
+import { inject, onBeforeUnmount, onMounted, provide, reactive, ref, toRaw, type InjectionKey } from 'vue'
 import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
 import { subscribeDatabaseChanges } from '~/utils/databaseChanges'
 import type { HomeCourse } from '~/utils/learningHome'
-import { readLearningCourses, readLearningSources, createReviewIndex, resetLearningData } from '~/utils/learningData'
+import { readLearningCourses, resetLearningData } from '~/utils/learningData'
 import { localDayKey } from '~/utils/learningFeedback'
-import {
-  canAcceptWork,
-  dueReviewCards,
-  emptyLearningManagement,
-  mergeReviewCards,
-  parseLearningManagement,
-  recordReview,
-} from '~/utils/learningManagement'
+import { emptyLearningManagement, parseLearningManagement } from '~/utils/learningManagement'
 import { learningCalendar } from '~/utils/learningOutcomes'
 import { desktopInvoke } from '~/utils/platform'
-import type { FlowCheckIn, FlowMood, LearningManagementData, LearningSources, Recall } from '~/types/learningManagement'
+import type { LearningManagementData } from '~/types/learningManagement'
 
 export const LEARNING_MANAGEMENT_KEY = 'learning-management:v1'
 /** The queue commits only successful writes and keeps each following mutation on the latest committed revision. */
@@ -97,25 +79,11 @@ export function provideLearningManagement() {
     write: (value) => databaseRequest('settings', { method: 'POST', body: { key: LEARNING_MANAGEMENT_KEY, value } }),
   })
   const courses = ref<HomeCourse[]>([])
-  const sources = shallowRef<LearningSources>({ practices: [], notes: [], summaries: [] })
   const date = ref(localDayKey()),
     loading = ref(false),
     sourceError = ref(''),
     calendarError = ref(''),
     calendarUrl = ref('')
-  const pendingFlow = ref<Omit<FlowCheckIn, 'mood'> | null>(null)
-  async function checkFlow(mood: FlowMood) {
-    const pending = pendingFlow.value
-    if (!pending) return
-    if (
-      await store.mutate((data) => {
-        if (!data.flows.some((f) => f.id === pending.id)) data.flows.push({ ...pending, mood })
-      })
-    ) {
-      if (pendingFlow.value?.id === pending.id) pendingFlow.value = null
-    }
-  }
-  const reviewIndex = createReviewIndex()
   let version = 0,
     stopped = false,
     refreshTimer: ReturnType<typeof setTimeout> | undefined,
@@ -136,29 +104,14 @@ export function provideLearningManagement() {
           await store.load()
           if (!store.state.ready) break
           await flushDatabaseWrites()
-          const [parsedCourses, parsedSources] = await Promise.all([readLearningCourses(day), readLearningSources()])
+          const parsedCourses = await readLearningCourses(day)
           if (token !== version || stopped) return
           if (parsedCourses.some((c) => c.error)) throw Error('部分课程记录无法读取，请重新打开课程。')
-          const cards = reviewIndex(parsedSources, parsedCourses, day)
           if (localDayKey() !== day) {
             dirty = true
             continue
           }
-          if (
-            !(await store.mutate((data) => {
-              data.cards = mergeReviewCards(data.cards, cards)
-              for (const work of data.works) {
-                const course = parsedCourses.find((c) => c.course.id === work.courseId)
-                const checks = course?.context?.plan?.modules.find((m) => m.id === work.moduleId)?.practice?.checks
-                if (work.acceptedAt === null && course && checks?.length && canAcceptWork(course, work.moduleId))
-                  work.acceptedAt = Date.now()
-              }
-            }))
-          )
-            break
-          if (token !== version || stopped) return
           courses.value = parsedCourses
-          sources.value = parsedSources
           sourceError.value = ''
           if (store.state.data.preferences.calendarEnabled) await publishCalendar()
         } catch (e) {
@@ -170,19 +123,6 @@ export function provideLearningManagement() {
       refreshing = undefined
     })
     return refreshing
-  }
-  const due = computed(() => dueReviewCards(store.state.data, courses.value, date.value))
-  async function rate(id: string, recall: Recall) {
-    const day = localDayKey()
-    date.value = day
-    let completed = false
-    const saved = await store.mutate((data) => {
-      completed = recordReview(data, courses.value, id, recall, Date.now())
-    })
-    if (saved && completed) {
-      store.state.notice = '今日复习完成'
-    }
-    return saved
   }
   async function publishCalendar() {
     try {
@@ -229,14 +169,9 @@ export function provideLearningManagement() {
   const instance = {
     ...store,
     courses,
-    sources,
     date,
     loading,
     sourceError,
-    due,
-    rate,
-    pendingFlow,
-    checkFlow,
     refresh: () => {
       resetLearningData()
       return refresh()

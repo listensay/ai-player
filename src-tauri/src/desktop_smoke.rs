@@ -177,6 +177,10 @@ pub fn desktop_smoke_report(
         "second",
         "lessons",
         "lesson-restart",
+        "player-timing",
+        "player-timing-restart",
+        "desktop-settings",
+        "desktop-settings-restart",
         "library",
         "library-restart",
         "catalog",
@@ -201,7 +205,11 @@ pub fn desktop_smoke_report(
         serde_json::to_vec_pretty(&result).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    app.exit(if success { 0 } else { 1 });
+    if success && result["quit"] == true {
+        crate::desktop::request_quit(&app);
+    } else {
+        app.exit(if success { 0 } else { 1 });
+    }
     Ok(())
 }
 pub fn init() -> TauriPlugin<Wry> {
@@ -223,6 +231,10 @@ pub fn init() -> TauriPlugin<Wry> {
                     "second",
                     "lessons",
                     "lesson-restart",
+                    "player-timing",
+                    "player-timing-restart",
+                    "desktop-settings",
+                    "desktop-settings-restart",
                     "library",
                     "library-restart",
                     "catalog",
@@ -240,7 +252,11 @@ pub fn init() -> TauriPlugin<Wry> {
                 let script = format!(
                     "globalThis.__AI_PLAYER_SMOKE_PHASE__ = {};\n{}",
                     serde_json::json!(phase),
-                    if phase.starts_with("storage-") {
+                    if phase.starts_with("player-timing") {
+                        include_str!("../../tests/desktop/playerTiming.js")
+                    } else if phase.starts_with("desktop-settings") {
+                        include_str!("../../tests/desktop/desktopSettings.js")
+                    } else if phase.starts_with("storage-") {
                         include_str!("../../tests/desktop/notesStorage.js")
                     } else if phase.starts_with("home") {
                         include_str!("../../tests/desktop/home.js")
@@ -258,6 +274,30 @@ pub fn init() -> TauriPlugin<Wry> {
             }
         })
         .build()
+}
+
+#[tauri::command]
+pub fn desktop_smoke_desktop(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    action: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if webview.label() != "main" {
+        return Err("Invalid test host".into());
+    }
+    let window = webview.window();
+    match action.as_deref() {
+        Some("close") => window.close().map_err(|e| e.to_string())?,
+        Some("open") => crate::desktop::show_main_window(app.clone())?,
+        None => {}
+        _ => return Err("Invalid desktop test action".into()),
+    }
+    Ok(serde_json::json!({
+        "visible": window.is_visible().map_err(|e| e.to_string())?,
+        "tray": app.tray_by_id(crate::desktop::TRAY_ID).is_some(),
+        "ready": app.try_state::<crate::AppState>().is_some_and(|state| state.frontend_ready.load(std::sync::atomic::Ordering::SeqCst)),
+        "soundPlays": app.state::<crate::desktop::DesktopState>().sound_plays.load(std::sync::atomic::Ordering::SeqCst)
+    }))
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
-import { createRenderer, reactive, ref, nextTick } from 'vue'
+import { createRenderer, reactive, ref, nextTick, computed } from 'vue'
 import { effectivePlaybackSeconds, isMissedStudyDay, studyPlanProgress } from '../app/utils/checkIn.ts'
 import { localDayKey } from '../app/utils/learningFeedback.ts'
 import { addDays } from '../app/utils/studyProgram.ts'
@@ -16,7 +16,7 @@ registerHooks({
         url:
           'data:text/javascript,' +
           encodeURIComponent(
-            'export const dbFetchCheckIns = async () => globalThis.calendarDays; export const dbSaveCheckIns = async (id, days) => { globalThis.calendarSaves?.push(JSON.parse(JSON.stringify({id, days}))); return true }',
+            'export const dbFetchCheckIns = async () => globalThis.calendarDays; export const dbSaveCheckIns = async (id, days) => { globalThis.calendarSaves?.push(JSON.parse(JSON.stringify({id, days}))); return !globalThis.calendarSaveFailure }',
           ),
         shortCircuit: true,
       }
@@ -141,13 +141,13 @@ const workEntry = (date, done = false) => ({
   done,
 })
 
-function mountClock(t, plan, stored = {}, active = ref({ id: 'course', videos: [{ path: 'a.mp4' }] })) {
+function mountClock(t, plan, stored = {}, active = ref({ id: 'course', videos: [{ path: 'a.mp4' }] }), session) {
   globalThis.calendarDays = stored
   globalThis.calendarSaves = []
   let clock, calendar
   const app = renderer.createApp({
     setup() {
-      clock = useStudyCheckIn(active, plan)
+      clock = useStudyCheckIn(active, plan, session)
       globalThis.calendarCheckIn = clock
       calendar = Calendar.setup(reactive({ compact: false }), { expose() {}, emit() {} })
       return () => null
@@ -159,6 +159,74 @@ function mountClock(t, plan, stored = {}, active = ref({ id: 'course', videos: [
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
+function mockStudyTime(t, now = new Date(2026, 10, 2, 12).getTime()) {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now })
+  t.mock.method(performance, 'now', () => Date.now() - now)
+  return (seconds) => {
+    for (let i = 0; i < seconds; i++) t.mock.timers.tick(1000)
+  }
+}
+
+test('播放器暂停计实践、播放计网课，媒体采样不重复计时，离开后停止', async (t) => {
+  const advance = mockStudyTime(t)
+  const session = ref({ courseId: 'course', kind: 'practice' })
+  const { clock } = mountClock(t, ref({ today: null, dailyMinutes: 30 }), {}, undefined, session)
+  await tick()
+  advance(3)
+  assert.equal(clock.current.value.practiceSeconds, 3)
+  assert.equal(clock.current.value.seconds, 0)
+  session.value = { courseId: 'course', kind: 'video' }
+  advance(4)
+  clock.sample('a.mp4', { at: 0, seconds: 0, playing: true, rate: 2, seeking: false })
+  clock.sample('a.mp4', { at: 1000, seconds: 2, playing: true, rate: 2, seeking: false })
+  assert.equal(clock.current.value.seconds, 4)
+  assert.equal(clock.current.value.practiceSeconds, 3)
+  session.value = { courseId: 'course', kind: 'practice' }
+  advance(2)
+  session.value = null
+  advance(5)
+  assert.equal(clock.current.value.practiceSeconds, 5)
+  assert.equal(clock.seconds.value, 9)
+  await tick()
+  assert.equal(globalThis.calendarSaves.at(-1).days[0].practiceSeconds, 5)
+})
+
+test('计时合并历史和手记实践参与打卡，跨午夜分日保存', async (t) => {
+  const advance = mockStudyTime(t, new Date(2026, 10, 2, 23, 59, 58).getTime())
+  const date = localDayKey()
+  const stored = { [date]: { date, seconds: 10, practiceSeconds: 45, targetSeconds: 60, checkedAt: null } }
+  const plan = ref({ today: null, dailyMinutes: 1, workSeconds: { [date]: 3 } })
+  const { clock } = mountClock(t, plan, stored, undefined, ref({ courseId: 'course', kind: 'practice' }))
+  await tick()
+  advance(4)
+  assert.equal(clock.state.days[date].practiceSeconds, 47)
+  assert.ok(clock.state.days[date].checkedAt)
+  assert.equal(clock.current.value.practiceSeconds, 2)
+  assert.equal(clock.current.value.seconds, 0)
+  assert.equal(clock.state.date, '2026-11-03')
+})
+
+test('隐藏和切课不会把实践时间写到错误课程', async (t) => {
+  const advance = mockStudyTime(t)
+  const active = ref({ id: 'course', videos: [{ path: 'a.mp4' }] })
+  const visible = ref(true)
+  const session = computed(() => (visible.value ? { courseId: active.value.id, kind: 'practice' } : null))
+  const { clock } = mountClock(t, ref({ today: null, dailyMinutes: 30 }), {}, active, session)
+  await tick()
+  advance(2)
+  visible.value = false
+  advance(3)
+  assert.equal(clock.current.value.practiceSeconds, 2)
+  globalThis.calendarDays = {}
+  active.value = { id: 'second', videos: [] }
+  await tick()
+  visible.value = true
+  advance(2)
+  assert.equal(clock.current.value.practiceSeconds, 2)
+  await tick()
+  assert.ok(globalThis.calendarSaves.some(({ id, days }) => id === 'course' && days[0].practiceSeconds === 2))
+})
+
 test('1.25 倍速仅记录实际用时，暂停和拖动不补造学习时间', () => {
   const previous = { at: 0, seconds: 10, rate: 1.25, playing: true, seeking: false, ended: false }
   const current = { ...previous, at: 1000, seconds: 11.25 }
@@ -166,6 +234,55 @@ test('1.25 倍速仅记录实际用时，暂停和拖动不补造学习时间', 
   assert.equal(effectivePlaybackSeconds({ ...previous, playing: false }, current), 0)
   assert.equal(effectivePlaybackSeconds(previous, { ...current, seeking: true, seconds: 300 }), 0)
   assert.equal(effectivePlaybackSeconds(previous, { ...current, seconds: 300 }), 0)
+})
+
+test('旧记录加载前不补计实践时间，加载后沿用历史继续累计', async (t) => {
+  const advance = mockStudyTime(t)
+  let release
+  const pending = new Promise((resolve) => {
+    release = resolve
+  })
+  const { clock } = mountClock(
+    t,
+    ref({ today: null, dailyMinutes: 30 }),
+    pending,
+    undefined,
+    ref({ courseId: 'course', kind: 'practice' }),
+  )
+  advance(3)
+  assert.equal(Object.keys(clock.state.days).length, 0)
+  assert.equal(globalThis.calendarSaves.length, 0)
+  const date = localDayKey()
+  release({ [date]: { date, seconds: 10, targetSeconds: 1800, checkedAt: null } })
+  await tick()
+  advance(2)
+  assert.equal(clock.current.value.practiceSeconds, 2)
+  assert.equal(clock.current.value.seconds, 10)
+  assert.equal(clock.seconds.value, 12)
+})
+
+test('保存失败保留已累计时间，关闭前等待保存并允许重试', async (t) => {
+  const advance = mockStudyTime(t)
+  const { clock } = mountClock(
+    t,
+    ref({ today: null, dailyMinutes: 30 }),
+    {},
+    undefined,
+    ref({ courseId: 'course', kind: 'practice' }),
+  )
+  await tick()
+  advance(2)
+  globalThis.calendarSaveFailure = true
+  t.after(() => {
+    delete globalThis.calendarSaveFailure
+  })
+  assert.equal(await clock.finishSession(), false)
+  assert.equal(clock.current.value.practiceSeconds, 2)
+  assert.match(clock.state.storageError, /保存失败/)
+  globalThis.calendarSaveFailure = false
+  assert.equal(await clock.finishSession(), true)
+  assert.equal(clock.state.storageError, '')
+  assert.equal(globalThis.calendarSaves.at(-1).days[0].practiceSeconds, 2)
 })
 
 test('任务达标按原日范围计算，追加课程、短尾课和历史完成位置不增加要求', () => {

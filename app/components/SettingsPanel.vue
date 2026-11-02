@@ -7,18 +7,26 @@ import PageSectionNav from '~/components/PageSectionNav.vue'
 import AiSettingsPanel from '~/components/AiSettingsPanel.vue'
 import ProgrammingSettingsPanel from '~/components/ProgrammingSettingsPanel.vue'
 import DataStoragePanel from '~/components/DataStoragePanel.vue'
+import DesktopSettingsPanel from '~/components/DesktopSettingsPanel.vue'
 import UiButton from '~/components/UiButton.vue'
 const props = defineProps<{ initialSection?: string }>()
-const activeSection = ref<'ai' | 'about' | 'programming' | 'storage'>('ai')
+const activeSection = ref<'general' | 'ai' | 'about' | 'programming' | 'storage'>('ai')
 watch(
   () => props.initialSection,
   (section) => {
     activeSection.value =
-      section === 'ai' || section === 'about' || section === 'programming' || section === 'storage' ? section : 'ai'
+      section === 'general' ||
+      section === 'ai' ||
+      section === 'about' ||
+      section === 'programming' ||
+      section === 'storage'
+        ? section
+        : 'ai'
   },
   { immediate: true },
 )
 const sections = [
+  { id: 'general', title: '通用设置', icon: 'settings' },
   { id: 'ai', title: 'AI 服务设置', icon: 'sparkles' },
   { id: 'programming', title: '编程环境', icon: 'keyboard' },
   { id: 'storage', title: '数据存储', icon: 'folder' },
@@ -100,6 +108,7 @@ async function exportReport() {
             </div>
           </section>
           <DataStoragePanel v-if="activeSection === 'storage'" />
+          <DesktopSettingsPanel v-if="activeSection === 'general'" />
           <ProgrammingSettingsPanel v-if="activeSection === 'programming'" />
           <AiSettingsPanel v-show="activeSection === 'ai'" id="settings-ai" />
         </div>

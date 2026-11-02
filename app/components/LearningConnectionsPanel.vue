@@ -23,7 +23,7 @@ async function save() {
       data.preferences = { ...preferences, calendarDays: Number(preferences.calendarDays) }
     })
   ) {
-    notice.value = '学习偏好已保存'
+    notice.value = '日历设置已保存'
     if (preferences.calendarEnabled) await learning.publishCalendar()
   }
 }
@@ -95,6 +95,7 @@ async function copyLink() {
       </div>
       <VCheckbox v-model="preferences.calendarEnabled" label="自动更新日历订阅" />
       <div class="flex flex-wrap gap-3">
+        <UiButton :disabled="!!learning.state.saving || !learning.state.ready" @click="save">保存日历设置</UiButton>
         <UiButton variant="dark" :disabled="busy || !learning.state.ready" @click="subscribe"
           >订阅到 Apple 日历</UiButton
         ><UiButton :disabled="busy" @click="exportCalendar">导出日历文件</UiButton>
@@ -106,13 +107,6 @@ async function copyLink() {
           @click="copyLink"
           >复制链接</UiButton
         ></template
-      >
-    </article>
-    <article class="pane space-y-4 p-6">
-      <h2 class="text-heading-sm">学习偏好</h2>
-      <VCheckbox v-model="preferences.flowPrompt" label="每节课结束后，记录一次学习状态" />
-      <UiButton variant="dark" :disabled="!!learning.state.saving || !learning.state.ready" @click="save"
-        >保存学习偏好</UiButton
       >
     </article>
   </section>

@@ -31,6 +31,7 @@
       checked_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      practice_seconds REAL NOT NULL DEFAULT 0,
       PRIMARY KEY (course_id, date)
     );
 

@@ -20,6 +20,19 @@ pub fn open(path: &Path) -> Result<Connection> {
         .map_err(|e| e.to_string())?;
     db.execute_batch(include_str!("schema.sql"))
         .map_err(|e| e.to_string())?;
+    let has_practice: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('check_ins') WHERE name='practice_seconds')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !has_practice {
+        db.execute_batch(
+            "ALTER TABLE check_ins ADD COLUMN practice_seconds REAL NOT NULL DEFAULT 0",
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(db)
 }
 fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
@@ -119,79 +132,6 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
     let course =
         || -> Result<SqlValue> { Ok(SqlValue::Text(canonical(db, text(q, "courseId")?)?)) };
     match endpoint {
-        "learning-sources" => {
-            let id = q["courseId"]
-                .as_str()
-                .map(|id| canonical(db, id))
-                .transpose()?;
-            let args = || {
-                id.as_ref()
-                    .map(|id| vec![SqlValue::Text(id.clone())])
-                    .unwrap_or_default()
-            };
-            let mut practices = Vec::new();
-            for r in rows(
-                db,
-                if id.is_some() {
-                    "SELECT course_id,records_json FROM lesson_practices WHERE course_id=?"
-                } else {
-                    "SELECT course_id,records_json FROM lesson_practices"
-                },
-                args(),
-            )? {
-                let records: Value = serde_json::from_str(r["records_json"].as_str().unwrap_or(""))
-                    .map_err(|_| "练习记录格式异常".to_string())?;
-                practices.push(json!({"courseId":r["course_id"],"records":records}));
-            }
-            let notes: Vec<Value> = rows(db, if id.is_some() { "SELECT course_id,video_path,content,updated_at FROM notes WHERE course_id=?" } else { "SELECT course_id,video_path,content,updated_at FROM notes" }, args())?
-                .iter().map(|r| json!({"courseId":r["course_id"],"path":r["video_path"],"content":r["content"],"updatedAt":r["updated_at"]})).collect();
-            let mut summaries = Vec::new();
-            // Deliberately scoped: never return AI credentials or unrelated settings.
-            let settings = if let Some(id) = &id {
-                let prefix = format!("lesson-knowledge:[{},", json!(id));
-                rows(
-                    db,
-                    "SELECT key,value_json FROM app_settings WHERE key=? OR (key>=? AND key<?)",
-                    vec![
-                        SqlValue::Text(format!("daily-practice:{id}")),
-                        SqlValue::Text(prefix.clone()),
-                        SqlValue::Text(format!("{prefix}\u{10ffff}")),
-                    ],
-                )?
-            } else {
-                rows(db, "SELECT key,value_json FROM app_settings WHERE key LIKE 'daily-practice:%' OR key LIKE 'lesson-knowledge:%'", vec![])?
-            };
-            for r in settings {
-                let key = r["key"].as_str().unwrap_or("");
-                let value: Value = serde_json::from_str(r["value_json"].as_str().unwrap_or(""))
-                    .map_err(|_| "学习材料格式异常".to_string())?;
-                if let Some(id) = key.strip_prefix("daily-practice:") {
-                    let records: Vec<Value> = value
-                        .as_object()
-                        .ok_or("每日练习记录格式异常")?
-                        .values()
-                        .map(|v| v.as_array().ok_or("每日练习记录格式异常"))
-                        .collect::<std::result::Result<Vec<_>, _>>()?
-                        .into_iter()
-                        .flatten()
-                        .cloned()
-                        .collect();
-                    practices.push(json!({"courseId":id,"records":records}));
-                } else if let Some(identity) = key.strip_prefix("lesson-knowledge:") {
-                    let identity: Value =
-                        serde_json::from_str(identity).map_err(|_| "知识点索引无效".to_string())?;
-                    // Full-lesson summaries own the index; partial summaries duplicate their points.
-                    if identity[2].is_null() && !value.is_null() && value["version"] == 2 {
-                        summaries.push(json!({"courseId":identity[0],"path":identity[1],"createdAt":value["createdAt"],"overview":value["overview"],"points":value["points"]}));
-                    }
-                }
-            }
-            let mut result = json!({"practices":practices,"notes":notes,"summaries":summaries});
-            if let Some(id) = id {
-                result["courseId"] = json!(id);
-            }
-            Ok(result)
-        }
         "library" => {
             let (query, args) = if let Some(id) = q["id"].as_str() {
                 (
@@ -234,34 +174,6 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                 result[row["date"].as_str().unwrap_or_default()] = snapshot;
             }
             Ok(result)
-        }
-        "study-evidence" => {
-            // Only aggregates and timestamps cross the boundary; never note text or answers.
-            let notes: Vec<Value> = rows(db,
-                "SELECT course_id,length(content) AS characters,updated_at FROM notes", vec![])?
-                .iter().map(|r| json!({"courseId":r["course_id"],"characters":r["characters"],"updatedAt":r["updated_at"]})).collect();
-            let mut practices = Vec::new();
-            for r in rows(
-                db,
-                "SELECT course_id,video_path,records_json FROM lesson_practices",
-                vec![],
-            )? {
-                let records: Value =
-                    serde_json::from_str(r["records_json"].as_str().ok_or("练习记录格式异常")?)
-                        .map_err(|_| "练习记录格式异常")?;
-                for record in records.as_array().ok_or("练习记录格式异常")? {
-                    let solid_at = record["attempts"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|a| a["feedback"]["result"] == "solid")
-                        .filter_map(|a| a["at"].as_i64())
-                        .min();
-                    practices.push(json!({"courseId":r["course_id"],
-                        "id":format!("{}:{}",r["video_path"],record["id"].as_str().ok_or("练习编号无效")?),"solidAt":solid_at}));
-                }
-            }
-            Ok(json!({"notes":notes,"practices":practices}))
         }
         "dashboard" => {
             let library = if let Some(id) = q["courseId"].as_str() {
@@ -343,7 +255,7 @@ fn read(db: &Connection, endpoint: &str, q: &Value) -> Result<Value> {
                 "SELECT * FROM check_ins WHERE course_id=?",
                 vec![course()?],
             )? {
-                result[r["date"].as_str().unwrap_or_default()] = json!({"date":r["date"],"seconds":r["seconds"],"targetSeconds":r["target_seconds"],"checkedAt":r["checked_at"]});
+                result[r["date"].as_str().unwrap_or_default()] = json!({"date":r["date"],"seconds":r["seconds"],"practiceSeconds":r["practice_seconds"],"targetSeconds":r["target_seconds"],"checkedAt":r["checked_at"]});
             }
             Ok(result)
         }
@@ -560,9 +472,13 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
         }
         "check-in" => {
             for day in b["days"].as_array().ok_or("打卡数据无效")? {
+                let practice = day.get("practiceSeconds").cloned().unwrap_or(json!(0));
+                if !practice.as_f64().is_some_and(|seconds| (0.0..=86400.0).contains(&seconds)) {
+                    return Err("实践时长无效".into());
+                }
                 // 学习时长只累计；另一窗口较旧的快照不能倒退时长或撤销打卡。
-                db.execute("INSERT INTO check_ins (course_id,date,seconds,target_seconds,checked_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(course_id,date) DO UPDATE SET seconds=MAX(check_ins.seconds,excluded.seconds),target_seconds=excluded.target_seconds,checked_at=COALESCE(check_ins.checked_at,excluded.checked_at),updated_at=excluded.updated_at",
-                    params_from_iter([course()?,json!(text(day,"date")?),day["seconds"].clone(),day["targetSeconds"].clone(),day["checkedAt"].clone(),time.clone(),time.clone()].iter().map(sql))).map_err(|e| e.to_string())?;
+                db.execute("INSERT INTO check_ins (course_id,date,seconds,target_seconds,checked_at,created_at,updated_at,practice_seconds) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(course_id,date) DO UPDATE SET seconds=MAX(check_ins.seconds,excluded.seconds),practice_seconds=MAX(check_ins.practice_seconds,excluded.practice_seconds),target_seconds=excluded.target_seconds,checked_at=COALESCE(check_ins.checked_at,excluded.checked_at),updated_at=excluded.updated_at",
+                    params_from_iter([course()?,json!(text(day,"date")?),day["seconds"].clone(),day["targetSeconds"].clone(),day["checkedAt"].clone(),time.clone(),time.clone(),practice].iter().map(sql))).map_err(|e| e.to_string())?;
             }
         }
         "guide" => upsert(db,"learning_guides","course_id,plan_json,metadata_json,view,include_optional,mastery_json,questions_json,today_json,updated_at","course_id",vec![course()?,b["plan"].clone(),b["metadata"].clone(),default("view",json!("all")),json!(b["includeOptional"]==true),b["mastery"].clone(),b["questions"].clone(),b["today"].clone(),time.clone()])?,
@@ -601,7 +517,24 @@ fn write(db: &Connection, endpoint: &str, method: &str, q: &Value, b: &Value) ->
             if !b["records"].is_array() { return Err("练习记录无效".into()); }
             upsert(db,"lesson_practices","course_id,video_path,records_json,updated_at","course_id,video_path",vec![course()?,json!(text(b,"videoPath")?),b["records"].clone(),time.clone()])?;
         }
-        "settings" => upsert(db,"app_settings","key,value_json,updated_at","key",vec![json!(text(b,"key")?),json!(b["value"].to_string()),time.clone()])?,
+        "settings" => {
+            let key = text(b, "key")?;
+            if key.starts_with("home-tasks:") {
+                return Err("首页待办功能已移除".into());
+            }
+            let mut value = b["value"].clone();
+            if key == "learning-management:v1" {
+                if let Some(object) = value.as_object_mut() {
+                    for key in ["contracts", "works", "cards", "flows", "protections"] {
+                        object.remove(key);
+                    }
+                    if let Some(preferences) = object.get_mut("preferences").and_then(Value::as_object_mut) {
+                        preferences.remove("flowPrompt");
+                    }
+                }
+            }
+            upsert(db,"app_settings","key,value_json,updated_at","key",vec![json!(key),json!(value.to_string()),time.clone()])?;
+        }
         _ => return Err("不支持的数据操作".into()),
     }
     Ok(json!({"success":true,"updatedAt":time}))
@@ -618,44 +551,88 @@ mod persistence_tests {
         db
     }
     #[test]
-    fn learning_sources_migrate_old_records_without_exposing_other_settings() {
-        let mut db = database();
-        let before = read(&db, "learning-sources", &json!({})).unwrap();
-        assert_eq!(before, json!({"notes":[],"summaries":[],"practices":[]}));
-        for (key, value) in [
-            ("ai_settings", json!({"apiKey":"SECRET"})),
-            ("learning-notion", json!({"token":"SECRET"})),
-            (
-                "daily-practice:one",
-                json!({"daily:day":[{"id":"practice"}]}),
-            ),
-            (
-                "lesson-knowledge:[\"one\",\"1.mp4\",null]",
-                json!({"version":2,"createdAt":1,"overview":"overview","points":[]}),
-            ),
-        ] {
+    fn old_check_in_database_adds_practice_without_changing_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("old.db");
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch("CREATE TABLE check_ins (course_id TEXT NOT NULL,date TEXT NOT NULL,seconds REAL NOT NULL,target_seconds INTEGER NOT NULL,checked_at INTEGER,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(course_id,date)); INSERT INTO check_ins VALUES ('one','2026-11-02',30,60,123,1,1);").unwrap();
+        drop(connection);
+        for _ in 0..2 {
+            let connection = open(&path).unwrap();
+            let days = read(&connection, "check-in", &json!({"courseId":"one"})).unwrap();
+            assert_eq!(days["2026-11-02"]["seconds"], 30.0);
+            assert_eq!(days["2026-11-02"]["practiceSeconds"], 0.0);
+            assert_eq!(days["2026-11-02"]["checkedAt"], 123);
+        }
+    }
+
+    #[test]
+    fn practice_round_trip_is_monotonic_and_legacy_writes_do_not_erase_it() {
+        let mut connection = database();
+        for practice in [Some(json!(12.5)), Some(json!(2)), None] {
+            let mut day =
+                json!({"date":"2026-11-02","seconds":10,"targetSeconds":60,"checkedAt":null});
+            if let Some(value) = practice {
+                day["practiceSeconds"] = value;
+            }
             request(
-                &mut db,
-                "settings",
+                &mut connection,
+                "check-in",
                 "POST",
                 json!({}),
-                json!({"key":key,"value":value}),
+                json!({"courseId":"one","days":[day]}),
             )
             .unwrap();
         }
-        request(
+        let days = read(&connection, "check-in", &json!({"courseId":"one"})).unwrap();
+        assert_eq!(days["2026-11-02"]["practiceSeconds"], 12.5);
+        assert_eq!(days["2026-11-02"]["seconds"], 10.0);
+        for invalid in [json!(-1), json!(86401), json!("10"), Value::Null] {
+            assert!(request(&mut connection,"check-in","POST",json!({}),json!({"courseId":"one","days":[{"date":"2026-11-02","seconds":0,"targetSeconds":60,"checkedAt":null,"practiceSeconds":invalid}]})).is_err());
+        }
+    }
+    #[test]
+    fn retired_features_cannot_be_saved_again() {
+        let mut db = database();
+        assert!(request(
             &mut db,
-            "notes",
+            "settings",
             "POST",
             json!({}),
-            json!({"courseId":"one","videoPath":"1.mp4","content":"note"}),
+            json!({
+                "key": "home-tasks:v1", "value": {"todos": [{}]}
+            })
+        )
+        .is_err());
+        assert!(read(&db, "settings", &json!({"key": "home-tasks:v1"}))
+            .unwrap()
+            .is_null());
+        request(
+            &mut db,
+            "settings",
+            "POST",
+            json!({}),
+            json!({
+                "key": "learning-management:v1", "value": {
+                    "version": 1, "contracts": [{}], "works": [{"screenshot": "retired"}],
+                    "cards": [{"id": "retired"}], "flows": [], "protections": [], "preferences": {"flowPrompt": true, "calendarTime": "08:30", "calendarDays": 14, "calendarEnabled": true}
+                }
+            }),
         )
         .unwrap();
-        let value = read(&db, "learning-sources", &json!({})).unwrap();
-        assert_eq!(value["notes"][0]["content"], "note");
-        assert_eq!(value["summaries"][0]["courseId"], "one");
-        assert_eq!(value["practices"][0]["records"][0]["id"], "practice");
-        assert!(!value.to_string().contains("SECRET"));
+        let saved = read(&db, "settings", &json!({"key": "learning-management:v1"})).unwrap();
+        assert!(saved.get("contracts").is_none());
+        assert!(saved.get("works").is_none());
+        for key in ["cards", "flows", "protections"] {
+            assert!(saved.get(key).is_none());
+        }
+        assert_eq!(
+            saved["preferences"],
+            json!({"calendarTime": "08:30", "calendarDays": 14, "calendarEnabled": true})
+        );
+        for endpoint in ["learning-sources", "study-evidence"] {
+            assert!(read(&db, endpoint, &json!({})).is_err());
+        }
     }
     #[test]
     fn incoming_note_edit_must_match_current_content() {
@@ -1166,7 +1143,7 @@ mod persistence_tests {
     }
 
     #[test]
-    fn incremental_sources_and_dashboard_only_return_the_requested_canonical_course() {
+    fn incremental_dashboard_only_returns_the_requested_canonical_course() {
         let mut db = database();
         for id in ["one", "two"] {
             request(
@@ -1202,23 +1179,6 @@ mod persistence_tests {
         }
         db.execute("INSERT INTO course_aliases VALUES ('old-one','one')", [])
             .unwrap();
-        let data = request(
-            &mut db,
-            "learning-sources",
-            "GET",
-            json!({"courseId":"old-one"}),
-            Value::Null,
-        )
-        .unwrap();
-        assert_eq!(data["courseId"], "one");
-        for key in ["notes", "practices", "summaries"] {
-            assert!(!data[key].as_array().unwrap().is_empty());
-            assert!(data[key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|row| row["courseId"] == "one"));
-        }
         let dashboard = request(
             &mut db,
             "dashboard",
@@ -1269,28 +1229,6 @@ mod persistence_tests {
         assert!(entries.iter().find(|e| e["course"]["id"] == "one").unwrap()["error"].is_string());
         assert!(entries.iter().find(|e| e["course"]["id"] == "two").unwrap()["data"].is_object());
         assert!(!data.to_string().contains("private-test-key"));
-    }
-
-    #[test]
-    fn study_evidence_omits_private_text_and_uses_first_success() {
-        let mut db = database();
-        request(
-            &mut db,
-            "notes",
-            "POST",
-            json!({}),
-            json!({"courseId":"one","videoPath":"1.mp4","content":"私密笔记"}),
-        )
-        .unwrap();
-        db.execute("INSERT INTO lesson_practices(course_id,video_path,records_json,updated_at) VALUES ('one','1.mp4',?,1)",
-            [json!([{"id":"q1","question":{"prompt":"private-question"},"attempts":[
-                {"answer":"private-answer","feedback":{"result":"solid"},"at":200},
-                {"feedback":{"result":"solid"},"at":100}]}]).to_string()]).unwrap();
-        let data = request(&mut db, "study-evidence", "GET", json!({}), Value::Null).unwrap();
-        assert_eq!(data["notes"][0]["characters"], 4);
-        assert_eq!(data["practices"][0]["solidAt"], 100);
-        assert!(!data.to_string().contains("私密笔记"));
-        assert!(!data.to_string().contains("private-"));
     }
 
     #[test]

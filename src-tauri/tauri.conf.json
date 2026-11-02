@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "main",
+        "visible": false,
         "backgroundThrottling": "disabled",
         "title": "Study Helper",
         "width": 1440,

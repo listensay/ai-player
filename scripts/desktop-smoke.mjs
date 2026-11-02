@@ -8,6 +8,8 @@ import { prepareAiChat } from '../tests/fixtures/aiChat.mjs'
 const root = resolve(import.meta.dirname, '..')
 const lessonOnly = process.env.AI_PLAYER_SMOKE_LESSON_ONLY === '1'
 const homeOnly = process.argv.includes('--home')
+const desktopSettingsOnly = process.argv.includes('--desktop-settings')
+const playerTimingOnly = process.argv.includes('--player-timing')
 const notesStorageOnly = process.argv.includes('--notes-storage') || process.argv.includes('--data-storage')
 async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: root, stdio: 'inherit', ...options })
@@ -45,17 +47,21 @@ const executable = join(
   process.platform === 'win32' ? 'study-helper.exe' : 'study-helper',
 )
 const data = await mkdtemp(join(tmpdir(), 'ai-player-desktop-smoke-'))
-await prepareDesktopSmoke(data)
+await prepareDesktopSmoke(data, { audibleReminder: desktopSettingsOnly })
 const reports = []
 const closeAiChat = homeOnly ? await prepareAiChat(data) : null
 try {
-  const phases = notesStorageOnly
-    ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
-    : homeOnly
-      ? ['home', 'home-restart']
-      : lessonOnly
-        ? ['lessons', 'lesson-restart']
-        : ['first', 'second']
+  const phases = playerTimingOnly
+    ? ['player-timing', 'player-timing-restart']
+    : desktopSettingsOnly
+      ? ['desktop-settings', 'desktop-settings-restart']
+      : notesStorageOnly
+        ? ['storage-legacy', 'storage-migrate', 'storage-move', 'storage-other-computer']
+        : homeOnly
+          ? ['home', 'home-restart']
+          : lessonOnly
+            ? ['lessons', 'lesson-restart']
+            : ['first', 'second']
   for (const phase of phases) {
     let phaseData = data
     if (phase === 'storage-other-computer') {
@@ -71,7 +77,7 @@ try {
       )
     }
     try {
-      await run(executable, [], {
+      await run(executable, phase === 'desktop-settings-restart' ? ['--autostart'] : [], {
         env: {
           ...process.env,
           AI_PLAYER_SMOKE_DATA: phaseData,
@@ -99,7 +105,7 @@ try {
   }
   for (const report of reports) {
     if (!report.success) throw Error(`Native desktop regression failed: ${report.phase}`)
-    if (notesStorageOnly || homeOnly) continue
+    if (notesStorageOnly || homeOnly || desktopSettingsOnly || playerTimingOnly) continue
     for (const name of Object.keys(limits)) {
       if (!report.metrics?.some((metric) => metric.name === `ai-player:${name}`))
         throw Error(`Missing native performance metric: ${name}`)

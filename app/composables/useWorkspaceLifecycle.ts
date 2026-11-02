@@ -6,46 +6,58 @@ export function useWorkspaceLifecycle(options: {
   activeJobs: () => boolean
   flush: () => Promise<void>
 }) {
-  let unlistenClose: (() => void) | undefined, unlistenQuit: (() => void) | undefined
-  let closing = false,
+  const unlisteners: Array<() => void> = []
+  let action: 'hide' | 'quit' | null = null,
+    pendingQuit = false,
     disposed = false
-  async function closeSafely() {
-    if (closing || disposed) return
-    closing = true
+  async function closeSafely(next: 'hide' | 'quit') {
+    if (disposed) return
+    if (action) {
+      if (action === 'hide' && next === 'quit') pendingQuit = true
+      return
+    }
+    action = next
     try {
-      if (options.activeJobs() && !(await desktopInvoke<boolean>('confirm_asr_quit'))) return
+      if (next === 'quit') {
+        await desktopInvoke('show_main_window')
+        if (options.activeJobs() && !(await desktopInvoke<boolean>('confirm_asr_quit'))) return
+      }
       await options.flush()
       await desktopInvoke('notes_storage_flush')
       await desktopInvoke('data_storage_flush')
-      await desktopInvoke('finish_close')
+      if (!disposed) await desktopInvoke(next === 'hide' ? 'hide_main_window' : 'finish_close')
     } catch (error) {
-      options.notify(`数据尚未保存，请重试后关闭窗口：${error instanceof Error ? error.message : String(error)}`)
+      options.notify(`保存失败，请重试：${error instanceof Error ? error.message : String(error)}`)
     } finally {
-      closing = false
+      action = null
+      if (pendingQuit && !disposed) {
+        pendingQuit = false
+        void closeSafely('quit')
+      }
     }
   }
   onMounted(async () => {
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
       const { listen } = await import('@tauri-apps/api/event')
-      unlistenClose = await getCurrentWindow().onCloseRequested((event) => {
-        event.preventDefault()
-        void closeSafely()
-      })
-      unlistenQuit = await listen('desktop-quit-requested', closeSafely)
-      if (disposed) {
-        unlistenClose()
-        unlistenQuit()
-        return
+      for (const [event, next] of [
+        ['desktop-hide-requested', 'hide'],
+        ['desktop-quit-requested', 'quit'],
+      ] as const) {
+        const unlisten = await listen(event, () => void closeSafely(next))
+        if (disposed) {
+          unlisten()
+          return
+        }
+        unlisteners.push(unlisten)
       }
       await desktopInvoke('frontend_ready')
     } catch {
-      options.notify('关闭窗口保护初始化失败，请稍后重试关闭。')
+      unlisteners.splice(0).forEach((unlisten) => unlisten())
+      if (!disposed) options.notify('窗口操作初始化失败，请重试。')
     }
   })
   onBeforeUnmount(() => {
     disposed = true
-    unlistenClose?.()
-    unlistenQuit?.()
+    unlisteners.splice(0).forEach((unlisten) => unlisten())
   })
 }

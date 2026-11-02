@@ -13,7 +13,10 @@ export function totalCourseStudyTime(courses: HomeCourse[], today = localDayKey(
   for (const entry of courses) {
     if (!entry.context || entry.error) continue
     for (const [date, day] of Object.entries(entry.days)) {
-      if (validDate(date) && date <= today) videoSeconds += day.seconds
+      if (validDate(date) && date <= today) {
+        videoSeconds += day.seconds
+        workSeconds += day.practiceSeconds ?? 0
+      }
     }
     for (const record of entry.context.records.entries) {
       if (validDate(record.date) && record.date <= today) workSeconds += record.minutes * 60
@@ -33,7 +36,9 @@ export function continueLearning(courses: HomeCourse[]) {
       const recent = Object.entries(progress)
         .filter(([, item]) => item.time > 0 || item.ratio > 0 || item.done)
         .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
-      const studiedDays = Object.entries(days).filter(([date, day]) => day.seconds > 0 && validDate(date))
+      const studiedDays = Object.entries(days).filter(
+        ([date, day]) => day.seconds + (day.practiceSeconds ?? 0) > 0 && validDate(date),
+      )
       if (!recent.length && !studiedDays.length) return []
       const lastStudiedAt = studiedDays.reduce(
         (latest, [date]) => Math.max(latest, new Date(`${date}T00:00:00`).getTime()),

@@ -14,7 +14,7 @@ import {
 } from '~/utils/checkIn'
 import { localDayKey } from '~/utils/learningFeedback'
 import { dbFetchCheckIns, dbSaveCheckIns } from '~/utils/dbClient'
-import type { provideLearningManagement } from './useLearningManagement'
+import { createStudyClock, type StudyClockContext } from '~/utils/studyClock'
 
 export type StudyCheckInInstance = ReturnType<typeof useStudyCheckIn>
 export const CHECK_IN_KEY: InjectionKey<StudyCheckInInstance> = Symbol('study-check-in')
@@ -36,7 +36,7 @@ export interface CheckInPlan {
 export function useStudyCheckIn(
   course: Ref<Course | null>,
   plan: Ref<CheckInPlan>,
-  learning?: ReturnType<typeof provideLearningManagement>,
+  session?: Readonly<Ref<StudyClockContext | null>>,
 ) {
   const state = reactive({ days: {} as Record<string, StudyDay>, date: localDayKey(), storageError: '' })
   const justCheckedIn = ref<StudyDay | null>(null)
@@ -45,25 +45,19 @@ export function useStudyCheckIn(
   let previous: { sample: PlaybackSample; wall: number; path: string } | null = null
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let dayTimer: ReturnType<typeof setInterval> | undefined
+  let saves: Promise<boolean> = Promise.resolve(true)
+  const clock = createStudyClock(({ courseId, kind }, end, seconds) => addSeconds(courseId, kind, end, seconds))
 
   const current = computed(() => state.days[state.date])
-  const protections = computed(
-    () => learning?.state.data.protections.filter((p) => p.courseId === course.value?.id) ?? [],
-  )
-  const streak = computed(() => {
-    const days = { ...state.days }
-    for (const p of protections.value)
-      days[p.date] = { ...(days[p.date] ?? { date: p.date, targetSeconds: 0, seconds: 0 }), checkedAt: p.at }
-    return studyStreak(days, state.date)
-  })
+  const streak = computed(() => studyStreak(state.days, state.date))
   const total = computed(() => Object.values(state.days).filter((day) => day.checkedAt !== null).length)
   const isAchieved = computed(() => !!current.value?.checkedAt)
   const targetSeconds = computed(() => current.value?.targetSeconds ?? minutesFor(state.date) * 60)
-  const includesWork = computed(() => plan.value.targetMinutes != null)
+  const includesWork = computed(() => session !== undefined || plan.value.targetMinutes != null)
   const startDate = computed(() => plan.value.startDate ?? null)
   const endDate = computed(() => plan.value.endDate ?? null)
-  const workFor = (date: string) => plan.value.workSeconds?.[date] ?? 0
-  /** 当日学习时长：有效看课时长 + 记录的实践时间。 */
+  const workFor = (date: string) => (plan.value.workSeconds?.[date] ?? 0) + (state.days[date]?.practiceSeconds ?? 0)
+  /** 当日学习时长：网课用时 + 实践用时。 */
   const secondsFor = (date: string) => Math.min(86400, (state.days[date]?.seconds ?? 0) + workFor(date))
   const seconds = computed(() => secondsFor(state.date))
   const taskProgress = computed(() =>
@@ -95,12 +89,46 @@ export function useStudyCheckIn(
   function persist() {
     clearTimeout(saveTimer)
     saveTimer = undefined
-    if (!activeId || !ready) return
-    void dbSaveCheckIns(activeId, Object.values(state.days))
+    if (!activeId || !ready) return Promise.resolve(true)
+    const id = activeId
+    const days = Object.values(state.days).map((day) => ({ ...day }))
+    const task = saves
+      .then(() => dbSaveCheckIns(id, days))
+      .catch(() => false)
+      .then((saved) => {
+        if (id === activeId && ready) {
+          if (!saved) state.storageError = '学习时间保存失败，请重试。'
+          else if (state.storageError === '学习时间保存失败，请重试。') state.storageError = ''
+        }
+        return saved
+      })
+    saves = task
+    return task
   }
 
   function scheduleSave() {
     if (!saveTimer) saveTimer = setTimeout(persist, 2000)
+  }
+
+  function tickSession() {
+    if (session) clock.tick(ready ? session.value : null)
+  }
+
+  function addSeconds(id: string, kind: 'video' | 'practice', end: number, seconds: number) {
+    if (!ready || id !== activeId) return
+    for (const part of splitStudySeconds(end, seconds)) {
+      const day = ensureDay(part.date)
+      const wasChecked = day.checkedAt !== null
+      const added = Math.min(part.seconds, Math.max(0, 86400 - day.seconds - (day.practiceSeconds ?? 0)))
+      if (kind === 'video') day.seconds += added
+      else day.practiceSeconds = (day.practiceSeconds ?? 0) + added
+      checkStudyDay(day, end, workFor(part.date))
+      if (!wasChecked && day.checkedAt !== null) {
+        justCheckedIn.value = { ...day }
+        persist()
+      }
+    }
+    scheduleSave()
   }
 
   function syncDay() {
@@ -118,6 +146,7 @@ export function useStudyCheckIn(
   }
 
   function sample(path: string, sample: PlaybackSample) {
+    if (session) return
     if (!activeId || !ready || course.value?.id !== activeId || !course.value.videos.some((v) => v.path === path)) {
       previous = null
       return
@@ -128,17 +157,7 @@ export function useStudyCheckIn(
     // 系统时间被大幅调整时，不把两个不连续日期拼成一次学习。
     const wallMatches = previous && Math.abs(now - previous.wall - (sample.at - previous.sample.at)) < 2000
     if (elapsed > 0 && wallMatches) {
-      for (const part of splitStudySeconds(now, elapsed)) {
-        const day = ensureDay(part.date)
-        const wasChecked = day.checkedAt !== null
-        day.seconds = Math.min(86400, day.seconds + part.seconds)
-        checkStudyDay(day, now, workFor(part.date))
-        if (!wasChecked && day.checkedAt !== null) {
-          justCheckedIn.value = { ...day }
-          persist()
-        }
-      }
-      scheduleSave()
+      addSeconds(activeId, 'video', now, elapsed)
     }
     previous = { sample, wall: now, path }
     if (!sample.playing || sample.ended) persist()
@@ -155,7 +174,9 @@ export function useStudyCheckIn(
       onCleanup(() => {
         stale = true
       })
+      tickSession()
       persist()
+      clock.reset()
       resetPlayback()
       activeId = course.value?.id ?? ''
       ready = false
@@ -172,12 +193,23 @@ export function useStudyCheckIn(
         state.days = dbDays
         ready = true
         syncDay()
+        tickSession()
       } catch {
         if (stale) return
         state.storageError = '打卡记录读取失败，已暂停保存并保留原有记录。请重新打开课程后重试。'
       }
     },
     { immediate: true, flush: 'sync' },
+  )
+
+  watch(
+    () => session?.value,
+    () => {
+      tickSession()
+      syncDay()
+      persist()
+    },
+    { flush: 'sync' },
   )
 
   watch(
@@ -195,25 +227,33 @@ export function useStudyCheckIn(
   )
 
   onMounted(() => {
-    dayTimer = setInterval(syncDay, 1000)
-    window.addEventListener('beforeunload', persist)
-    window.addEventListener('pagehide', persist)
+    dayTimer = setInterval(() => {
+      tickSession()
+      syncDay()
+    }, 1000)
+    window.addEventListener('beforeunload', finishSession)
+    window.addEventListener('pagehide', finishSession)
     window.addEventListener('focus', syncDay)
   })
 
   onBeforeUnmount(() => {
-    persist()
+    finishSession()
     clearInterval(dayTimer)
-    window.removeEventListener('beforeunload', persist)
-    window.removeEventListener('pagehide', persist)
+    window.removeEventListener('beforeunload', finishSession)
+    window.removeEventListener('pagehide', finishSession)
     window.removeEventListener('focus', syncDay)
   })
+
+  function finishSession() {
+    tickSession()
+    clock.reset()
+    return persist()
+  }
 
   const instance = {
     state,
     current,
     streak,
-    protections,
     total,
     isAchieved,
     targetSeconds,
@@ -231,6 +271,7 @@ export function useStudyCheckIn(
     sample,
     resetPlayback,
     persist,
+    finishSession,
   }
 
   provide(CHECK_IN_KEY, instance)

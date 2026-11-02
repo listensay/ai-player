@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import PracticeManagementPanel from '~/components/PracticeManagementPanel.vue'
 import PageSectionNav from '~/components/PageSectionNav.vue'
-import StudyInsightsPanel from '~/components/StudyInsightsPanel.vue'
 import ReminderTimePicker from '~/components/ReminderTimePicker.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useStudyTools } from '~/composables/useStudyTools'
@@ -11,29 +9,18 @@ import type { StudyReminder } from '~/types/studyTools'
 import UiButton from '~/components/UiButton.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import StudyFormDialog from '~/components/StudyFormDialog.vue'
-import ReviewQueuePanel from '~/components/ReviewQueuePanel.vue'
-import LearningOutcomesPanel from '~/components/LearningOutcomesPanel.vue'
-import LearningHealthPanel from '~/components/LearningHealthPanel.vue'
 import LearningConnectionsPanel from '~/components/LearningConnectionsPanel.vue'
 
 const props = defineProps<{ initialSection?: string }>()
-const activeSection = ref('insights')
+const activeSection = ref('connections')
 watch(
   () => props.initialSection,
   (section) => {
-    activeSection.value = ['practice', 'insights', 'reminders', 'review', 'outcomes', 'connections'].includes(
-      section ?? '',
-    )
-      ? section!
-      : 'insights'
+    activeSection.value = ['reminders', 'connections'].includes(section ?? '') ? section! : 'connections'
   },
   { immediate: true },
 )
 const sections = [
-  { id: 'practice', title: '练习管理', icon: 'graduation' },
-  { id: 'insights', title: '成长与复盘', icon: 'dashboard' },
-  { id: 'review', title: '抗遗忘复习', icon: 'reset' },
-  { id: 'outcomes', title: '实践作品', icon: 'graduation' },
   { id: 'connections', title: '学习日历', icon: 'note' },
   { id: 'reminders', title: '学习提醒', icon: 'bell' },
 ] as const
@@ -146,23 +133,7 @@ const coursePaused = (id: string) =>
       </p>
       <div class="grid items-start gap-8 sm:grid-cols-[minmax(0,1fr)_168px]">
         <div class="min-w-0">
-          <ReviewQueuePanel v-if="activeSection === 'review'" id="study-review" />
-          <LearningOutcomesPanel v-if="activeSection === 'outcomes'" id="study-outcomes" />
           <LearningConnectionsPanel v-if="activeSection === 'connections'" id="study-connections" />
-          <PracticeManagementPanel v-if="activeSection === 'practice'" />
-          <StudyInsightsPanel
-            v-show="activeSection === 'insights'"
-            id="study-insights"
-            :courses="home.courses.value"
-            :today="home.date.value"
-            :loading="home.loading.value"
-            :error="home.error.value"
-            @refresh="home.refresh"
-          >
-            <template #plan-health>
-              <LearningHealthPanel v-if="activeSection === 'insights'" />
-            </template>
-          </StudyInsightsPanel>
           <section
             v-show="activeSection === 'reminders'"
             id="study-reminders"

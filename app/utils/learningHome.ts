@@ -96,7 +96,11 @@ export function restoreHomeCourse(raw: unknown, today = localDayKey()): HomeCour
       enabled: course.status === 'active',
     }
     for (const [date, value] of Object.entries(data.days)) {
-      if (!isRecord(value) || typeof value.seconds !== 'number' || !Number.isFinite(value.seconds) || value.seconds < 0)
+      if (
+        !isRecord(value) ||
+        !nonnegative(value.seconds) ||
+        (value.practiceSeconds !== undefined && !nonnegative(value.practiceSeconds))
+      )
         throw new Error('学习时长记录格式异常。')
       result.days[date] = value as unknown as StudyDay
     }
@@ -139,9 +143,11 @@ export function reviewDay(courses: HomeCourse[], date: string) {
     .filter((c) => c.context)
     .map((course) => {
       const videoSeconds = course.days[date]?.seconds ?? 0
-      const workSeconds = course
-        .context!.records.entries.filter((e) => e.date === date)
-        .reduce((sum, entry) => sum + entry.minutes * 60, 0)
+      const workSeconds =
+        (course.days[date]?.practiceSeconds ?? 0) +
+        course
+          .context!.records.entries.filter((e) => e.date === date)
+          .reduce((sum, entry) => sum + entry.minutes * 60, 0)
       const snapshot = course.snapshots[date]
       return { id: course.course.id, name: course.course.name, videoSeconds, workSeconds, snapshot }
     })

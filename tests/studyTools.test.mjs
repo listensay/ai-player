@@ -27,6 +27,8 @@ test('缺省数据可建立，损坏、未知版本和非法字段不能覆盖�
     undefined,
     {},
     { ...emptyStudyTools(), version: 2 },
+    { ...emptyStudyTools(), reminderSound: 'yes' },
+    { ...emptyStudyTools(), reminderSound: null },
     { ...emptyStudyTools(), reminders: [reminder({ time: '24:00' })] },
     { ...emptyStudyTools(), reminders: [reminder({ weekdays: [] })] },
     { ...emptyStudyTools(), reminders: [reminder({ weekdays: [1, 1] })] },
@@ -34,6 +36,15 @@ test('缺省数据可建立，损坏、未知版本和非法字段不能覆盖�
     { ...emptyStudyTools(), reminders: [reminder({ snoozedUntil: NaN })] },
   ])
     assert.throws(() => parseStudyTools(raw))
+})
+
+test('旧版提醒补齐关闭的响铃设置，开关往返保留且不修改原记录', () => {
+  const legacy = { version: 1, desktopNotifications: false, reminders: [reminder()] }
+  const restored = parseStudyTools(legacy)
+  assert.equal(restored.reminderSound, false)
+  assert.equal(Object.hasOwn(legacy, 'reminderSound'), false)
+  restored.reminderSound = true
+  assert.equal(parseStudyTools(JSON.parse(JSON.stringify(restored))).reminderSound, true)
 })
 
 test('仅有提醒的数据可保存，往返保留发送状态并隔离修改', () => {
@@ -160,6 +171,7 @@ test('以当天实际观看或实践投入判断开始学习，浏览课程和�
   assert.equal(hasStudyActivity({ [date]: { seconds: 0 } }, null, date), false)
   assert.equal(hasStudyActivity({ '2026-09-27': { seconds: 100 } }, null, date), false)
   assert.equal(hasStudyActivity({ [date]: { seconds: 0.2 } }, null, date), true)
+  assert.equal(hasStudyActivity({ [date]: { seconds: 0, practiceSeconds: 1 } }, null, date), true)
   assert.equal(hasStudyActivity({}, { entries: [{ date, minutes: 1 }] }, date), true)
   assert.equal(hasStudyActivity({}, { entries: [{ date, minutes: 0, done: true }] }, date), false)
   assert.equal(hasStudyActivity({}, { entries: [{ date: '2026-09-27', minutes: 10 }] }, date), false)

@@ -13,6 +13,7 @@ export interface StudyReminder {
 export interface StudyToolsData {
   version: 1
   desktopNotifications: boolean
+  reminderSound: boolean
   reminders: StudyReminder[]
 }
 

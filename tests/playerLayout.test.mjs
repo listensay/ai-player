@@ -6,7 +6,31 @@ import { createRenderer, ref, reactive, computed, nextTick, h } from 'vue'
 import { test } from 'node:test'
 
 // Render actual page templates; replace native video and editor internals only.
-test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且顶部不再重复目录入口', async (t) => {
+test('播放器侧栏自由拉伸、接近边缘自动收起、笔记实例与页签保留', async (t) => {
+  const previous = Object.fromEntries(['window', 'localStorage', 'ResizeObserver'].map((key) => [key, globalThis[key]]))
+  const listeners = new Map(),
+    storage = new Map()
+  globalThis.window = {
+    innerWidth: 1280,
+    addEventListener: (type, handler) => {
+      if (!listeners.has(type)) listeners.set(type, new Set())
+      listeners.get(type).add(handler)
+    },
+    removeEventListener: (type, handler) => listeners.get(type)?.delete(handler),
+  }
+  globalThis.localStorage = { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) }
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  }
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete globalThis[key]
+      else globalThis[key] = value
+    }
+    delete globalThis.sidebarWorkspace
+    delete globalThis.sidebarStubs
+  })
   const videos = [{ path: 'a.mp4', title: '课程一' }]
   const nil = () => {}
   globalThis.sidebarWorkspace = {
@@ -50,11 +74,11 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
   let noteMounts = 0
   const stub = (name) => ({
     name,
-    props: ['active'],
+    props: ['active', 'blocked'],
     setup(props, { slots }) {
       if (name === 'AffineWorkspace') noteMounts++
       return () =>
-        h('section', { 'data-stub': name, 'data-active': props.active }, [
+        h('section', { 'data-stub': name, 'data-active': props.active, 'data-blocked': props.blocked }, [
           slots.default?.(),
           slots['header-actions']?.(),
           slots.actions?.(),
@@ -87,8 +111,8 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
         'const useCourseWorkspace = () => globalThis.sidebarWorkspace',
       )
       .replace(
-        /from ['"]~\/composables\/useLearningPanelWidth['"]/g,
-        `from '${new URL('../app/composables/useLearningPanelWidth.ts', import.meta.url).href}'`,
+        /from ['"]~\/composables\/usePlayerPanels['"]/g,
+        `from '${new URL('../app/composables/usePlayerPanels.ts', import.meta.url).href}'`,
       )
       .replace(/import \{ usePageTitle \} from [^\n]+/, 'const usePageTitle = () => {}')
       .replace(/import \{ formatTime \} from [^\n]+/, 'const formatTime = String')
@@ -105,7 +129,31 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
     return (await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)).default
   }
   function element(type) {
-    return { type, props: {}, style: {}, children: [], parent: null }
+    return {
+      type,
+      props: {},
+      style: {},
+      children: [],
+      parent: null,
+      getBoundingClientRect() {
+        const layout = walk(root).find((node) => node.props.class?.includes('player-layout'))
+        const variable = this.props.id === 'player-course-directory' ? '--directory-width' : '--learning-panel-width'
+        return {
+          width: this.props.class?.includes('player-layout')
+            ? window.innerWidth
+            : parseFloat(layout?.props.style?.[variable]) || 0,
+        }
+      },
+      setPointerCapture(id) {
+        this.pointerId = id
+      },
+      hasPointerCapture(id) {
+        return this.pointerId === id
+      },
+      releasePointerCapture() {
+        this.pointerId = null
+      },
+    }
   }
   const renderer = createRenderer({
     createElement: element,
@@ -141,6 +189,7 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
   const root = element('root'),
     app = renderer.createApp(await component('app/pages/PlayerPage.vue'))
   app.mount(root)
+  await nextTick()
   const find = (key, value) => walk(root).find((n) => n.props[key] === value)
   const click = async (label) => {
     const b = find('aria-label', label)
@@ -149,15 +198,45 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
     await nextTick()
   }
   const results = []
+  const emit = async (type, props = {}) => {
+    for (const listener of listeners.get(type) ?? []) listener({ pointerId: 1, ...props })
+    await nextTick()
+  }
+  const resize = async (label, delta) => {
+    const handle = find('aria-label', label)
+    assert.ok(handle)
+    handle.props.onPointerdown({ button: 0, pointerId: 1, clientX: 600, currentTarget: handle, preventDefault() {} })
+    await nextTick()
+    assert.equal(editor.props['data-blocked'], true, '任一侧拖拽时让原生笔记释放鼠标区域')
+    await emit('pointermove', { clientX: 600 + delta })
+    await emit('pointerup')
+    assert.equal(editor.props['data-blocked'], false)
+    assert.equal(listeners.get('pointermove').size, 0)
+    assert.equal(handle.pointerId, null)
+  }
   assert.ok(walk(root).some((n) => n.props.title === '转写中' && n.text === '…'))
-  await click('收起左侧目录')
+  assert.equal(find('aria-label', '收起左侧目录'), undefined)
+  assert.equal(find('aria-label', '收起右侧面板'), undefined)
+  const panel = find('id', 'player-learning-panel'),
+    editor = find('data-stub', 'AffineWorkspace')
+  const leftWidth = () => find('aria-label', '调整目录宽度').props['aria-valuenow']
+  const rightWidth = () => find('aria-label', '调整笔记面板宽度').props['aria-valuenow']
+  assert.equal(leftWidth(), 300)
+  assert.equal(rightWidth(), 440)
+  await resize('调整目录宽度', 50)
+  assert.equal(leftWidth(), 350)
+  assert.equal(rightWidth(), 440)
+  await resize('调整笔记面板宽度', 240)
+  assert.equal(rightWidth(), 200, '右侧宽度可低于旧的 320px 限制')
+  assert.equal(leftWidth(), 350)
+  await resize('调整笔记面板宽度', -100)
+  assert.equal(rightWidth(), 300)
+  await resize('调整目录宽度', -271)
   assert.equal(w.desktopTreeOpen.value, false)
   assert.equal(w.rightPanelOpen.value, true)
   assert.match(walk(root).find((n) => n.props.class?.includes('player-layout')).props.class, /directory-collapsed/)
   results.push('左侧独立收起与布局切换')
-  const panel = find('id', 'player-learning-panel'),
-    editor = find('data-stub', 'AffineWorkspace')
-  await click('收起右侧面板')
+  await resize('调整笔记面板宽度', 221)
   assert.equal(panel.style.display, 'none')
   assert.match(walk(root).find((n) => n.props.class?.includes('player-layout')).props.class, /right-panel-collapsed/)
   assert.equal(find('data-stub', 'AffineWorkspace'), editor)
@@ -169,21 +248,38 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
   await click('展开左侧目录')
   assert.equal(w.desktopTreeOpen.value, true)
   assert.equal(w.rightPanelOpen.value, false)
+  assert.equal(leftWidth(), 350)
   results.push('展开左侧不影响右侧')
   await click('展开右侧面板')
   assert.notEqual(panel.style.display, 'none')
   assert.equal(noteMounts, 1)
+  assert.equal(rightWidth(), 300)
   assert.equal(find('data-stub', 'AffineWorkspace'), editor)
   results.push('重新展开不重建本地笔记')
   w.rightTab.value = 'transcript'
   await nextTick()
-  await click('收起右侧面板')
+  find('aria-label', '调整笔记面板宽度').props.onKeydown({ key: 'Home', preventDefault() {} })
+  await nextTick()
   assert.equal(find('data-stub', 'TranscriptPanel').props['data-active'], false)
   await click('展开右侧面板')
   assert.equal(w.rightTab.value, 'transcript')
   assert.equal(find('data-stub', 'TranscriptPanel').props['data-active'], true)
   results.push('逐字稿隐藏停用、展开保留页签')
+  window.innerWidth = 1024
+  await emit('resize')
+  assert.ok(leftWidth() + rightWidth() <= 1024 - 64 - 240, '窗口变窄时仍为视频保留空间')
+  find('aria-label', '调整目录宽度').props.onKeydown({ key: 'End', preventDefault() {} })
+  await nextTick()
+  assert.ok(leftWidth() + rightWidth() <= 720)
+  assert.equal(storage.get('learning-panel-width:v1'), '300')
+  const handle = find('aria-label', '调整目录宽度')
+  handle.props.onPointerdown({ button: 0, pointerId: 2, clientX: 600, currentTarget: handle, preventDefault() {} })
   app.unmount()
+  assert.equal(handle.pointerId, null, '卸载时释放鼠标捕获')
+  assert.ok(
+    [...listeners.values()].every((handlers) => handlers.size === 0),
+    '卸载时清理监听器',
+  )
   const actions = []
   const headerProps = reactive({ courseName: '测试', currentView: 'player' })
   const TopBar = await component('app/components/AppTopBar.vue')
@@ -237,9 +333,4 @@ test('播放器侧栏独立展开、本地笔记实例保留、页签恢复且�
   assert.deepEqual(actions.slice(-2), ['settings-dialog', 'study-dialog'])
   top.unmount()
   assert.equal(results.length, 6)
-
-  t.after(() => {
-    delete globalThis.sidebarWorkspace
-    delete globalThis.sidebarStubs
-  })
 })

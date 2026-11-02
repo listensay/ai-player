@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import FlowCheckInPrompt from '~/components/FlowCheckInPrompt.vue'
 import AppUtilityDialog from '~/components/AppUtilityDialog.vue'
 import { isAppDialogKind } from '~/composables/useAppDialogs'
 import { provideCourseWorkspace } from '~/composables/useCourseWorkspace'
@@ -157,6 +156,5 @@ watch(
       @seek="selectGuideVideo"
     />
     <AppUtilityDialog />
-    <FlowCheckInPrompt />
   </VApp>
 </template>

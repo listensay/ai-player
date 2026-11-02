@@ -15,9 +15,9 @@ import { useProgress } from '~/composables/useProgress'
 import { useSegmentReminder } from '~/composables/useSegmentReminder'
 import { useShortcuts } from '~/composables/useShortcuts'
 import { useStudyCheckIn } from '~/composables/useStudyCheckIn'
+import { useStudyWindow } from '~/composables/useStudyWindow'
 import { provideStudyTools } from '~/composables/useStudyTools'
 import { provideLearningManagement } from '~/composables/useLearningManagement'
-import type { ReviewCard } from '~/types/learningManagement'
 import { useReminderLinks } from '~/composables/useReminderLinks'
 import { createAutomaticPracticePreparer } from '~/utils/automaticPractice'
 import { onTranscriptReady, useTranscripts } from '~/composables/useTranscripts'
@@ -40,10 +40,17 @@ export function provideCourseWorkspace() {
   const appDialogs = provideAppDialogs()
 
   const store = useCourseStore()
-  const studyTools = provideStudyTools()
+  const player = usePlayer()
+  const currentView = computed(() => (route.path.endsWith('/player') ? ('player' as const) : ('dashboard' as const)))
+  const windowVisible = useStudyWindow()
+  const studyingCourse = computed(() =>
+    currentView.value === 'player' && windowVisible.value && store.state.currentVideo
+      ? (store.state.course?.id ?? null)
+      : null,
+  )
+  const studyTools = provideStudyTools(studyingCourse)
   const learning = provideLearningManagement()
   const { stats } = store
-  const player = usePlayer()
   watch(appDialogs.isOpen, (open) => {
     if (open) player.pause()
   })
@@ -59,7 +66,6 @@ export function provideCourseWorkspace() {
   const rightTab = ref<'knowledge' | 'notes' | 'transcript' | 'assistant'>('notes')
   const transcripts = useTranscripts()
 
-  const currentView = computed(() => (route.path.endsWith('/player') ? ('player' as const) : ('dashboard' as const)))
   const toast = ref('')
   let toastTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -222,7 +228,15 @@ export function provideCourseWorkspace() {
       return budgetTotal(budgetForDay(plan.program, stageForDay(plan.modules, day)?.practice, day))
     },
   }))
-  const checkIn = useStudyCheckIn(course, checkInPlan, learning)
+  const checkIn = useStudyCheckIn(
+    course,
+    checkInPlan,
+    computed(() =>
+      studyingCourse.value
+        ? { courseId: studyingCourse.value, kind: player.state.playing ? ('video' as const) : ('practice' as const) }
+        : null,
+    ),
+  )
   watch(
     () => [course.value?.id, checkIn.state.date, checkIn.seconds.value] as const,
     ([id, date, seconds]) => {
@@ -230,7 +244,7 @@ export function provideCourseWorkspace() {
     },
     { flush: 'sync' },
   )
-  const lessonCompletion = useLessonCompletion(learning, {
+  const lessonCompletion = useLessonCompletion({
     context: () =>
       currentView.value === 'player' && course.value && video.value
         ? { courseId: course.value.id, path: video.value.path }
@@ -321,58 +335,6 @@ export function provideCourseWorkspace() {
     },
   )
 
-  async function openWeakPractice(card: ReviewCard) {
-    const identity = { ...card }
-    appDialogs.close()
-    await router.push({
-      path: `/courses/${encodeURIComponent(identity.courseId)}/player`,
-      query: { lesson: identity.path },
-    })
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        stop()
-        reject(Error('课程打开超时，请重新打开课程。'))
-      }, 20000)
-      const stop = watch(
-        () => course.value?.id === identity.courseId && guide.guideReady.value,
-        (ready) => {
-          if (ready) {
-            clearTimeout(timeout)
-            stop()
-            resolve()
-          }
-        },
-        { flush: 'post' },
-      )
-      if (course.value?.id === identity.courseId && guide.guideReady.value) {
-        clearTimeout(timeout)
-        stop()
-        resolve()
-      }
-    })
-    if (course.value?.id !== identity.courseId || !course.value.videos.some((v) => v.path === identity.path))
-      throw Error('原课节暂不可用。')
-    player.pause()
-    await leaveFullscreen()
-    await practice.openSources(
-      identity.path,
-      `薄弱项专练 · ${identity.concepts.join('、') || identity.front}`,
-      async () => [
-        {
-          id: 'weak1',
-          kind: 'summary',
-          path: identity.path,
-          start: identity.seconds,
-          text: `针对以下薄弱知识生成不同情境的变式练习。\n知识点：${identity.concepts.join('、')}\n原问题：${identity.front}\n知识与解析：${identity.back}`.slice(
-            0,
-            12000,
-          ),
-        },
-      ],
-    )
-    if (course.value?.id === identity.courseId && practice.state.path === identity.path) await practice.generate(3)
-  }
-
   const canPromptDaily = computed(
     () =>
       daily.shouldPrompt.value &&
@@ -381,7 +343,6 @@ export function provideCourseWorkspace() {
       !helpOpen.value &&
       !guideOpen.value &&
       !lessonCompletion.pending.value &&
-      !learning.pendingFlow.value &&
       !daily.practice.state.open,
   )
   function openDailyPractice() {
@@ -599,13 +560,14 @@ export function provideCourseWorkspace() {
     activeJobs: () => !!transcripts.activeJobs.value,
     async flush() {
       player.pause()
+      await player.exitFullscreen()
       if (course.value && video.value && player.state.ready) {
         useProgress().update(course.value.id, video.value.path, player.state.currentTime, player.state.duration)
       }
       await useProgress().flush()
       guide.persist()
       await practice.flush()
-      checkIn.persist()
+      if (!(await checkIn.finishSession())) throw new Error('学习时间保存失败，请重试。')
       await daily.flush()
       await studyTools.flush()
       await learning.flush()
@@ -689,7 +651,6 @@ export function provideCourseWorkspace() {
     video,
     guide,
     learning,
-    openWeakPractice,
     practice,
     knowledge,
     daily,

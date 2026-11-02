@@ -2,18 +2,32 @@
 import { computed } from 'vue'
 import AppIcon from '~/components/AppIcon.vue'
 import UiButton from '~/components/UiButton.vue'
-import HomeTaskPanel from '~/components/HomeTaskPanel.vue'
-import LearningOutcomesPanel from '~/components/LearningOutcomesPanel.vue'
+import CourseCard from '~/components/CourseCard.vue'
+import CourseActionDialog from '~/components/CourseActionDialog.vue'
 import { useLearningHome } from '~/composables/useLearningHome'
-import { useHomeTasks } from '~/composables/useHomeTasks'
+import { useCourseLibraryActions } from '~/composables/useCourseLibraryActions'
+import type { LibraryCourse } from '~/types/course'
 import { usePageTitle } from '~/composables/usePageTitle'
 import { continueLearning, totalCourseStudyTime, formatHomeDuration as duration } from '~/utils/homeDashboard'
 
 usePageTitle('首页 · Study Helper')
 const home = useLearningHome()
-const tasks = useHomeTasks()
 const { courses, loading, error, date, today, week, weekOffset, selectedDate, selected } = home
-const resumes = computed(() => continueLearning(courses.value))
+const actions = useCourseLibraryActions(home)
+const { store, changing, update, editCourse } = actions
+const resumes = computed(() =>
+  continueLearning(courses.value).map((resume) => ({
+    ...resume,
+    entry: courses.value.find((entry) => entry.course.id === resume.id)!,
+  })),
+)
+function openCourse(course: LibraryCourse, view: 'overview' | 'player' | 'today' = 'overview') {
+  return actions.go(
+    course,
+    view,
+    view === 'player' ? resumes.value.find((resume) => resume.id === course.id)?.path : undefined,
+  )
+}
 const total = computed(() => totalCourseStudyTime(courses.value, date.value))
 const weekSeconds = computed(() => week.value.reduce((sum, day) => sum + day.videoSeconds + day.workSeconds, 0))
 const maxWeek = computed(() => Math.max(60, ...week.value.map((day) => day.videoSeconds + day.workSeconds)))
@@ -36,6 +50,7 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
           ><AppIcon name="reset" :size="18" :class="{ 'animate-spin': loading }"
         /></UiButton>
       </header>
+      <p v-if="store.state.error" class="mb-5 text-body-sm text-error" role="alert">{{ store.state.error }}</p>
       <div v-if="error || partial" class="mb-5 flex items-center gap-3 text-body-sm text-error" role="alert">
         <span>{{ error ? '学习记录读取失败。' : '部分课程读取失败。' }}</span>
         <UiButton size="sm" variant="text" @click="home.refresh">重试</UiButton>
@@ -145,33 +160,21 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
           /></UiButton>
         </header>
         <div v-if="resumes.length" class="resume-grid">
-          <RouterLink
+          <CourseCard
             v-for="course in resumes"
             :key="course.id"
-            :to="course.to"
-            class="resume-card pane min-w-0 rounded-3xl p-5"
+            :entry="course.entry"
+            :date="date"
+            :changing="changing"
+            :index="courses.findIndex((entry) => entry.course.id === course.id)"
+            heading-tag="h3"
+            class="resume-card"
             :aria-label="`继续学习：${course.name}`"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <h3 class="line-clamp-1 text-body font-bold" :title="course.name">{{ course.name }}</h3>
-              <span
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-page-cream text-deep-indigo"
-                ><AppIcon name="play" :size="15"
-              /></span>
-            </div>
-            <p class="mt-1 truncate text-body-sm text-stone" :title="course.title">{{ course.title }}</p>
-            <div
-              class="mt-5 h-1.5 overflow-hidden rounded-full bg-linen"
-              role="progressbar"
-              :aria-label="`${course.name}观看进度`"
-              :aria-valuenow="course.percent"
-              :aria-valuemin="0"
-              :aria-valuemax="100"
-            >
-              <div class="h-full rounded-full bg-deep-indigo" :style="{ width: `${course.percent}%` }" />
-            </div>
-            <p class="mt-2 text-caption text-stone">已完成 {{ course.done }} / {{ course.total }} 节</p>
-          </RouterLink>
+            @open="openCourse"
+            @update="update"
+            @rename="editCourse($event, 'rename')"
+            @delete="editCourse($event, 'delete')"
+          />
         </div>
         <div v-else class="pane flex flex-wrap items-center justify-between gap-3 rounded-3xl p-6">
           <p class="text-body-sm text-stone">{{ courses.length ? '暂无可继续的课程' : '还没有课程' }}</p>
@@ -180,17 +183,9 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
           /></UiButton>
         </div>
       </section>
-
-      <div v-if="tasks.state.error" class="mb-4 flex items-center gap-3 text-body-sm text-error" role="alert">
-        <span>{{ tasks.state.error }}</span
-        ><UiButton v-if="!tasks.state.ready" size="sm" variant="text" @click="tasks.load">重试</UiButton>
-      </div>
-      <div class="home-task-grid">
-        <HomeTaskPanel kind="todos" :date="date" />
-        <LearningOutcomesPanel compact class="pane min-w-0 rounded-3xl p-6" />
-      </div>
     </div>
   </main>
+  <CourseActionDialog :actions="actions" />
 </template>
 
 <style scoped>
@@ -206,23 +201,10 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 .study-time-card {
   background: var(--color-sunbeam-yellow);
 }
-.home-task-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-  align-items: start;
-}
 .resume-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-.resume-card {
-  color: inherit;
-  transition: border-color 150ms;
-}
-.resume-card:hover {
-  border-color: var(--color-deep-indigo);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
 }
 .trend-day {
   border: 1px solid transparent;
@@ -235,12 +217,13 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
   opacity: 0.4;
 }
 @container (max-width: 760px) {
-  .home-summary-grid,
-  .home-task-grid {
+  .home-summary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+@container (max-width: 440px) {
   .resume-grid {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 900px) {

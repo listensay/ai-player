@@ -30,9 +30,7 @@ void (async () => {
   const invoke = (...args) => globalThis.__TAURI_INTERNALS__.invoke(...args)
   const request = (endpoint, method = 'GET', query = {}, body = null) =>
     invoke('database_request', { endpoint, method, query, body })
-  const savedTasks = () => request('settings', 'GET', { key: 'home-tasks:v1' })
   const savedChats = () => request('settings', 'GET', { key: 'ai-chat-history:v1' })
-  const savedWorks = async () => (await request('settings', 'GET', { key: 'learning-management:v1' })).works
   const steps = []
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   const visible = (node) =>
@@ -81,20 +79,9 @@ void (async () => {
     element.dispatchEvent(new Event('input', { bubbles: true }))
     await pause(100)
   }
-  async function field(label, value) {
-    const element = await until(
-      () =>
-        [...document.querySelectorAll('.study-form-dialog label')].find(
-          (el) => visible(el) && el.htmlFor && el.textContent.trim() === label,
-        ),
-      `field ${label}`,
-    )
-    await input(`#${CSS.escape(element.htmlFor)}`, value)
-  }
   async function home() {
     location.hash = '/'
     await until(() => document.querySelector('.home-page [title="刷新首页"]')?.disabled === false, 'homepage ready')
-    await until(() => !document.querySelector('input[aria-label="新待办"]').disabled, 'tasks ready')
   }
   const day = new Date()
   const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
@@ -156,90 +143,17 @@ void (async () => {
         await click('本周')
         await until(() => document.querySelector('[title="下一周"]').disabled, 'current week blocks future')
       })
-      await step('todo-create-edit-complete-and-delete', async () => {
-        await input('input[aria-label="新待办"]', '阅读课程笔记')
-        await click('添加待办')
-        await until(async () => (await savedTasks())?.todos.length === 1, 'todo saved')
-        await click('编辑待办：阅读课程笔记')
-        await input('.study-form-dialog input', '整理课程笔记')
-        await click('保存', document.querySelector('.study-form-dialog'))
-        await until(() => !visible(document.getElementById('home-todos-title')), 'todo editor closes')
-        await click('完成待办：整理课程笔记')
-        await until(async () => (await savedTasks()).todos[0].completedAt !== null, 'completed todo persisted')
-        await click('已完成 1', document.querySelector('[aria-label="Todo"]'))
-        expect(document.querySelector('[aria-label="编辑待办：整理课程笔记"]'), 'Completed task can be viewed')
-        await input('input[aria-label="新待办"]', '删除样例')
-        await click('添加待办')
-        await until(async () => (await savedTasks()).todos.length === 2, 'second todo saved')
-        await click('删除待办：删除样例')
-        await until(async () => (await savedTasks()).todos.length === 1, 'todo removed')
-      })
-      await step('homepage-shows-learning-contract-without-portfolio-works', async () => {
-        const portfolio = document.querySelector('.home-page [aria-label="实践作品"]')
-        await click('查看全部', portfolio)
-        const management = await until(() => {
-          const panel = document.querySelector('#study-outcomes')
-          return visible(panel) ? panel : null
-        }, 'learning outcomes panel')
-        await click('签订学习契约', management)
-        await field('交付目标', '完成一个AI分析模型')
-        await click('签订契约')
-        await until(() => !visible(document.getElementById('learning-contract-title')), 'contract saved')
-        await click('关闭学习管理')
-        await until(
-          () => visible(portfolio) && portfolio.textContent.includes('完成一个AI分析模型'),
-          'homepage shows the saved contract goal',
-        )
-        expect((await savedWorks()).length === 0, 'Contract does not create a portfolio work')
-        expect(!portfolio.textContent.includes('从第一个小作品开始'), 'Existing contract suppresses empty state')
-        await click('修改契约', portfolio)
-        await until(() => visible(document.getElementById('home-learning-contract-title')), 'homepage contract editor')
-        await field('交付目标', '完成一个可运行的AI分析模型')
-        await click('保存修改')
-        await until(() => !visible(document.getElementById('home-learning-contract-title')), 'contract edit saved')
-        await click('查看全部', portfolio)
-        await until(
-          () =>
-            visible(document.querySelector('#study-outcomes')) &&
-            document.querySelector('#study-outcomes').textContent.includes('完成一个可运行的AI分析模型'),
-          'learning management reflects homepage contract edits',
-        )
-        await click('关闭学习管理')
-      })
-      await step('portfolio-create-edit-and-share-with-learning-management', async () => {
-        const portfolio = document.querySelector('.home-page [aria-label="实践作品"]')
-        expect(portfolio, 'Homepage shows the portfolio')
-        await click('添加作品', portfolio)
-        await field('作品名称', '课程实践作品')
-        await field('作品说明', '完成课程练习并整理实现思路')
-        await click('保存作品')
-        await until(() => !visible(document.getElementById('home-portfolio-work-title')), 'work editor closes')
-        const original = (await savedWorks())[0]
+      await step('homepage-retired-features-removed', async () => {
+        expect(!document.querySelector('.home-page [aria-label="Todo"]'), 'Todo removed')
+        expect(!document.querySelector('.home-page [aria-label="实践作品"]'), 'Portfolio removed')
+        expect(!document.querySelector('.home-page').textContent.includes('学习契约'), 'Contracts removed')
+        expect((await request('settings', 'GET', { key: 'home-tasks:v1' })) === null, 'Saved tasks deleted')
+        const saved = await request('settings', 'GET', { key: 'learning-management:v1' })
         expect(
-          original.courseId === 'smoke-course' && original.title === '课程实践作品',
-          'Work saved to the selected course',
+          ['contracts', 'works', 'cards', 'flows', 'protections'].every((key) => !Object.hasOwn(saved, key)) &&
+            !Object.hasOwn(saved.preferences, 'flowPrompt'),
+          'Retired records deleted',
         )
-        expect(portfolio.textContent.includes('课程实践作品'), 'Saved work appears on homepage')
-        await click('查看全部', portfolio)
-        const management = await until(() => {
-          const panel = document.querySelector('#study-outcomes')
-          return visible(panel) && panel.textContent.includes('课程实践作品') ? panel : null
-        }, 'same work in learning management')
-        await click('编辑', management)
-        await field('作品名称', '课程实践作品完整版')
-        await click('保存作品')
-        await until(() => !visible(document.getElementById('portfolio-work-title')), 'management editor closes')
-        await click('关闭学习管理')
-        await until(
-          () => visible(portfolio) && portfolio.textContent.includes('课程实践作品完整版'),
-          'homepage reflects edit',
-        )
-        await click('验收归档', portfolio)
-        await until(async () => (await savedWorks())[0].acceptedAt !== null, 'work acceptance saved')
-        const works = await savedWorks()
-        expect(works.length === 1 && works[0].id === original.id, 'Both panels update the same work')
-        expect(portfolio.textContent.includes('已验收归档'), 'Homepage shows accepted state')
-        expect(portfolio.textContent.includes('完成一个可运行的AI分析模型'), 'Contract remains alongside saved works')
       })
       await step('homepage-responsive-layout', async () => {
         const main = document.querySelector('.home-page')
@@ -256,8 +170,30 @@ void (async () => {
         await pause(4000)
       })
       await step('course-library-and-detail-use-full-width', async () => {
+        const resumeCard = document.querySelector('.resume-card')
+        expect(resumeCard?.classList.contains('course-card'), 'Homepage uses the shared course card')
+        const cardStyles = (card) => {
+          const body = card.querySelector('.course-card-body')
+          const footer = card.querySelector('.course-card-footer')
+          return [
+            getComputedStyle(card).borderRadius,
+            getComputedStyle(body).backgroundColor,
+            getComputedStyle(body).borderRadius,
+            getComputedStyle(body).minHeight,
+            getComputedStyle(footer).padding,
+            body.querySelector('.course-description').textContent.trim(),
+            body.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),
+            footer.textContent.trim().replace(/\s+/g, ' '),
+          ]
+        }
+        const homeStyles = cardStyles(resumeCard)
         await click('网课学习')
-        await until(() => document.querySelector('.course-card'), 'course library')
+        await until(() => document.querySelector('.course-library .course-card'), 'course library')
+        expect(
+          JSON.stringify(cardStyles(document.querySelector('.course-library .course-card'))) ===
+            JSON.stringify(homeStyles),
+          'Homepage and library share course-card colors, layout, progress and actions',
+        )
         expect(!document.querySelector('.home-summary'), 'Course library has no summary sidebar')
         expect(document.querySelector('.home-layout').getBoundingClientRect().width > 850, 'Library fills the page')
         await click('桌面回归课程')
@@ -276,9 +212,9 @@ void (async () => {
       })
       await step('continue-learning-opens-the-saved-video', async () => {
         await home()
-        const link = await until(() => document.querySelector('.resume-card'), 'recently studied course')
-        const expected = new URLSearchParams(link.hash.split('?')[1]).get('lesson')
-        link.click()
+        const card = await until(() => document.querySelector('.resume-card'), 'recently studied course')
+        const expected = 'lesson-0.mp4'
+        await click('继续学习', card)
         await until(() => document.querySelector('video')?.readyState >= 1, 'video ready')
         expect(
           new URLSearchParams(location.hash.split('?')[1]).get('lesson') === expected,
@@ -409,30 +345,18 @@ void (async () => {
         await home()
       })
     } else {
-      await step('homepage-tasks-and-portfolio-survive-native-restart', async () => {
-        const data = await savedTasks()
+      await step('homepage-retired-features-stay-deleted-after-restart', async () => {
+        expect((await request('settings', 'GET', { key: 'home-tasks:v1' })) === null, 'Tasks stay deleted')
+        const saved = await request('settings', 'GET', { key: 'learning-management:v1' })
         expect(
-          data.todos.length === 1 && data.todos[0].title === '整理课程笔记' && data.todos[0].completedAt !== null,
-          'Todo and completion survive restart',
-        )
-        const works = await savedWorks()
-        expect(
-          works.length === 1 && works[0].title === '课程实践作品完整版' && works[0].acceptedAt !== null,
-          'Work survives restart',
-        )
-        await until(
-          () =>
-            document.querySelector('.home-page [aria-label="实践作品"]')?.textContent.includes('课程实践作品完整版'),
-          'restored portfolio rendered',
+          ['contracts', 'works', 'cards', 'flows', 'protections'].every((key) => !Object.hasOwn(saved, key)) &&
+            !Object.hasOwn(saved.preferences, 'flowPrompt'),
+          'Records stay deleted',
         )
         expect(
-          document
-            .querySelector('.home-page [aria-label="实践作品"]')
-            .textContent.includes('完成一个可运行的AI分析模型'),
-          'Contract goal is displayed after restart',
+          !/Todo|实践作品|学习契约/.test(document.querySelector('.home-page').textContent),
+          'Features stay removed',
         )
-        await click('已完成 1', document.querySelector('[aria-label="Todo"]'))
-        expect(document.querySelector('[aria-label="编辑待办：整理课程笔记"]'), 'Completed todo is rendered')
       })
       await step('notes-and-home-have-separate-navigation', async () => {
         await click('笔记', document.querySelector('[aria-label="页面导航"]'))

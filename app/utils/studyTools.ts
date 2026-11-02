@@ -2,7 +2,12 @@ import type { MacReminderLink, MacReminderSnapshot, StudyReminder, StudyToolsDat
 import { localDayKey } from './learningFeedback.ts'
 import { validDate } from './studyProgram.ts'
 
-export const emptyStudyTools = (): StudyToolsData => ({ version: 1, desktopNotifications: false, reminders: [] })
+export const emptyStudyTools = (): StudyToolsData => ({
+  version: 1,
+  desktopNotifications: false,
+  reminderSound: false,
+  reminders: [],
+})
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const text = (v: unknown, max: number) => typeof v === 'string' && v.trim().length > 0 && v.length <= max
 const integer = (v: unknown, min: number, max: number) =>
@@ -24,6 +29,7 @@ export function parseStudyTools(raw: unknown): StudyToolsData {
     !record(raw) ||
     raw.version !== 1 ||
     typeof raw.desktopNotifications !== 'boolean' ||
+    (raw.reminderSound !== undefined && typeof raw.reminderSound !== 'boolean') ||
     !uniqueIds(raw.reminders, 100)
   )
     throw new Error('学习管理记录格式异常，原始数据已保留。')
@@ -45,7 +51,7 @@ export function parseStudyTools(raw: unknown): StudyToolsData {
       throw new Error('提醒需要标题、有效时间和至少一个重复日。')
   }
   // Preserve legacy fields without letting retired features block reminder updates.
-  return structuredClone(raw) as unknown as StudyToolsData
+  return { ...structuredClone(raw), reminderSound: raw.reminderSound ?? false } as unknown as StudyToolsData
 }
 
 export function reminderDue(reminder: StudyReminder, now: Date): 'scheduled' | 'snoozed' | null {
@@ -145,8 +151,12 @@ export function suppressStudiedReminder(reminder: StudyReminder, now: Date) {
   return changed
 }
 
-export function hasStudyActivity(days: Record<string, { seconds: number }>, records: unknown, date: string) {
-  if ((days[date]?.seconds ?? 0) > 0) return true
+export function hasStudyActivity(
+  days: Record<string, { seconds: number; practiceSeconds?: number }>,
+  records: unknown,
+  date: string,
+) {
+  if ((days[date]?.seconds ?? 0) + (days[date]?.practiceSeconds ?? 0) > 0) return true
   return (
     record(records) &&
     Array.isArray(records.entries) &&

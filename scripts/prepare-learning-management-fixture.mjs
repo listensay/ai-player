@@ -166,7 +166,9 @@ const practice = {
 db.prepare('INSERT INTO lesson_practices VALUES (?,?,?,?)').run(id, paths[0], JSON.stringify([practice]), now)
 for (let i = 1; i <= 7; i++) {
   const date = addDays(today, -i)
-  db.prepare('INSERT INTO check_ins VALUES (?,?,?,?,?,?,?)').run(id, date, 600, 3600, null, now, now)
+  db.prepare(
+    'INSERT INTO check_ins (course_id,date,seconds,target_seconds,checked_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
+  ).run(id, date, 600, 3600, null, now, now)
   db.prepare('INSERT INTO daily_plan_snapshots VALUES (?,?,?)').run(
     id,
     date,
@@ -181,50 +183,7 @@ for (let i = 1; i <= 7; i++) {
 }
 setting('learning-management:v1', {
   version: 1,
-  cards: [],
-  contracts: [],
-  works: [],
-  protections: [],
-  flows: [
-    {
-      id: 'flow1',
-      courseId: id,
-      path: paths[0],
-      startedAt: now - 86400000,
-      endedAt: now - 85000000,
-      hour: 8,
-      mood: 'deep',
-    },
-    {
-      id: 'flow2',
-      courseId: id,
-      path: paths[0],
-      startedAt: now - 172800000,
-      endedAt: now - 171400000,
-      hour: 8,
-      mood: 'steady',
-    },
-    {
-      id: 'flow3',
-      courseId: id,
-      path: paths[0],
-      startedAt: now - 86400000,
-      endedAt: now - 85000000,
-      hour: 22,
-      mood: 'tired',
-    },
-    {
-      id: 'flow4',
-      courseId: id,
-      path: paths[0],
-      startedAt: now - 172800000,
-      endedAt: now - 171400000,
-      hour: 22,
-      mood: 'struggling',
-    },
-  ],
   preferences: {
-    flowPrompt: true,
     calendarTime: '20:00',
     calendarDays: 30,
     calendarEnabled: false,

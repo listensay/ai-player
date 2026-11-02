@@ -7,7 +7,7 @@ import { performanceContext } from '../tests/fixtures/performance.mjs'
 import { programmingQuestion } from '../tests/fixtures/programming.mjs'
 import { localDayKey } from '../app/utils/learningFeedback.ts'
 
-export async function prepareDesktopSmoke(directory) {
+export async function prepareDesktopSmoke(directory, { audibleReminder = false } = {}) {
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, '.ai-player-smoke'), 'isolated desktop regression\n', { flag: 'wx' })
   const videos = join(directory, 'course')
@@ -74,11 +74,12 @@ export async function prepareDesktopSmoke(directory) {
     const setting = db.prepare('INSERT INTO app_settings VALUES (?,?,?)')
     const learning = {
       version: 1,
-      cards: [],
-      flows: [],
-      contracts: [],
-      works: [],
-      protections: [],
+      cards: [{ id: 'retired-review' }],
+      flows: [{ id: 'retired-flow' }],
+      // Startup must delete legacy feature records before any page mounts.
+      contracts: [{ id: 'retired-contract', goal: 'retired goal' }],
+      works: [{ id: 'retired-work', screenshot: 'retired screenshot' }],
+      protections: [{ date: '2026-10-31' }],
       preferences: {
         flowPrompt: true,
         calendarTime: '19:00',
@@ -87,6 +88,43 @@ export async function prepareDesktopSmoke(directory) {
       },
     }
     setting.run('learning-management:v1', JSON.stringify(learning), now)
+    setting.run(
+      'study-tools',
+      JSON.stringify({
+        version: 1,
+        desktopNotifications: false,
+        reminders: [
+          {
+            id: 'smoke-study-reminder',
+            title: '桌面回归学习提醒',
+            courseId: '',
+            time: '00:00',
+            weekdays: [1, 2, 3, 4, 5, 6, 7],
+            enabled: true,
+            lastNotifiedDate: localDayKey(),
+            snoozedUntil: null,
+            pending: true,
+          },
+          ...(audibleReminder
+            ? [
+                {
+                  id: 'smoke-sound-reminder',
+                  title: '托盘响铃回归',
+                  courseId: '',
+                  time: '00:00',
+                  weekdays: [1, 2, 3, 4, 5, 6, 7],
+                  enabled: true,
+                  lastNotifiedDate: localDayKey(),
+                  snoozedUntil: now + 30_000,
+                  pending: false,
+                },
+              ]
+            : []),
+        ],
+      }),
+      now,
+    )
+    setting.run('home-tasks:v1', JSON.stringify({ version: 1, todos: [{ id: 'retired-todo' }], goals: [] }), now)
     db.prepare('INSERT INTO notes VALUES (?,?,?,?)').run(id, 'lesson-0.mp4', '# Native note\n\nOriginal fixture', now)
     const record = {
       id: 'smoke-code',

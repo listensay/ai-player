@@ -3,6 +3,7 @@ mod affine_server;
 mod asr;
 mod data_storage;
 mod db;
+mod desktop;
 #[cfg(feature = "desktop-smoke")]
 mod desktop_smoke;
 mod files;
@@ -161,6 +162,7 @@ pub fn run() {
     #[cfg(feature = "desktop-smoke")]
     let builder = builder.plugin(desktop_smoke::init());
     builder
+        .manage(desktop::DesktopState::default())
         .manage(affine::AffineState::default())
         .manage(asr::AsrManager::default())
         .manage(programming::ProgrammingManager::default())
@@ -169,6 +171,41 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name(if cfg!(feature = "desktop-smoke") {
+                    "Study Helper Smoke"
+                } else {
+                    "Study Helper"
+                })
+                .arg("--autostart")
+                .build(),
+        )
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if matches!(
+                    event,
+                    tauri::WindowEvent::Focused(_) | tauri::WindowEvent::Resized(_)
+                ) {
+                    let app = window.app_handle();
+                    if let Ok(visible) = desktop::desktop_window_visible(app.clone()) {
+                        let _ = app.emit("desktop-window-visible", visible);
+                    }
+                }
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let app = window.app_handle();
+                    if app
+                        .try_state::<AppState>()
+                        .is_some_and(|state| state.frontend_ready.load(Ordering::SeqCst))
+                    {
+                        let _ = app.emit("desktop-hide-requested", ());
+                    } else {
+                        let _ = desktop::hide_main_window(app.clone());
+                    }
+                }
+            }
+        })
         .on_menu_event(|app, event| {
             #[cfg(debug_assertions)]
             if event.id().as_ref() == "inspect-notes" {
@@ -208,6 +245,7 @@ pub fn run() {
                 directory,
                 gate: Mutex::new(()),
             });
+            desktop::setup(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -217,6 +255,8 @@ pub fn run() {
             desktop_smoke::desktop_smoke_affine,
             #[cfg(feature = "desktop-smoke")]
             desktop_smoke::desktop_smoke_notes_directory,
+            #[cfg(feature = "desktop-smoke")]
+            desktop_smoke::desktop_smoke_desktop,
             asr::confirm_asr_quit,
             asr::asr_start,
             asr::asr_stop,
@@ -229,6 +269,12 @@ pub fn run() {
             programming::cancel_programming,
             frontend_ready,
             finish_close,
+            desktop::show_main_window,
+            desktop::hide_main_window,
+            desktop::desktop_window_visible,
+            desktop::autostart_enabled,
+            desktop::set_autostart,
+            desktop::play_reminder_sound,
             data_storage::initialize_data_storage,
             data_storage::data_storage_info,
             data_storage::choose_data_directory,
@@ -277,6 +323,10 @@ pub fn run() {
         .expect("启动 Study Helper 失败")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                let _ = desktop::show_main_window(app.clone());
+            }
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { ref urls } = event {
                 reminder_links::opened(app, urls);
             }
@@ -291,7 +341,7 @@ pub fn run() {
                         .is_some_and(|state| state.frontend_ready.load(Ordering::SeqCst))
                 {
                     api.prevent_exit();
-                    let _ = app.emit("desktop-quit-requested", ());
+                    desktop::request_quit(app);
                 }
             }
         });

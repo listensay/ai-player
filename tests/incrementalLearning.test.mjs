@@ -14,7 +14,7 @@ registerHooks({
   },
 })
 const { incrementalCache } = await import('../app/utils/incrementalCache.ts')
-const { createLearningData, createReviewIndex } = await import('../app/utils/learningData.ts')
+const { createLearningData } = await import('../app/utils/learningData.ts')
 const { saveHomeSnapshots } = await import('../app/utils/homeSnapshots.ts')
 const { performanceContext } = await import('./fixtures/performance.mjs')
 const { daySnapshot } = await import('../app/utils/dailyPlan.ts')
@@ -25,32 +25,24 @@ const deferred = () => {
   })
   return { promise, resolve }
 }
-const blankSources = () => ({ notes: [], practices: [], summaries: [] })
 function course(id) {
   return {
     course: { id, name: id, status: 'active', pinned: false, lastOpenedAt: 1 },
     data: { guide: null, progress: {}, days: {}, snapshots: {}, records: null },
   }
 }
-test('首页与学习管理共享读取；练习变化仅读取该课程的材料，焦点切换零重复读取', async () => {
+test('首页和日历共享读取，焦点切换不重复加载，课程变化只刷新对应课程', async () => {
   const calls = []
   const store = createLearningData(async (name, options) => {
     calls.push([name, options.query])
-    if (name === 'dashboard')
-      return options.query.courseId ? [course(options.query.courseId)] : [course('a'), course('b')]
-    return blankSources()
+    assert.equal(name, 'dashboard')
+    return options.query.courseId ? [course(options.query.courseId)] : [course('a'), course('b')]
   })
   const [first, second] = await Promise.all([store.courses('2026-10-07'), store.courses('2026-10-07')])
   assert.equal(first[0], second[0])
-  await store.sources()
-  for (let i = 0; i < 10; i++) {
-    await store.courses('2026-10-07')
-    await store.sources()
-  }
-  assert.equal(calls.length, 2)
-  store.invalidate('practice', { method: 'POST', body: { courseId: 'a' } })
-  await store.sources()
-  assert.deepEqual(calls.at(-1), ['learning-sources', { courseId: 'a' }])
+  for (let i = 0; i < 10; i++) await store.courses('2026-10-07')
+  assert.equal(calls.length, 1)
+  assert.equal(store.invalidate('practice', { method: 'POST', body: { courseId: 'a' } }), false)
   store.invalidate('progress', { method: 'POST', body: { courseId: 'a', done: false } })
   const updated = await store.courses('2026-10-07')
   assert.equal(
@@ -60,7 +52,7 @@ test('首页与学习管理共享读取；练习变化仅读取该课程的材�
   assert.deepEqual(calls.at(-1), ['dashboard', { courseId: 'a' }])
   const nextDay = await store.courses('2026-10-08')
   assert.notEqual(nextDay[0], updated[0])
-  assert.equal(calls.length, 4)
+  assert.equal(calls.length, 2)
 })
 test('进行中的读取不会吞掉新修改；失败保留失效范围供重试', async () => {
   const gate = deferred(),
@@ -89,66 +81,26 @@ test('进行中的读取不会吞掉新修改；失败保留失效范围供重�
   assert.deepEqual(await cache.load(), { a: 'new', b: 'new' })
   assert.deepEqual(calls, [undefined, 'a', 'b', 'b'])
 })
-test('知识点、每日练习和课程移除定位正确；无关设置不失效', async () => {
+test('日历安排变更和旧课程别名刷新不重复课程，无关设置不失效', async () => {
   const calls = []
   let deleted = false
   const store = createLearningData(async (name, options) => {
     calls.push([name, options.query])
-    return name === 'dashboard' ? (deleted ? [] : [course('a')]) : blankSources()
+    return deleted ? [] : [course('canonical')]
   })
   await store.courses('2026-10-07')
-  await store.sources()
-  store.invalidate('settings', { body: { key: 'lesson-knowledge:["a","one.mp4",null]' } })
-  await store.sources()
-  assert.deepEqual(calls.at(-1), ['learning-sources', { courseId: 'a' }])
-  store.invalidate('settings', { body: { key: 'daily-practice:a' } })
+  store.invalidate('settings', { body: { key: 'daily-practice:canonical' } })
   await store.courses('2026-10-07')
-  await store.sources()
+  assert.deepEqual(calls.at(-1), ['dashboard', { courseId: 'canonical' }])
   const before = calls.length
   store.invalidate('settings', { body: { key: 'desktop-settings:v1' } })
   await store.courses('2026-10-07')
-  await store.sources()
   assert.equal(calls.length, before)
-  deleted = true
-  store.invalidate('library', { body: { id: 'a' } })
-  assert.deepEqual(await store.courses('2026-10-07'), [])
-})
-test('复习索引只重建变化的课程，跨日更新复习日期', () => {
-  const calls = []
-  const index = createReviewIndex((sources, courses, date) => {
-    calls.push([courses[0].course.id, date])
-    return []
-  })
-  const courses = ['a', 'b'].map((id) => ({ course: { id } }))
-  const sources = blankSources()
-  index(sources, courses, '2026-10-07')
-  index(sources, courses, '2026-10-07')
-  assert.equal(calls.length, 2)
-  sources.notes.push({ courseId: 'a', content: 'updated' })
-  index(sources, courses, '2026-10-07')
-  assert.deepEqual(calls.at(-1), ['a', '2026-10-07'])
-  assert.equal(calls.length, 3)
-  index(sources, courses, '2026-10-08')
-  assert.equal(calls.length, 5)
-})
-
-test('旧课程别名的增量结果替换原记录，不重复课程或保留已删除材料', async () => {
-  let changed = false
-  const store = createLearningData(async (name, options) => {
-    if (name === 'dashboard') return [course('canonical')]
-    return {
-      ...blankSources(),
-      courseId: options.query.courseId ? 'canonical' : undefined,
-      notes: changed ? [] : [{ courseId: 'canonical', path: 'one.mp4', content: 'note', updatedAt: 1 }],
-    }
-  })
-  await store.courses('2026-10-07')
-  await store.sources()
-  changed = true
-  store.invalidate('practice', { body: { courseId: 'old-alias' } })
   store.invalidate('progress', { body: { courseId: 'old-alias' } })
   assert.equal((await store.courses('2026-10-07')).length, 1)
-  assert.equal((await store.sources()).notes.length, 0)
+  deleted = true
+  store.invalidate('library', { body: { id: 'canonical' } })
+  assert.deepEqual(await store.courses('2026-10-07'), [])
 })
 test('首页未改变的快照不写盘；失败重试和跨日保存正常', async () => {
   const date = '2026-09-30',

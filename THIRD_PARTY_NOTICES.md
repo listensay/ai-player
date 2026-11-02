@@ -1,5 +1,9 @@
 # Third-party software
 
+## Desktop integration
+
+Startup registration uses [tauri-plugin-autostart](https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/autostart) (MIT OR Apache-2.0). Reminder audio uses [Rodio](https://github.com/RustAudio/rodio) (MIT OR Apache-2.0) and its [CPAL](https://github.com/RustAudio/cpal) backend (Apache-2.0). The reminder chime is synthesized by Study Helper; no third-party sound recording is included.
+
 ## AFFiNE
 
 The local notes workspace is based on [AFFiNE v0.27.4](https://github.com/toeverything/AFFiNE/tree/b4c8548c09da21b2898443559a5b846f0ccf5dd8), commit `b4c8548c09da21b2898443559a5b846f0ccf5dd8`.

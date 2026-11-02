@@ -30,6 +30,11 @@ void (async () => {
     )
     node.click()
   }
+  async function closeLearningPanel() {
+    const handle = await until(() => document.querySelector('[aria-label="调整笔记面板宽度"]'), 'panel resizer')
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await until(() => !visible(document.getElementById('player-learning-panel')), 'panel snaps closed')
+  }
   async function step(name, work) {
     await invoke('desktop_smoke_report', { result: { progress: name } })
     await work()
@@ -71,6 +76,16 @@ void (async () => {
     await until(async () => (await codeRecord()).draft === value, 'persist code')
   }
   async function checkLessonEndFlow() {
+    await step('study-reminders-hide-on-player-entry', async () => {
+      const video = await until(() => document.querySelector('video'), 'video')
+      await until(() => !document.querySelector('aside[aria-label="学习提醒"]'), 'reminder hidden on player entry')
+      video.muted = true
+      await video.play()
+      await until(() => !document.querySelector('aside[aria-label="学习提醒"]'), 'reminder hidden on playback')
+      video.pause()
+      await pause(300)
+      expect(!document.querySelector('aside[aria-label="学习提醒"]'), 'Pause must not bring back study reminders')
+    })
     await step('playback-stays-user-controlled', async () => {
       const video = await until(() => document.querySelector('video'), 'video')
       video.muted = true
@@ -103,7 +118,7 @@ void (async () => {
       await pause(300)
       expect(!video.paused && video.currentTime > 0, 'Opening the assistant must preserve playback')
       await click('笔记')
-      await click('收起右侧面板')
+      await closeLearningPanel()
       document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', altKey: true, bubbles: true }))
       await until(assistantSelected, 'assistant shortcut reopens the panel')
       expect(visible(document.getElementById('player-learning-panel')), 'Assistant shortcut must reveal the panel')
@@ -112,7 +127,7 @@ void (async () => {
       await click('笔记')
       video.pause()
     })
-    await step('lesson-end-practice-and-single-feedback', async () => {
+    await step('lesson-end-practice-without-feedback', async () => {
       const video = await until(() => document.querySelector('video'), 'video')
       video.muted = true
       video.currentTime = video.duration - 0.5
@@ -121,14 +136,8 @@ void (async () => {
       await editor()
       expect(!visible(document.getElementById('flow-check-title')), 'Practice must precede feedback')
       await click('关闭练习')
-      await until(() => visible(document.getElementById('flow-check-title')), 'lesson feedback after practice')
-      await click('😊 轻松跟上')
-      const savedFlows = async () => (await read('settings', { key: 'learning-management:v1' })).flows
-      await until(
-        async () => (await savedFlows()).some((flow) => flow.path === 'lesson-0.mp4' && flow.mood === 'steady'),
-        'lesson feedback saved',
-      )
-      await until(() => !visible(document.getElementById('flow-check-title')), 'feedback dismissed')
+      await until(() => !globalThis.__AI_PLAYER_SMOKE_EDITOR__, 'practice closed')
+      expect(!document.getElementById('flow-check-title'), 'Retired feedback prompt is absent')
       video.currentTime = video.duration - 0.5
       await video.play()
       await until(() => video.ended, 'replayed lesson ends')
@@ -136,10 +145,6 @@ void (async () => {
       await click('关闭练习')
       await until(() => !globalThis.__AI_PLAYER_SMOKE_EDITOR__, 'practice closed after replay')
       expect(!visible(document.getElementById('flow-check-title')), 'Replay must not ask for a second lesson state')
-      expect(
-        (await savedFlows()).filter((flow) => flow.path === 'lesson-0.mp4').length === 1,
-        'Exactly one state per lesson',
-      )
     })
   }
   async function checkPracticeNavigation() {
@@ -251,6 +256,31 @@ void (async () => {
         'Library must display the saved course name',
       )
     })
+    await step('retired-todo-contract-and-portfolio-data-deleted', async () => {
+      location.hash = '/'
+      await until(() => document.querySelector('.home-page [title="刷新首页"]')?.disabled === false, 'homepage ready')
+      expect(
+        !/Todo|实践作品|学习契约/.test(document.querySelector('.home-page').textContent),
+        'Retired homepage sections removed',
+      )
+      expect((await read('settings', { key: 'home-tasks:v1' })) === null, 'Todo records deleted')
+      const saved = await read('settings', { key: 'learning-management:v1' })
+      expect(
+        ['contracts', 'works', 'cards', 'flows', 'protections'].every((key) => !Object.hasOwn(saved, key)) &&
+          !Object.hasOwn(saved.preferences, 'flowPrompt'),
+        'Retired management records deleted',
+      )
+      if (phase === 'second') {
+        expect(saved.preferences.calendarDays === 14, 'Calendar settings survive restart')
+        const reminders = (await read('settings', { key: 'study-tools' })).reminders
+        expect(
+          reminders.some((reminder) => reminder.title === '独立回归学习提醒'),
+          'Reminders survive restart',
+        )
+      }
+      location.hash = '/courses'
+      await until(() => visible(document.querySelector('.course-card')), 'return to course library')
+    })
     if (phase === 'lessons' || phase === 'lesson-restart') {
       route('lesson-0.mp4')
       await until(() => document.querySelector('video')?.readyState >= 2, 'lesson video ready')
@@ -259,13 +289,8 @@ void (async () => {
         await checkPracticeNavigation()
       } else
         await step('restart-keeps-single-lesson-state', async () => {
-          const flows = (await read('settings', { key: 'learning-management:v1' })).flows
-          expect(
-            flows.filter((flow) => flow.path === 'lesson-0.mp4').length === 1,
-            'Saved lesson state survives restart',
-          )
-          expect(!visible(document.getElementById('flow-check-title')), 'Restart must not replay feedback')
           const video = document.querySelector('video')
+          expect(!document.querySelector('aside[aria-label="学习提醒"]'), 'Studied today stays hidden after restart')
           video.muted = true
           video.currentTime = video.duration - 0.5
           await video.play()
@@ -279,63 +304,43 @@ void (async () => {
           )
         })
     } else if (phase === 'first') {
-      await step('learning-contract-edit-review-and-growth', async () => {
-        location.hash = '/?dialog=study&section=outcomes'
-        await click('签订学习契约')
-        const goal = await until(
-          () => document.querySelector('[aria-labelledby="learning-contract-title"] textarea'),
-          'contract goal',
-        )
-        expect(goal.value === '', 'Whole-course contract must start with an empty goal')
-        goal.value = '桌面回归实践目标'
-        goal.dispatchEvent(new Event('input', { bubbles: true }))
-        await click('签订契约')
-        const stored = async () => read('settings', { key: 'learning-management:v1' })
-        await until(async () => (await stored()).contracts[0]?.goal === '桌面回归实践目标', 'contract persisted')
-        const original = (await stored()).contracts[0]
-        await click('修改契约')
-        const edit = await until(
-          () => document.querySelector('[aria-labelledby="learning-contract-title"] textarea'),
-          'edit contract',
-        )
-        expect(edit.value === original.goal, 'Edit must restore the saved goal')
-        edit.value = '更新后的桌面回归实践目标'
-        edit.dispatchEvent(new Event('input', { bubbles: true }))
-        await click('保存修改')
-        await until(async () => (await stored()).contracts[0]?.goal === edit.value, 'edited contract persisted')
-        const contracts = (await stored()).contracts
+      await step('learning-management-keeps-calendar-and-reminders-only', async () => {
+        location.hash = '/?dialog=study&section=review'
+        await until(() => document.querySelector('[aria-label="学习日历"]'), 'retired deep link falls back to calendar')
+        const nav = document.querySelector('[aria-label="学习管理导航"]')
         expect(
-          contracts.length === 1 && contracts[0].id === original.id && contracts[0].signedAt === original.signedAt,
-          'Editing must preserve contract identity without adding duplicates',
+          [...nav.querySelectorAll('button')].map((node) => node.textContent.trim()).join(',') === '学习日历,学习提醒',
+          'Only calendar and reminders remain',
         )
-        await click('抗遗忘复习')
-        const review = await until(() => document.querySelector('[aria-label="抗遗忘复习"]'), 'weakness review')
-        expect(review.textContent.includes('错题与薄弱项'), 'Weakness review remains available')
-        expect(!/复习闪卡|显示答案|已牢记/.test(review.textContent), 'Flashcard queue controls must be removed')
-        await click('成长与复盘')
-        const growth = await until(() => document.querySelector('[aria-label="学习成长与复盘"]'), 'growth panel')
-        expect(
-          growth.firstElementChild.tagName === 'HEADER' && growth.firstElementChild.textContent.includes('累计学习'),
-          'Learning activity must appear at the top',
+        const future = [...document.querySelectorAll('label')].find((node) => node.textContent.trim() === '未来天数')
+        const input = future.closest('.v-input').querySelector('input')
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '14')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await click('保存日历设置')
+        await until(
+          async () => (await read('settings', { key: 'learning-management:v1' })).preferences.calendarDays === 14,
+          'calendar settings saved',
         )
-        const health = await until(
-          () => [...growth.querySelectorAll('h3')].find((node) => node.textContent === '计划健康度'),
-          'plan health',
-        )
-        expect(
-          getComputedStyle(health.closest('article')).backgroundColor === 'rgb(255, 255, 255)',
-          'Plan health must retain its white card',
-        )
-        expect(
-          getComputedStyle(growth.firstElementChild).backgroundColor === 'rgba(0, 0, 0, 0)',
-          'The activity header must be transparent',
-        )
-        expect(
-          growth.querySelectorAll('.pane').length === 4 &&
-            [...growth.querySelectorAll('.pane')].every(
-              (card) => getComputedStyle(card).backgroundColor === 'rgb(255, 255, 255)',
+        await click('学习提醒')
+        await until(() => visible(document.querySelector('[aria-label="学习提醒设置"]')), 'reminders available')
+        await click('添加提醒')
+        const titleLabel = await until(
+          () =>
+            [...document.querySelectorAll('.study-form-dialog label')].find(
+              (node) => visible(node) && node.textContent.trim() === '提醒内容',
             ),
-          'The other growth sections must retain white cards',
+          'reminder editor ready',
+        )
+        const title = titleLabel.closest('.v-input').querySelector('input')
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(title, '独立回归学习提醒')
+        title.dispatchEvent(new Event('input', { bubbles: true }))
+        await click('保存提醒')
+        await until(
+          async () =>
+            (await read('settings', { key: 'study-tools' }))?.reminders.some(
+              (reminder) => reminder.title === '独立回归学习提醒',
+            ),
+          'reminder saved',
         )
         await click('关闭学习管理')
         await until(
@@ -411,7 +416,7 @@ void (async () => {
         await noteVisibility(true, 'tab hides native notes')
         await click('笔记')
         await noteVisibility(false, 'tab restores native notes')
-        await click('收起右侧面板')
+        await closeLearningPanel()
         await noteVisibility(true, 'sidebar hides native notes')
         await click('展开右侧面板')
         await noteVisibility(false, 'sidebar restores native notes')

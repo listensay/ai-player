@@ -10,8 +10,6 @@ export type DatabaseCollection =
   | 'settings'
   | 'library'
   | 'dashboard'
-  | 'study-evidence'
-  | 'learning-sources'
   | 'learning-plan'
   | 'day-snapshots'
   | 'practice-scopes'
