@@ -194,20 +194,6 @@ export function usePlayer() {
     }
   }
 
-  /** 截取当前画面为 PNG（无损，方便以后 OCR），同时返回画面宽高比 */
-  async function captureFrame(): Promise<{ blob: Blob; ratio: number } | null> {
-    if (!el || !el.videoWidth || !el.videoHeight) return null
-    const canvas = document.createElement('canvas')
-    canvas.width = el.videoWidth
-    canvas.height = el.videoHeight
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    ctx.drawImage(el, 0, 0, canvas.width, canvas.height)
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-    if (!blob) return null
-    return { blob, ratio: el.videoWidth / el.videoHeight }
-  }
-
   /** 由 VideoStage 在 <video> 事件里调用，同步状态 */
   const sync = {
     loadedData() {
@@ -274,7 +260,6 @@ export function usePlayer() {
     toggleMute,
     toggleFullscreen,
     exitFullscreen,
-    captureFrame,
     sync,
   }
 }

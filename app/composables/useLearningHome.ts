@@ -2,7 +2,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { startPerformanceMeasure } from '~/utils/performance'
 import { databaseRequest, flushDatabaseWrites } from '~/utils/database'
 import { localDayKey } from '~/utils/learningFeedback'
-import { calculateDay } from '~/utils/dailyPlan'
 import { reviewDay, type HomeCourse } from '~/utils/learningHome'
 import { readLearningCourses, resetLearningData } from '~/utils/learningData'
 import { subscribeDatabaseChanges } from '~/utils/databaseChanges'
@@ -14,38 +13,27 @@ export function useLearningHome() {
     loading = ref(true),
     error = ref(''),
     date = ref(localDayKey())
-  const availableMinutes = ref(0),
-    settingsReady = ref(false)
   const weekOffset = ref(0),
     selectedDate = ref(date.value)
-  let stopped = false,
+  let loaded = false,
+    stopped = false,
     dirty = false,
-    settingsDirty = true,
-    settingsRevision = 0,
-    lastSavedMinutes: number | undefined,
     timer: ReturnType<typeof setInterval> | undefined,
     refreshTimer: ReturnType<typeof setTimeout> | undefined,
     refreshing: Promise<void> | undefined
-  let writing = Promise.resolve()
   function refresh() {
     dirty = true
     if (refreshing) return refreshing
     refreshing = (async () => {
       const measure = startPerformanceMeasure('home-load')
-      loading.value = !settingsReady.value
+      loading.value = !loaded
       try {
         while (dirty && !stopped) {
           dirty = false
           error.value = ''
           await flushDatabaseWrites()
-          const day = localDayKey(),
-            revision = settingsRevision
-          const [entries, minutes] = await Promise.all([
-            readLearningCourses(day),
-            settingsDirty
-              ? databaseRequest<unknown>('settings', { query: { key: 'home-available-minutes' } })
-              : lastSavedMinutes,
-          ])
+          const day = localDayKey()
+          const entries = await readLearningCourses(day)
           if (stopped) return
           if (day !== localDayKey()) {
             dirty = true
@@ -56,13 +44,7 @@ export function useLearningHome() {
             selectedDate.value = day
             weekOffset.value = 0
           }
-          if (settingsDirty && revision === settingsRevision) {
-            lastSavedMinutes =
-              typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440 ? minutes : 0
-            availableMinutes.value = lastSavedMinutes
-            settingsDirty = false
-          }
-          settingsReady.value = true
+          loaded = true
           try {
             await saveHomeSnapshots(entries, day, databaseRequest, () => stopped || localDayKey() !== day)
           } finally {
@@ -81,27 +63,6 @@ export function useLearningHome() {
     })
     return refreshing
   }
-  function saveAvailable(value: unknown) {
-    if (!settingsReady.value) return
-    const minutes = Number(value)
-    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) {
-      error.value = '每日可用时间应为 0–1440 分钟。'
-      return
-    }
-    writing = writing
-      .catch(() => {})
-      .then(async () => {
-        if (minutes === lastSavedMinutes) return
-        await databaseRequest('settings', { method: 'POST', body: { key: 'home-available-minutes', value: minutes } })
-        lastSavedMinutes = minutes
-      })
-      .catch(() => {
-        error.value = '每日可用时间保存失败，请重试。'
-      })
-  }
-  const plans = computed(() =>
-    courses.value.filter((c) => c.context).map((entry) => ({ entry, day: calculateDay(entry.context!, date.value) })),
-  )
   const today = computed(() => reviewDay(courses.value, date.value))
   const week = computed(() => {
     const weekday = new Date(date.value).getUTCDay() || 7
@@ -118,11 +79,7 @@ export function useLearningHome() {
     refreshTimer = setTimeout(() => void refresh(), 250)
   }
   const unsubscribe = subscribeDatabaseChanges((collection, options) => {
-    if (collection === 'settings' && (options.body as { key?: string })?.key === 'home-available-minutes') {
-      settingsDirty = true
-      settingsRevision++
-      schedule()
-    } else if (
+    if (
       ['recent-courses', 'library', 'learning-plan', 'guide', 'progress', 'check-in'].includes(collection) ||
       (collection === 'settings' &&
         /^(study-records:|daily-practice:)/u.test((options.body as { key?: string })?.key ?? ''))
@@ -150,12 +107,8 @@ export function useLearningHome() {
     date,
     refresh: () => {
       resetLearningData()
-      settingsDirty = true
       return refresh()
     },
-    availableMinutes,
-    saveAvailable,
-    plans,
     today,
     week,
     weekOffset,

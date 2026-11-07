@@ -306,11 +306,6 @@ export function useCourseStore() {
     if (entry) entry.lastVideoPath = video.path
   }
 
-  function selectByOffset(offset: number) {
-    const next = state.course?.videos[(state.currentVideo?.index ?? 0) + offset]
-    if (next) selectVideo(next)
-  }
-
   function closeCourse() {
     operation++
     void progress.flush().catch(() => {})
@@ -350,7 +345,6 @@ export function useCourseStore() {
     renameCourse,
     deleteCourse,
     selectVideo,
-    selectByOffset,
     closeCourse,
   }
 }

@@ -2,7 +2,7 @@
 import { useCourseWorkspace } from '~/composables/useCourseWorkspace'
 import { usePageTitle } from '~/composables/usePageTitle'
 import CourseDashboard from '~/components/CourseDashboard.vue'
-const { course, stats, video, playVideoFromDashboard, openGuide, startSegment } = useCourseWorkspace()
+const { course, stats, video, selectVideo, openGuide, startSegment } = useCourseWorkspace()
 usePageTitle(() => `${course.value?.name ?? '课程概览'} · Study Helper`)
 </script>
 
@@ -12,7 +12,7 @@ usePageTitle(() => `${course.value?.name ?? '课程概览'} · Study Helper`)
     :course="course"
     :stats="stats"
     :current-video="video"
-    @play="playVideoFromDashboard"
+    @play="selectVideo"
     @segment="startSegment"
     @guide="openGuide($event ?? 'plan')"
   />

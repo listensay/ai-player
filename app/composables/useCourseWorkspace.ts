@@ -429,10 +429,6 @@ export function provideCourseWorkspace() {
     },
   )
 
-  function playVideoFromDashboard(v: VideoEntry) {
-    selectVideo(v)
-  }
-
   function showToast(message: string) {
     toast.value = message
     if (toastTimer) clearTimeout(toastTimer)
@@ -669,7 +665,6 @@ export function provideCourseWorkspace() {
     completeSegment,
     noteAfterSegment,
     selectGuideVideo,
-    playVideoFromDashboard,
     selectVideo,
     seekTo,
   }

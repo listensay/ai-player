@@ -224,7 +224,7 @@ void (async () => {
         expect(document.querySelector('[aria-label="学习笔记"]'), 'Player retains its notes pane')
       })
       await step('ai-chat-model-switching-history-and-cancel', async () => {
-        await click('AI')
+        await click('AI助教')
         let panel = await until(() => document.querySelector('[aria-label="AI 聊天"]'), 'AI chat panel')
         for (const old of ['随堂问答', '整理文字', '知识脑图', '记忆闪卡', '费曼对练', '画面识别', '精华跳读'])
           expect(!panel.textContent.includes(old), `Retired tool removed: ${old}`)
@@ -371,7 +371,7 @@ void (async () => {
         location.hash = '/courses/smoke-course/player?lesson=lesson-0.mp4'
         await until(() => document.querySelector('video')?.readyState >= 1, 'reopened player')
         document.querySelector('video').pause()
-        await click('AI')
+        await click('AI助教')
         const panel = await until(() => document.querySelector('[aria-label="AI 聊天"]'), 'reopened AI chat')
         expect(!panel.querySelector('[aria-label="你的消息"]'), 'Restart starts with a new conversation')
         await click('历史对话', panel)
